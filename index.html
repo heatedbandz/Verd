@@ -128,6 +128,27 @@ button{border:0;background:none;padding:0;cursor:pointer}
 .aud button{color:#fff;opacity:.6;font-weight:700;font-size:1rem;padding:6px 0;border-bottom:2px solid transparent}
 .aud button.on{opacity:1;border-bottom-color:#fff}
 .cnote{margin:0;font-size:.78rem;opacity:.75}
+.thumbs{display:flex;gap:10px;align-items:center}
+.thumb{position:relative;width:64px;height:84px;border-radius:12px;overflow:hidden;box-shadow:inset 0 0 0 2px rgba(255,255,255,.35)}
+.thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.thumb button{position:absolute;top:3px;right:3px;width:22px;height:22px;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;font-size:1rem;line-height:1;display:grid;place-items:center}
+.addp{width:64px;height:84px;border-radius:12px;background:rgba(255,255,255,.17);color:#fff;display:grid;place-items:center}
+.addp svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round}
+.aud button:disabled{opacity:.3;cursor:default}
+.compose.haspic #ptext{font-size:1.5rem;letter-spacing:-.03em;flex:0 0 3.4em}
+.compose.haspic{justify-content:space-between}
+.slide.photo .pbg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.slide.photo::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.45) 0,rgba(0,0,0,0) 22%,rgba(0,0,0,0) 45%,rgba(0,0,0,.78) 100%);pointer-events:none}
+.slide.photo>:not(.pbg){position:relative;z-index:1}
+.slide.photo .sbody{justify-content:flex-end;padding-bottom:16px}
+.slide.photo .ans,.slide.duo .ans{background:rgba(255,255,255,.2);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);min-height:76px}
+.slide.duo{background:#0d0d0d!important;gap:12px}
+.duo-imgs{flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.duo-imgs button{border-radius:16px;overflow:hidden;position:relative;transition:transform .12s ease}
+.duo-imgs button:active:not(:disabled){transform:scale(.98)}
+.duo-imgs button.mine{box-shadow:0 0 0 3px #fff}
+.duo-imgs img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.slide.duo .sbody{flex:none;gap:6px}
 
 /* comments sheet */
 .sheet{position:absolute;inset:0;z-index:9;background:rgba(0,0,0,.45);display:flex;align-items:flex-end}
@@ -195,9 +216,10 @@ button{border:0;background:none;padding:0;cursor:pointer}
     <section class="page compose" id="compose" hidden>
       <div class="cbar"><button class="x" id="cclose" aria-label="Close">×</button><button class="post" id="psend">Post</button></div>
       <textarea id="ptext" maxlength="140" placeholder="What do you want a verdict on?" aria-label="Your post"></textarea>
-      <div><div class="clabel">Color</div><div class="swatches" id="swatches"></div></div>
+      <div><div class="clabel">Photos (optional, up to 2)</div><div class="thumbs" id="thumbs"></div><input type="file" id="pfile" accept="image/*" multiple hidden></div>
+      <div id="colorRow"><div class="clabel">Color</div><div class="swatches" id="swatches"></div></div>
       <div><div class="clabel">Who decides</div><div class="aud" id="aud"></div></div>
-      <p class="cnote">People answer Yes or No. No names, phone numbers or anything mean about a real person.</p>
+      <p class="cnote" id="cnote"></p>
     </section>
 
     <div class="sheet" id="sheet" hidden>
@@ -425,26 +447,29 @@ const HIDE_AT = 3; // reports needed to hide a post for everyone
 function codeFrom(s){ let h=2166136261; for(const c of String(s)){ h^=c.charCodeAt(0); h=Math.imul(h,16777619)>>>0; } const A="ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; let o=""; for(let i=0;i<6;i++){ o+=A[h%32]; h=Math.floor(h/32)^(i*7919); h>>>=0; } return o; }
 const norm = s => String(s||"").trim().toLowerCase();
 
-function combinePosts(postDocs, voteDocs, reportDocs, commentDocs){
+function combinePosts(postDocs, voteDocs, reportDocs, commentDocs, photoDocs){
   const byId = {}, cById = {};
   for (const items of postDocs) for (const p of items) byId[p.id] = {...p, yes:0, no:0, reports:0, comments:[]};
   for (const items of (commentDocs||[])) for (const c of items) if (byId[c.post]) cById[c.id] = {...c, reports:0};
   for (const v of voteDocs) for (const id in v) if (byId[id]) { v[id] > 0 ? byId[id].yes++ : byId[id].no++; }
   for (const r of reportDocs) for (const id in r) { if (byId[id]) byId[id].reports++; else if (cById[id]) cById[id].reports++; }
   for (const c of Object.values(cById).sort((a,b)=>a.t-b.t)) byId[c.post].comments.push(c);
+  for (const m of (photoDocs||[])) for (const id in m) if (byId[id]) byId[id].imgs = m[id];
   return Object.values(byId).sort((a,b) => b.t - a.t);
 }
 
 function askClaude(db, uid){
-  const me = codeFrom(uid); const state = { posts:{}, votes:{}, reports:{}, comments:{} }; let cb = () => {};
-  const emit = () => cb(combinePosts(Object.values(state.posts), Object.values(state.votes), Object.values(state.reports), Object.values(state.comments)), state.votes[uid] || {}, state.reports[uid] || {});
+  const me = codeFrom(uid); const state = { posts:{}, votes:{}, reports:{}, comments:{}, photos:{} }; let cb = () => {};
+  const emit = () => cb(combinePosts(Object.values(state.posts), Object.values(state.votes), Object.values(state.reports), Object.values(state.comments), Object.values(state.photos)), state.votes[uid] || {}, state.reports[uid] || {});
   const sub = (name, field, key) => db.collection(name).onSnapshot(s => { state[key] = {}; for (const d of s.docs) state[key][d.id] = (d.data()||{})[field] || (field==="items"?[]:{}); emit(); }, () => {});
-  sub("posts","items","posts"); sub("pvotes","v","votes"); sub("reports","r","reports"); sub("comments","items","comments");
+  sub("posts","items","posts"); sub("pvotes","v","votes"); sub("reports","r","reports"); sub("comments","items","comments"); sub("photos","m","photos");
   async function merge(name, field, fn){ const ref = db.doc(name+"/"+uid); const s = await ref.get(); const cur = (s.exists && (s.data()||{})[field]) || (field==="items"?[]:{}); await ref.set({[field]: fn(cur)}); }
   return {
     me,
     watch(f){ cb = f; emit(); },
     post: item => merge("posts","items", cur => [...cur, item].slice(-50)),
+    // photos live in their own document, newest 5 photo posts per person, so the shared data stays small
+    photo: (id, imgs) => merge("photos","m", cur => { const keep = Object.keys(cur).slice(-4); const out = {}; for (const k of keep) out[k] = cur[k]; out[id] = imgs; return out; }),
     comment: item => merge("comments","items", cur => [...cur, item].slice(-200)),
     vote: (id, v) => merge("pvotes","v", cur => ({...cur, [id]: v})),
     report: id => merge("reports","r", cur => ({...cur, [id]: 1}))
@@ -453,12 +478,13 @@ function askClaude(db, uid){
 
 function askLocal(){
   const me = codeFrom(voterId()); let cb = () => {};
-  const S = { posts: store.get("askPosts", []), votes: store.get("askVotes", {}), reports: store.get("askReports", {}), comments: store.get("askComments", []) };
-  const emit = () => cb(combinePosts([S.posts],[S.votes],[S.reports],[S.comments]), S.votes, S.reports);
+  const S = { posts: store.get("askPosts", []), votes: store.get("askVotes", {}), reports: store.get("askReports", {}), comments: store.get("askComments", []), photos: store.get("askPhotos", {}) };
+  const emit = () => cb(combinePosts([S.posts],[S.votes],[S.reports],[S.comments],[S.photos]), S.votes, S.reports);
   return {
     me,
     watch(f){ cb = f; emit(); },
     async post(item){ S.posts.push(item); store.set("askPosts", S.posts); emit(); },
+    async photo(id, imgs){ const keep = Object.keys(S.photos).slice(-4); const out = {}; for (const k of keep) out[k] = S.photos[k]; out[id] = imgs; S.photos = out; store.set("askPhotos", out); emit(); },
     async comment(item){ S.comments.push(item); store.set("askComments", S.comments); emit(); },
     async vote(id, v){ S.votes[id] = v; store.set("askVotes", S.votes); emit(); },
     async report(id){ S.reports[id] = 1; store.set("askReports", S.reports); emit(); }
@@ -595,16 +621,22 @@ function postSlide(p){
   const mine = p.author === ask.api.me, my = ask.myVotes[p.id], total = p.yes + p.no, show = mine || !!my, yes = pct(p.yes, total);
   const s = shell(p.id, COLORS[(typeof p.color === "number" ? p.color : hash(p.id)) % COLORS.length]), body = el("div", "sbody");
   body.append(el("div", "kicker", [placeLabel(p), ago(p.t), mine ? "Your post" : "", ask.flipped[p.id] ? "Flipped since you voted" : ""].filter(Boolean).join(" · ")));
-  body.append(el("h2", "stext" + sizeClass(p.text), p.text));
+  const imgs = p.imgs || [], duo = imgs.length === 2, labels = duo ? ["This one", "That one"] : ["Yes", "No"];
+  const tap = i => mine ? toast("You can't vote on your own post.") : votePost(p.id, i === 0 ? 1 : -1);
+  if (imgs.length === 1){ s.classList.add("photo"); const im = el("img", "pbg"); im.src = imgs[0]; im.alt = ""; s.append(im); }
+  if (duo){ s.classList.add("duo"); const g = el("div", "duo-imgs");
+    imgs.forEach((src, i) => { const b = el("button", my && (my > 0 ? 0 : 1) === i ? "mine" : ""), im = el("img"); im.src = src; im.alt = labels[i]; b.append(im); b.setAttribute("aria-label", labels[i]); if (show) b.disabled = true; else b.onclick = () => tap(i); g.append(b); });
+    s.append(g); }
+  body.append(el("h2", "stext" + (imgs.length ? " s" : sizeClass(p.text)), p.text));
   const close = total >= 4 && Math.abs(yes - 50) <= 10;
-  if (show){ const v = !total ? "Waiting for the first verdict." : close ? "Split " + yes + "/" + (100 - yes) + ". Could go either way." : total >= 3 && yes >= 75 ? "People are into it." : total >= 3 && yes <= 25 ? "People say no." : ""; if (v) body.append(el("p", "sverdict", v)); }
+  if (show){ const v = !total ? "Waiting for the first verdict." : close ? "Split " + yes + "/" + (100 - yes) + ". Could go either way." : total >= 3 && yes >= 75 ? (duo ? "This one is winning." : "People are into it.") : total >= 3 && yes <= 25 ? (duo ? "That one is winning." : "People say no.") : ""; if (v) body.append(el("p", "sverdict", v)); }
   const foot = el("div", "sfoot");
   foot.append(el("span", "", show ? total + (total === 1 ? " vote" : " votes") : !total ? "Be the first to judge." : close ? "This one is splitting people. Tap to see." : total + (total === 1 ? " person" : " people") + " voted. Tap to see the verdict."));
   const acts = el("div", "sacts"), nC = p.comments.filter(c => (c.reports < HIDE_AT || c.author === ask.api.me) && !ask.myReports[c.id]).length;
   acts.append(iact("comment", "Comments", nC ? String(nC) : "", () => openSheet(p.id)));
   if (!mine) acts.append(iact("flag", "Report", "", () => report(p.id)));
   foot.append(acts);
-  s.append(body, answers(p.id, ["Yes", "No"], show && total ? [yes, 100 - yes] : null, my ? (my > 0 ? 0 : 1) : -1, i => mine ? toast("You can't vote on your own post.") : votePost(p.id, i === 0 ? 1 : -1)), foot);
+  s.append(body, answers(p.id, labels, show && total ? [yes, 100 - yes] : null, my ? (my > 0 ? 0 : 1) : -1, tap), foot);
   return s;
 }
 function endSlide(){
@@ -684,29 +716,50 @@ $("cform").onsubmit = async e => {
 };
 
 // ---------- New post ----------
-let cColor = 0, cScope = "world";
+let cColor = 0, cScope = "world", cPhotos = [];
+// Shrinks a photo in the browser so it loads fast and stays small.
+function shrink(file){
+  return new Promise((ok, fail) => { const img = new Image(), url = URL.createObjectURL(file);
+    img.onload = () => { const k = Math.min(1, 640 / Math.max(img.width, img.height)), c = document.createElement("canvas"); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url); ok(c.toDataURL("image/jpeg", .7)); };
+    img.onerror = () => { URL.revokeObjectURL(url); fail(); }; img.src = url; });
+}
+$("pfile").onchange = async e => {
+  for (const f of [...e.target.files].slice(0, 2 - cPhotos.length)){ try{ cPhotos.push(await shrink(f)); }catch{ toast("That photo couldn't be opened."); } }
+  e.target.value = ""; if (cPhotos.length) cScope = "friends"; drawCompose();
+};
 function openCompose(){
   if (!ask.api){ toast("Posting opens soon."); return; }
-  cColor = Math.floor(Math.random() * COLORS.length); cScope = ask.scope; drawCompose(); $("compose").hidden = false; $("ptext").focus();
+  cColor = Math.floor(Math.random() * COLORS.length); cScope = ask.scope; cPhotos = []; drawCompose(); $("compose").hidden = false; $("ptext").focus();
 }
 function drawCompose(){
   $("compose").style.background = "linear-gradient(165deg," + COLORS[cColor][0] + "," + COLORS[cColor][1] + ")";
   const sw = $("swatches"); sw.innerHTML = "";
   COLORS.forEach((c, i) => { const b = el("button", "sw" + (i === cColor ? " on" : "")); b.style.background = c[0]; b.setAttribute("aria-label", "Color " + (i + 1)); b.onclick = () => { cColor = i; drawCompose(); }; sw.append(b); });
   const au = $("aud"); au.innerHTML = "";
-  SCOPES.forEach(([k, l]) => { const b = el("button", k === cScope ? "on" : "", l); b.onclick = () => { cScope = k; drawCompose(); }; au.append(b); });
+  SCOPES.forEach(([k, l]) => { const b = el("button", k === cScope ? "on" : "", l); b.disabled = cPhotos.length > 0 && k !== "friends"; b.onclick = () => { cScope = k; drawCompose(); }; au.append(b); });
+  const th = $("thumbs"); th.innerHTML = "";
+  cPhotos.forEach((src, i) => { const t = el("div", "thumb"), im = el("img"); im.src = src; im.alt = "Photo " + (i + 1); const x = el("button", "", "×"); x.setAttribute("aria-label", "Remove photo"); x.onclick = () => { cPhotos.splice(i, 1); drawCompose(); }; t.append(im, x); th.append(t); });
+  if (cPhotos.length < 2){ const a = el("button", "addp"); a.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>'; a.setAttribute("aria-label", "Add a photo"); a.onclick = () => $("pfile").click(); th.append(a); }
+  $("compose").classList.toggle("haspic", cPhotos.length > 0); $("colorRow").hidden = cPhotos.length > 0;
+  $("ptext").placeholder = cPhotos.length === 2 ? "Which one?" : cPhotos.length === 1 ? "Yes or no?" : "What do you want a verdict on?";
+  $("cnote").textContent = cPhotos.length === 2 ? "Friends pick This one or That one. Photo posts go to friends only for now."
+    : cPhotos.length === 1 ? "Friends answer Yes or No. Photo posts go to friends only for now."
+    : "People answer Yes or No. No names, phone numbers or anything mean about a real person.";
 }
 $("cclose").onclick = () => { $("compose").hidden = true; };
 $("psend").onclick = async () => {
-  const text = $("ptext").value.trim().replace(/\s+/g, " "), pl = myPlace();
+  let text = $("ptext").value.trim().replace(/\s+/g, " "); const pl = myPlace(), imgs = cPhotos.slice();
+  if (imgs.length && !text) text = imgs.length === 2 ? "Which one?" : "Yes or no?";
+  if (imgs.length && !friends().length){ toast("Add a friend on your profile first. Photo posts go to friends."); return; }
   if (text.length < 4){ toast("Write a little more."); return; }
   if (BLOCK.some(r => r.test(text))){ toast("Leave out phone numbers, @handles, links and threats."); return; }
   if ((cScope === "city" && (!pl.city || !pl.state)) || (cScope === "state" && !pl.state)){ toast("Add your city and state on the Me page first."); return; }
-  const item = { id: ask.api.me + "-" + Date.now().toString(36), author: ask.api.me, text, color: cColor, scope: cScope, city: pl.city, state: pl.state, country: pl.country, t: Date.now() };
+  const item = { id: ask.api.me + "-" + Date.now().toString(36), author: ask.api.me, text, color: cColor, photos: imgs.length, scope: imgs.length ? "friends" : cScope, city: pl.city, state: pl.state, country: pl.country, t: Date.now() };
   $("psend").disabled = true;
   try{
-    if (ask.scope !== cScope){ ask.scope = cScope; store.set("askScope", cScope); order = []; renderTop(); }
-    jumpTo = item.id; await ask.api.post(item); store.set("posted", true);
+    if (ask.scope !== item.scope){ ask.scope = item.scope; store.set("askScope", item.scope); order = []; renderTop(); }
+    jumpTo = item.id; if (imgs.length) await ask.api.photo(item.id, imgs); await ask.api.post(item); store.set("posted", true);
     $("ptext").value = ""; $("compose").hidden = true; showPage("feed"); renderFeed(); toast("Posted."); checkBadges();
   }catch{ jumpTo = null; toast("Couldn't post. Check your connection and try again."); }
   $("psend").disabled = false;
