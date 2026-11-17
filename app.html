@@ -1,270 +1,214 @@
 <title>Verd</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&display=swap">
 <style>
-/* Layout: one quiet column on a plain page. No boxes: sections are separated by space and hairlines. Ink does the work, green is saved for "your answer" and the verdict. */
+/* Layout: a full-screen feed. Each post is one screen of big text on a color, with two tap targets at the bottom. Chrome stays out of the way. */
 :root{
-  --bg:#fbfbf9; --surface:#f1f1ed; --surface-2:#e4e4de; --ink:#111210; --muted:#6c6e66; --line:#e7e7e1;
-  --accent:#10a966; --accent-ink:#0a7d4b; --accent-soft:#d6f4e5;
+  --bg:#ffffff; --surface:#f3f3f1; --surface-2:#e6e6e2; --ink:#0f100e; --muted:#6d6f68; --line:#e9e9e5; --accent:#10a966; --accent-ink:#0a7d4b;
   --font:"Geist", "Inter", -apple-system, "Segoe UI", system-ui, sans-serif;
+  --nav:58px; --gut-l:max(20px,env(safe-area-inset-left,0px)); --gut-r:max(20px,env(safe-area-inset-right,0px));
 }
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
-  --bg:#0d0e0c; --surface:#181a17; --surface-2:#262923; --ink:#f2f3ee; --muted:#989b90; --line:#232520;
-  --accent:#2bd98a; --accent-ink:#3fe39a; --accent-soft:#12331f; color-scheme:dark}}
+  --bg:#0b0b0b; --surface:#191919; --surface-2:#262626; --ink:#f4f4f2; --muted:#9a9a94; --line:#232323; --accent:#2bd98a; --accent-ink:#3fe39a; color-scheme:dark}}
 :root[data-theme="dark"]{
-  --bg:#0d0e0c; --surface:#181a17; --surface-2:#262923; --ink:#f2f3ee; --muted:#989b90; --line:#232520;
-  --accent:#2bd98a; --accent-ink:#3fe39a; --accent-soft:#12331f; color-scheme:dark}
-body{background:var(--bg);color:var(--ink);font-family:var(--font);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent}
-.wrap{max-width:520px;margin:0 auto;padding-block:22px 80px;padding-left:max(22px,env(safe-area-inset-left,0px));padding-right:max(22px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:26px}
-header{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
-.brand{font-weight:700;font-size:1.5rem;letter-spacing:-.05em;line-height:1}
-.brand i{color:var(--accent);font-style:normal}
-.meta{color:var(--muted);font-size:.85rem;font-variant-numeric:tabular-nums}
-.tabs{display:flex;gap:24px;border-bottom:1px solid var(--line)}
-.tab{font:inherit;font-weight:600;font-size:.95rem;border:0;border-bottom:2px solid transparent;margin-bottom:-1px;padding:10px 0;background:none;color:var(--muted);cursor:pointer}
-.tab.on{color:var(--ink);border-bottom-color:var(--ink)}
-.view{display:flex;flex-direction:column;gap:34px}
-.card{display:flex;flex-direction:column;gap:16px;border-top:1px solid var(--line);padding-top:30px}
-.card.hero{border-top:0;padding-top:10px;gap:22px}
-.eyebrow{font-size:.85rem;color:var(--muted);font-weight:500}
-h1{font-weight:700;font-size:clamp(2rem,8.6vw,2.7rem);line-height:1.04;letter-spacing:-.04em;margin:0;text-wrap:balance}
-h2{font-weight:600;font-size:1.05rem;letter-spacing:-.015em;margin:0;text-wrap:balance}
-.note{font-size:.85rem;color:var(--muted);margin:0}
-label{font-size:.85rem;color:var(--muted)}
-.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  --bg:#0b0b0b; --surface:#191919; --surface-2:#262626; --ink:#f4f4f2; --muted:#9a9a94; --line:#232323; --accent:#2bd98a; --accent-ink:#3fe39a; color-scheme:dark}
+html{box-sizing:border-box}
+html,body{height:100%}
+body{background:var(--bg);color:var(--ink);font-family:var(--font);font-size:16px;line-height:1.45;-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent;overflow:hidden}
+button,input,select,textarea{font:inherit;color:inherit}
+button{border:0;background:none;padding:0;cursor:pointer}
+:is(button,input,select,textarea):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.app{height:100%;max-width:480px;margin:0 auto;position:relative;display:flex;flex-direction:column;background:var(--bg)}
+.stage{flex:1;min-height:0;position:relative}
 
-.opts{display:grid;gap:10px}
-.opt{font:inherit;font-weight:600;font-size:1.1rem;letter-spacing:-.01em;text-align:left;color:var(--ink);background:var(--surface);border:0;border-radius:18px;padding:22px 22px;cursor:pointer;position:relative;overflow:hidden;display:flex;justify-content:space-between;gap:12px;align-items:center}
-.opt:hover:not(:disabled){background:var(--surface-2)}
-.opt:disabled{cursor:default}
-.opt .fill{position:absolute;inset:0 auto 0 0;width:0;background:var(--surface-2);transition:width .9s cubic-bezier(.16,1,.3,1);z-index:0}
-.opt.mine{box-shadow:inset 0 0 0 2px var(--accent)} .opt.mine .fill{background:var(--accent-soft)}
-.opt.mine .pct{color:var(--accent-ink)}
-.opt span{position:relative;z-index:1}
-.pct{font-weight:700;font-size:1.2rem;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
-#streakNote{color:var(--accent-ink);font-weight:500}
+/* feed */
+.feed{position:absolute;inset:0;overflow-y:auto;scroll-snap-type:y mandatory;overscroll-behavior:contain;scrollbar-width:none}
+.feed::-webkit-scrollbar{display:none}
+.slide{height:100%;box-sizing:border-box;scroll-snap-align:start;scroll-snap-stop:always;position:relative;display:flex;flex-direction:column;color:#fff;padding:64px var(--gut-r) 18px var(--gut-l);background:#151515}
+.sbody{flex:1;min-height:0;display:flex;flex-direction:column;justify-content:center;gap:14px}
+.kicker{font-size:.82rem;font-weight:500;opacity:.78;letter-spacing:.01em}
+.stext{margin:0;font-weight:800;letter-spacing:-.045em;line-height:1.02;font-size:clamp(2.2rem,10.5vw,3.1rem);text-wrap:balance;overflow-wrap:anywhere}
+.stext.m{font-size:clamp(1.8rem,8.2vw,2.4rem);letter-spacing:-.04em;line-height:1.06}
+.stext.s{font-size:clamp(1.4rem,6.2vw,1.8rem);letter-spacing:-.03em;line-height:1.12}
+.sverdict{margin:0;font-size:1.1rem;font-weight:600;letter-spacing:-.015em;line-height:1.3;text-wrap:pretty}
+.ssub{margin:0;font-size:.92rem;opacity:.82}
+.answers{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.answers.stack{grid-template-columns:1fr}
+.ans{position:relative;overflow:hidden;border-radius:16px;background:rgba(255,255,255,.17);color:#fff;min-height:92px;padding:14px 16px;display:flex;flex-direction:column;align-items:flex-start;justify-content:flex-end;gap:2px;text-align:left;transition:transform .12s ease,background-color .2s}
+.answers.stack .ans{min-height:60px;flex-direction:row;align-items:center;justify-content:space-between}
+.ans:not(:disabled):hover{background:rgba(255,255,255,.26)}
+.ans:not(:disabled):active{transform:scale(.97)}
+.ans:disabled{cursor:default}
+.ans .fill{position:absolute;inset:auto 0 0 0;height:0;background:rgba(255,255,255,.2);transition:height .9s cubic-bezier(.16,1,.3,1),width .9s cubic-bezier(.16,1,.3,1)}
+.answers.stack .ans .fill{inset:0 auto 0 0;height:100%;width:0}
+.ans.mine{box-shadow:inset 0 0 0 2px #fff} .ans.mine .fill{background:rgba(255,255,255,.34)}
+.ans span{position:relative}
+.alabel{font-weight:700;font-size:1.15rem;letter-spacing:-.02em}
+.apct{font-weight:800;font-size:1.9rem;letter-spacing:-.05em;line-height:1;font-variant-numeric:tabular-nums;order:-1}
+.answers.stack .apct{order:0;font-size:1.3rem}
+.sfoot{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:44px;margin-top:8px;font-size:.85rem}
+.sfoot>span{opacity:.82;min-width:0}
+.sacts{display:flex;gap:4px;flex:none}
+.iact{display:flex;align-items:center;gap:6px;color:#fff;font-size:.85rem;font-weight:600;padding:10px;border-radius:10px}
+.iact:hover{background:rgba(255,255,255,.14)}
+.iact svg,.nav svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.slide.end{background:#111;justify-content:center}
+.slide.end .sbody{flex:none}
+.cta{align-self:flex-start;margin-top:6px;background:#fff;color:#111;font-weight:700;border-radius:12px;padding:14px 20px}
 
-.predict{display:flex;flex-direction:column;gap:8px}
-.predict input[type=range]{-webkit-appearance:none;appearance:none;height:28px;background:none;margin:0;cursor:pointer}
-.predict input[type=range]::-webkit-slider-runnable-track{height:4px;border-radius:99px;background:var(--surface-2)}
-.predict input[type=range]::-moz-range-track{height:4px;border-radius:99px;background:var(--surface-2)}
-.predict input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;border-radius:50%;background:var(--ink);border:4px solid var(--bg);box-shadow:0 0 0 1px var(--line),0 2px 6px rgba(0,0,0,.18);margin-top:-10px}
-.predict input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--ink);border:4px solid var(--bg);box-shadow:0 0 0 1px var(--line)}
-select{font:inherit;font-size:.9rem;color:var(--ink);background:var(--surface);border:0;border-radius:10px;padding:8px 10px;max-width:100%}
-.verdict{font-weight:500;font-size:1.3rem;line-height:1.3;letter-spacing:-.02em;text-wrap:pretty}
-.verdict b{color:var(--accent-ink);font-weight:700}
+/* top bar over the feed */
+.top{position:absolute;inset:0 0 auto 0;z-index:3;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px var(--gut-r) 0 var(--gut-l);color:#fff;pointer-events:none}
+.top>*{pointer-events:auto}
+.brand{font-weight:800;font-size:1.35rem;letter-spacing:-.06em;line-height:1}
+.scopes{display:flex;gap:14px;overflow-x:auto;scrollbar-width:none}
+.scope{color:#fff;opacity:.6;font-size:.88rem;font-weight:600;padding:8px 0;white-space:nowrap;border-bottom:2px solid transparent;transition:opacity .2s}
+.scope.on{opacity:1;border-bottom-color:#fff}
 
-.btn{font:inherit;font-weight:600;border:0;border-radius:999px;padding:15px 24px;background:var(--ink);color:var(--bg);cursor:pointer;transition:transform .12s ease,opacity .15s}
-.btn:hover{opacity:.88}
-.btn.ghost{background:var(--surface);color:var(--ink);padding:11px 18px;font-size:.9rem}
-#share{flex:1 1 100%}
-.btn:active,.tab:active,.scope:active,.chip:active,.vbtn:active:not(:disabled),.opt:active:not(:disabled),.badge.more:active{transform:scale(.97)}
-.opt,.tab,.scope,.chip,.vbtn,.badge{transition:transform .12s ease,background-color .2s,color .2s,box-shadow .2s}
-:is(.btn,.opt,.tab,.scope,.chip,.vbtn,.link,.field,select,textarea,input):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.opt.pop{animation:pop .5s cubic-bezier(.2,1.4,.4,1)}
-@keyframes pop{0%{transform:scale(.97)}55%{transform:scale(1.02)}100%{transform:scale(1)}}
-.view:not([hidden]){animation:rise .35s cubic-bezier(.16,1,.3,1) both}
-@keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
-.badge.fresh{animation:pop .6s cubic-bezier(.2,1.4,.4,1)}
+/* bottom nav */
+.nav{flex:none;height:var(--nav);display:grid;grid-template-columns:repeat(3,1fr);align-items:center;border-top:1px solid var(--line);background:var(--bg);padding-left:var(--gut-l);padding-right:var(--gut-r)}
+.nav button{height:100%;display:grid;place-items:center;color:var(--muted)}
+.nav button.on{color:var(--ink)}
+.nav .plus{width:48px;height:34px;border-radius:11px;background:var(--ink);color:var(--bg);display:grid;place-items:center;transition:transform .12s ease}
+.nav button:active .plus{transform:scale(.94)}
 
-.stats{display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid var(--line);padding-top:26px}
-.stat{display:flex;flex-direction:column;gap:2px;min-width:0;padding:0 14px;border-left:1px solid var(--line)}
-.stat:first-child{padding-left:0;border-left:0}
-.stat b{font-size:1.7rem;font-weight:700;letter-spacing:-.04em;line-height:1.1;font-variant-numeric:tabular-nums}
-.stat b#otype{font-size:1.05rem;letter-spacing:-.02em;line-height:1.2;min-height:1.87rem;display:flex;align-items:center}
-.stat small{color:var(--muted);font-size:.78rem}
-.stat small span{color:var(--ink);font-weight:600}
-.badges{display:flex;gap:6px;flex-wrap:wrap}
-.badge{font-size:.8rem;font-weight:500;border-radius:999px;padding:6px 11px;background:var(--surface);border:0}
-.badge.locked{color:var(--muted);background:none;box-shadow:inset 0 0 0 1px var(--line)}
-.badge.more{font:inherit;font-size:.8rem;font-weight:500;cursor:pointer;color:var(--muted);background:none;text-decoration:underline;text-underline-offset:3px;padding-inline:4px}
-
-table{width:100%;border-collapse:collapse;font-size:.92rem;font-variant-numeric:tabular-nums}
-td{padding:12px 0;border-top:1px solid var(--line)} tr:first-child td{border-top:0;padding-top:2px} td:last-child{text-align:right;color:var(--muted)}
-.banner{background:var(--accent-soft);border-radius:14px;padding:13px 16px;font-weight:500;font-size:.92rem}
-.recap{display:grid;grid-template-columns:1fr 1fr;column-gap:20px}
-.recap div{padding:12px 0;border-top:1px solid var(--line);min-width:0}
-.recap div:nth-child(-n+2){border-top:0;padding-top:0}
-.recap b{display:block;font-size:1.4rem;font-weight:700;letter-spacing:-.03em}
-.recap small{color:var(--muted);font-size:.8rem}
-.code{font-weight:600;letter-spacing:.14em;font-variant-numeric:tabular-nums}
-.fm{display:flex;justify-content:space-between;gap:12px;align-items:center;border-top:1px solid var(--line);padding-top:12px}
-.fm .meter{flex:1;height:6px;border-radius:99px;background:var(--surface-2);overflow:hidden;max-width:140px} .fm .meter i{display:block;height:100%;background:var(--accent)}
-
-.field,textarea{font:inherit;color:var(--ink);background:var(--surface);border:0;border-radius:12px;padding:13px 14px;box-sizing:border-box;width:100%}
-textarea{resize:vertical}
-::placeholder{color:var(--muted);opacity:.8}
+/* pages */
+.page{position:absolute;inset:0;z-index:5;background:var(--bg);overflow-y:auto;animation:rise .28s cubic-bezier(.16,1,.3,1) both}
+@keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.me{padding:26px var(--gut-r) 48px var(--gut-l);display:flex;flex-direction:column;gap:30px}
+.me header{display:flex;justify-content:space-between;align-items:baseline}
+.me .brand i,.sec h3 i{color:var(--accent);font-style:normal}
+.hero-n{display:flex;align-items:baseline;gap:12px}
+.hero-n b{font-size:5.2rem;font-weight:800;letter-spacing:-.07em;line-height:.9;font-variant-numeric:tabular-nums}
+.hero-n span{font-size:1.1rem;font-weight:600;color:var(--muted)}
+.note{margin:0;font-size:.88rem;color:var(--muted)}
+.trio{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.trio b{display:block;font-size:1.25rem;font-weight:700;letter-spacing:-.03em;line-height:1.2}
+.trio small{font-size:.78rem;color:var(--muted)}
+.sec{display:flex;flex-direction:column;gap:14px;border-top:1px solid var(--line);padding-top:26px}
+.sec h3{margin:0;font-size:1.05rem;font-weight:700;letter-spacing:-.02em}
+.tags{display:flex;flex-wrap:wrap;gap:8px 18px;font-size:.92rem;font-weight:600}
+.tags span.off{color:var(--muted);font-weight:400;opacity:.7}
+.tags span:not(.off)::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-right:8px;vertical-align:middle}
+.line{display:flex;gap:10px;align-items:center}
+.field{background:var(--surface);border:0;border-radius:12px;padding:13px 14px;width:100%;box-sizing:border-box;min-width:0}
+::placeholder{color:var(--muted);opacity:.85}
+.b2{flex:none;background:var(--ink);color:var(--bg);font-weight:600;border-radius:12px;padding:13px 18px;transition:transform .12s ease}
+.b2.soft{background:var(--surface);color:var(--ink)}
+.b2:active{transform:scale(.96)}
+.code{font-size:1.5rem;font-weight:700;letter-spacing:.16em;flex:1}
+.rowlist{display:flex;flex-direction:column}
+.rowlist>div{display:flex;justify-content:space-between;gap:12px;padding:12px 0;border-top:1px solid var(--line);font-size:.92rem}
+.rowlist>div:first-child{border-top:0}
+.rowlist b{font-weight:600}
+.rowlist span{color:var(--muted);text-align:right}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-@media (max-width:420px){.grid2{grid-template-columns:1fr}}
-.scopes{display:flex;gap:6px;flex-wrap:wrap}
-.scope{font:inherit;font-weight:500;font-size:.9rem;white-space:nowrap;border:0;border-radius:999px;padding:9px 15px;background:var(--surface);color:var(--ink);cursor:pointer}
-.scope.on{background:var(--ink);color:var(--bg)}
-.chips{display:flex;gap:2px;flex-wrap:wrap}
-.chip{font:inherit;font-size:.85rem;border:0;border-radius:999px;padding:6px 11px;background:none;color:var(--muted);cursor:pointer}
-.chip.on{color:var(--ink);background:var(--surface);font-weight:600}
-#sorts{border-top:1px solid var(--line);padding-top:12px}
-.feed{display:flex;flex-direction:column;gap:0}
-#flist.feed{gap:12px}
-.post{display:flex;flex-direction:column;gap:12px;border-top:1px solid var(--line);padding:22px 0}
-.post:first-child{border-top:0;padding-top:4px}
-.post p{margin:0;font-size:1.2rem;font-weight:600;letter-spacing:-.02em;line-height:1.25;overflow-wrap:anywhere}
-.ptags{display:flex;gap:6px;flex-wrap:wrap;font-size:.8rem;color:var(--muted)}
-.ptags span+span::before{content:"·";margin-right:6px}
-.votes{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.vbtn{font:inherit;font-weight:600;border:0;border-radius:14px;padding:14px;background:var(--surface);color:var(--ink);cursor:pointer}
-.vbtn.yes:hover{background:var(--accent-soft)} .vbtn.no:hover{background:var(--surface-2)}
-.bar{height:6px;border-radius:99px;background:var(--surface-2);overflow:hidden} .bar i{display:block;height:100%;background:var(--accent)}
-.pfoot{display:flex;justify-content:space-between;gap:8px;font-size:.82rem;color:var(--muted);flex-wrap:wrap}
-.link{font:inherit;font-size:.82rem;background:none;border:0;padding:0;color:var(--muted);text-decoration:underline;text-underline-offset:3px;cursor:pointer}
-.comments{display:flex;flex-direction:column;gap:10px;padding-top:4px}
-.cmt{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;font-size:.95rem} .cmt span{flex:1;min-width:0;overflow-wrap:anywhere} .cmt b{font-size:.8rem;font-weight:500;color:var(--muted)}
-.empty{text-align:center;color:var(--muted);font-size:.9rem;padding:36px 12px}
-.toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translate(-50%,12px);opacity:0;transition:transform .3s cubic-bezier(.16,1,.3,1),opacity .25s;background:var(--ink);color:var(--bg);padding:12px 20px;border-radius:999px;font-size:.9rem;font-weight:500;max-width:calc(100% - 40px);width:max-content;text-align:center;z-index:20}
+
+/* compose */
+.compose{z-index:8;color:#fff;display:flex;flex-direction:column;padding:16px var(--gut-r) 20px var(--gut-l);gap:16px;transition:background-color .25s}
+.cbar{display:flex;justify-content:space-between;align-items:center}
+.cbar .x{font-size:1.9rem;line-height:1;padding:4px 8px;color:#fff;opacity:.9}
+.cbar .post{background:#fff;color:#111;font-weight:700;border-radius:12px;padding:11px 20px}
+.cbar .post:disabled{opacity:.5}
+#ptext{flex:1;min-height:0;background:none;border:0;resize:none;color:#fff;font-weight:800;font-size:clamp(1.9rem,8.6vw,2.5rem);letter-spacing:-.04em;line-height:1.06;padding:0;outline:none}
+#ptext::placeholder{color:#fff;opacity:.55}
+.clabel{font-size:.8rem;font-weight:600;opacity:.75;margin-bottom:8px}
+.swatches{display:flex;gap:10px}
+.sw{width:34px;height:34px;border-radius:10px;box-shadow:inset 0 0 0 2px rgba(255,255,255,.35)}
+.sw.on{box-shadow:inset 0 0 0 3px #fff}
+.aud{display:flex;gap:16px;flex-wrap:wrap}
+.aud button{color:#fff;opacity:.6;font-weight:700;font-size:1rem;padding:6px 0;border-bottom:2px solid transparent}
+.aud button.on{opacity:1;border-bottom-color:#fff}
+.cnote{margin:0;font-size:.78rem;opacity:.75}
+
+/* comments sheet */
+.sheet{position:absolute;inset:0;z-index:9;background:rgba(0,0,0,.45);display:flex;align-items:flex-end}
+.sheetin{width:100%;max-height:72%;background:var(--bg);color:var(--ink);border-radius:20px 20px 0 0;display:flex;flex-direction:column;padding:18px var(--gut-r) 16px var(--gut-l);box-sizing:border-box;gap:12px;animation:up .3s cubic-bezier(.16,1,.3,1) both}
+@keyframes up{from{transform:translateY(100%)}to{transform:none}}
+.shead{display:flex;justify-content:space-between;align-items:center;font-weight:700}
+.shead button{font-size:1.6rem;line-height:1;color:var(--muted);padding:0 6px}
+#clist{overflow-y:auto;display:flex;flex-direction:column;gap:14px;min-height:60px}
+.cmt{display:flex;gap:10px;align-items:baseline;font-size:.95rem}
+.cmt b{font-size:.8rem;font-weight:600;color:var(--muted);flex:none}
+.cmt span{flex:1;min-width:0;overflow-wrap:anywhere}
+.lnk{font-size:.78rem;color:var(--muted);text-decoration:underline;text-underline-offset:3px;flex:none}
+#shareBox{width:100%;box-sizing:border-box;min-height:110px;background:var(--surface);border:0;border-radius:12px;padding:12px;font-size:.9rem}
+
+.toast{position:absolute;left:50%;top:62px;transform:translate(-50%,-12px);opacity:0;transition:transform .3s cubic-bezier(.16,1,.3,1),opacity .25s;background:var(--ink);color:var(--bg);padding:12px 18px;border-radius:12px;font-size:.9rem;font-weight:600;max-width:calc(100% - 40px);width:max-content;text-align:center;z-index:20}
 .toast.show{transform:translate(-50%,0);opacity:1}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 </style>
 
-<div class="wrap">
-  <header>
-    <div class="brand">verd<i>.</i></div>
-    <div class="meta" id="meta">No. 1</div>
-  </header>
-
-  <nav class="tabs" role="tablist" aria-label="Sections">
-    <button class="tab on" role="tab" id="tabToday" aria-selected="true">Today</button>
-    <button class="tab" role="tab" id="tabAsk" aria-selected="false">Ask</button>
-  </nav>
-
-  <div id="viewToday" class="view">
-
-  <section class="card hero" aria-live="polite">
-    <div class="eyebrow" id="eyebrow">What's the Verd?</div>
-    <h1 id="q">Loading today's question…</h1>
-    <div class="predict" id="predict">
-      <label for="guess" id="guessLabel">Before you answer, guess: what % of Earth picks the first answer?</label>
-      <div class="row"><input type="range" id="guess" min="0" max="100" value="50" style="flex:1;min-width:0"><b id="guessVal" class="pct">50%</b></div>
-      
+<div class="app">
+  <div class="stage">
+    <main class="feed" id="feed" aria-label="Feed"></main>
+    <div class="top" id="top">
+      <div class="brand">verd.</div>
+      <div class="scopes" id="scopes" role="tablist" aria-label="Who is answering"></div>
     </div>
-    <div class="opts" id="opts"></div>
-    <div class="row">
-      <label for="country">You're answering from</label>
-      <select id="country"></select>
-    </div>
-    <div id="after" hidden>
-      <div style="display:flex;flex-direction:column;gap:14px">
-        <div class="verdict" id="verdict"></div>
-        <div class="row">
-          <button class="btn" id="share">Share my answer</button>
-          <span class="meta" id="next"></span>
-        </div>
-        <div class="note" id="teaser">
-        </div>
-        <textarea id="shareText" rows="4" readonly hidden></textarea>
+
+    <section class="page me" id="me" hidden>
+      <header><div class="brand">verd<i>.</i></div><span class="note" id="meta"></span></header>
+      <div>
+        <div class="hero-n"><b id="streak">0</b><span>day streak</span></div>
+        <p class="note" id="streakNote"></p>
       </div>
-    </div>
-    <div class="note" id="count"></div>
-  </section>
-
-  <section class="card" id="countries" hidden>
-    <div class="banner" id="rivalry" hidden></div>
-    <h2>How countries answered</h2>
-    <div style="overflow-x:auto"><table id="ctable"></table></div>
-  </section>
-
-  <section class="card" id="yday" hidden>
-    <div class="eyebrow">Yesterday's final verdict</div>
-    <h2 id="yq"></h2>
-    <div id="yres" class="note"></div>
-  </section>
-
-  <section class="stats">
-    <div class="stat"><b id="streak">0</b><small>day streak <span id="freezes"></span></small></div>
-    <div class="stat"><b id="otype">–</b><small>your opinion type</small></div>
-    <div class="stat"><b id="acc">–</b><small>guessing skill</small></div>
-  </section>
-  <p class="note" id="streakNote" hidden></p>
-  <div class="badges" id="badges" aria-label="Your badges"></div>
-
-  <section class="card" id="friendsCard">
-    <h2>You vs your friends</h2>
-    <p class="note">Add friends by code and find out who really thinks like you.</p>
-    <div class="row"><span>Your code:</span> <b class="code" id="mycode">······</b> <button class="btn ghost" type="button" id="copycode">Copy</button></div>
-    <form class="row" id="fform">
-      <label for="fcode">Friend's code</label>
-      <input id="fcode" class="field" maxlength="6" placeholder="ABC123" style="width:8em;text-transform:uppercase">
-      <button class="btn ghost" type="submit">Add</button>
-    </form>
-    <div id="flist" class="feed"></div>
-  </section>
-
-  <section class="card" id="recap" hidden>
-    <div class="eyebrow">Your week on Earth</div>
-    <div id="recapBody" class="recap"></div>
-    <div><button class="btn ghost" id="recapShare">Share my week</button></div>
-  </section>
-
-
-  <section class="card" id="suggest" hidden>
-    <h2>Got a question for the whole planet?</h2>
-    <form id="sform" style="display:flex;flex-direction:column;gap:10px">
-      <label for="sq">Your question</label>
-      <input id="sq" maxlength="140" required placeholder="Would you rather…" class="field">
-      <label for="sa">Answers, separated by commas (2 to 4)</label>
-      <input id="sa" maxlength="120" required placeholder="Yes, No" class="field">
-      <div><button class="btn" type="submit" id="ssend">Send my question</button></div>
-    </form>
-    <p class="note">The best ones get asked to everyone on Earth.</p>
-  </section>
-
-  </div>
-
-  <div id="viewAsk" class="view" hidden>
-    <section class="card hero" id="askOff" hidden>
-      <h2>Ask people is coming soon</h2>
-      <p class="note">Posting your own questions turns on here once accounts and safety checks are in place.</p>
+      <div class="trio">
+        <div><b id="otype">–</b><small id="otypeNote">your opinion type</small></div>
+        <div><b id="agree">–</b><small>with the majority</small></div>
+        <div><b id="answered">0</b><small>questions answered</small></div>
+      </div>
+      <div class="sec"><h3>Badges</h3><div class="tags" id="badges"></div></div>
+      <div class="sec" id="recap" hidden><h3>Your week</h3><div class="rowlist" id="recapBody"></div><div><button class="b2 soft" id="recapShare">Share my week</button></div></div>
+      <div class="sec">
+        <h3>Friends</h3>
+        <p class="note">Share your code. Add theirs. See who really thinks like you.</p>
+        <div class="line"><b class="code" id="mycode">······</b><button class="b2 soft" id="copycode">Copy</button></div>
+        <form class="line" id="fform"><input class="field" id="fcode" maxlength="6" placeholder="Friend's code" aria-label="Friend's code" style="text-transform:uppercase"><button class="b2">Add</button></form>
+        <div class="rowlist" id="flist"></div>
+      </div>
+      <div class="sec">
+        <h3>Your place</h3>
+        <select class="field" id="country" aria-label="Country"></select>
+        <div class="grid2"><input class="field" id="mystate" maxlength="40" placeholder="State" aria-label="State or region"><input class="field" id="mycity" maxlength="40" placeholder="City" aria-label="City"></div>
+        <p class="note">Only used to show you posts from people near you.</p>
+      </div>
+      <div class="sec" id="suggest" hidden>
+        <h3>Suggest tomorrow's question</h3>
+        <form id="sform" style="display:flex;flex-direction:column;gap:10px">
+          <input class="field" id="sq" maxlength="140" required placeholder="Would you rather…" aria-label="Your question">
+          <input class="field" id="sa" maxlength="120" required placeholder="Answers, separated by commas" aria-label="Answers">
+          <div><button class="b2" id="ssend">Send</button></div>
+        </form>
+      </div>
+      <p class="note" id="mode"></p>
     </section>
 
-    <div id="askOn" class="view">
-      <section class="card hero">
-        <h2>What would people really say?</h2>
-        <form id="pform" style="display:flex;flex-direction:column;gap:10px">
-          <label for="ptext">Put anything up for a verdict. Your friends, your city or the whole world decides.</label>
-          <textarea id="ptext" rows="2" maxlength="160" required placeholder="New haircut: yes or no?"></textarea>
-          <div class="row">
-            <label for="pscope">Ask</label>
-            <select id="pscope"></select>
-            <label for="pcat">Topic</label>
-            <select id="pcat"></select>
-          </div>
-          <p class="note">No names, phone numbers, addresses or anything mean about a real person. Posts that get reported get hidden.</p>
-          <div><button class="btn" type="submit" id="psend">Post it</button></div>
-        </form>
-      </section>
+    <section class="page compose" id="compose" hidden>
+      <div class="cbar"><button class="x" id="cclose" aria-label="Close">×</button><button class="post" id="psend">Post</button></div>
+      <textarea id="ptext" maxlength="140" placeholder="What do you want a verdict on?" aria-label="Your post"></textarea>
+      <div><div class="clabel">Color</div><div class="swatches" id="swatches"></div></div>
+      <div><div class="clabel">Who decides</div><div class="aud" id="aud"></div></div>
+      <p class="cnote">People answer Yes or No. No names, phone numbers or anything mean about a real person.</p>
+    </section>
 
-      <div class="banner" id="flips" hidden></div>
-      <div class="scopes" role="tablist" aria-label="Who is answering" id="scopes"></div>
-      <div class="row">
-        <input id="psearch" type="search" placeholder="Search any topic" aria-label="Search posts" class="field" style="flex:1;min-width:0">
+    <div class="sheet" id="sheet" hidden>
+      <div class="sheetin">
+        <div class="shead"><span id="stitle">Comments</span><button id="sclose" aria-label="Close">×</button></div>
+        <div id="clist"></div>
+        <form class="line" id="cform"><input class="field" id="cinput" maxlength="200" placeholder="Add a comment" aria-label="Add a comment"><button class="b2">Send</button></form>
+        <textarea id="shareBox" readonly hidden></textarea>
       </div>
-      <div class="chips" id="chips"></div>
-      <div class="chips" id="sorts" aria-label="Sort posts"></div>
-      <div id="feed" class="feed"></div>
-
-      <section class="card">
-        <h2>Your place</h2>
-        <div class="grid2">
-          <div><label for="mycity">City</label><input id="mycity" class="field" maxlength="40" placeholder="e.g. Atlanta"></div>
-          <div><label for="mystate">State or region</label><input id="mystate" class="field" maxlength="40" placeholder="e.g. Georgia"></div>
-        </div>
-        <p class="note" id="placeNote">Your country comes from Today's question. Your city and state are only used to match you with nearby posts. Add friends on the Today's question tab.</p>
-      </section>
     </div>
+    <div class="toast" id="toast" hidden></div>
   </div>
 
-  <p class="note" id="mode"></p>
+  <nav class="nav" aria-label="Main">
+    <button id="navHome" class="on" aria-label="Feed"><svg viewBox="0 0 24 24"><path d="M4 11l8-7 8 7v8a1 1 0 0 1-1 1h-4v-6h-6v6H5a1 1 0 0 1-1-1z"/></svg></button>
+    <button id="navPlus" aria-label="New post"><span class="plus"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span></button>
+    <button id="navMe" aria-label="Me"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c1.5-4 4.5-6 8-6s6.500 2 8 6"/></svg></button>
+  </nav>
 </div>
-<div class="toast" id="toast" hidden></div>
 
 <script>
 // ---------- Settings. Paste your free Supabase project URL and anon key here to go public. ----------
@@ -417,111 +361,6 @@ async function pickBackend(){
   return Object.assign(backends.local(), { ask: askLocal() });
 }
 
-// ---------- App ----------
-const today = dayNum(), todayKey = dayKey(today);
-const [question, options] = qFor(today);
-let myVotes = store.get("myVotes", {}); // day -> {choice, country}
-let tally = emptyTally(options.length);
-
-function guessCountry(){
-  const saved = store.get("country"); if (saved) return saved;
-  const langs = navigator.languages || [navigator.language || ""];
-  for (const l of langs){ const m = /-([A-Z]{2})$/i.exec(l); if (m && COUNTRIES[m[1].toUpperCase()]) return m[1].toUpperCase(); }
-  return "XX";
-}
-function fillCountries(){
-  const sel = $("country"); const cur = guessCountry();
-  Object.entries(COUNTRIES).sort((a,b)=> a[0]==="XX"?1:b[0]==="XX"?-1:a[1].localeCompare(b[1]))
-    .forEach(([cc,name]) => { const o=document.createElement("option"); o.value=cc; o.textContent=flag(cc)+" "+name; sel.appendChild(o); });
-  sel.value = cur;
-  sel.onchange = () => store.set("country", sel.value);
-}
-
-function pct(n, t){ return t ? Math.round(n*100/t) : 0; }
-
-function render(){
-  const mine = myVotes[todayKey];
-  $("meta").textContent = "No. " + (today+1) + " · " + new Date(START+today*DAY_MS).toLocaleDateString(undefined,{month:"short",day:"numeric",timeZone:"UTC"});
-  $("q").textContent = question;
-  const box = $("opts"); box.innerHTML = "";
-  options.forEach((label, i) => {
-    const b = document.createElement("button"); b.className = "opt"; b.id = "opt"+i;
-    const fill = document.createElement("i"); fill.className = "fill";
-    const l = document.createElement("span"); l.textContent = label;
-    const p = document.createElement("span"); p.className = "pct";
-    b.append(fill, l, p);
-    if (mine){
-      b.disabled = true; if (mine.choice === i) b.classList.add("mine");
-      const v = pct(tally.counts[i], tally.total); if (justVoted) countUp(p, v, "%"); else p.textContent = v + "%";
-      requestAnimationFrame(() => fill.style.width = v + "%");
-    } else b.onclick = () => vote(i);
-    box.appendChild(b);
-  });
-  $("country").disabled = !!mine; $("country").closest(".row").hidden = !!mine;
-  $("predict").hidden = !!mine;
-  $("guessLabel").textContent = "Optional: guess what % of Earth picks \"" + options[0] + "\"";
-  $("after").hidden = !mine;
-  const nc = Object.keys(tally.byCountry).length;
-  $("count").textContent = mine
-    ? tally.total.toLocaleString() + (tally.total===1?" answer":" answers") + " from " + nc + (nc===1?" country":" countries") + " so far. Check back tonight, it can still flip."
-    : tally.total ? tally.total.toLocaleString() + (tally.total===1?" person has":" people have") + " already answered. The result stays hidden until you do."
-    : "Nobody on Earth has answered yet. Be the first.";
-  $("eyebrow").textContent = mine ? "Earth's verdict is in" : "What's the Verd? Answer first, then see the world's verdict.";
-  if (mine){
-    const share = pct(tally.counts[mine.choice], tally.total);
-    const cc = mine.country, local = tally.byCountry[cc];
-    const lt = local ? local.reduce((a,b)=>a+b,0) : 0;
-    const localShare = local ? pct(local[mine.choice], lt) : null;
-    const v = $("verdict"); v.innerHTML = "";
-    const pick = Object.assign(document.createElement("b"),{textContent: options[mine.choice]});
-    const top = tally.counts.indexOf(Math.max(...tally.counts)), second = [...tally.counts].sort((a,b)=>b-a)[1] || 0;
-    const close = tally.total >= 4 && Math.abs(pct(tally.counts[top],tally.total) - pct(second,tally.total)) <= 8;
-    if (tally.total < 2) v.append("You picked ", pick, ". You're the first voice on Earth today. Send it to someone and see if they agree.");
-    else if (close) v.append("You picked ", pick, ". Earth is almost perfectly split on this one, " + tally.counts.map(c=>pct(c,tally.total)).join(" to ") + ".");
-    else if (share < 35) v.append("You picked ", pick, ". Only " + share + "% of Earth is with you. You're in the rare club today.");
-    else if (share >= 75) v.append("You picked ", pick, ". So did " + share + "% of Earth. The planet mostly agrees with you.");
-    else v.append("You picked ", pick, ". " + share + "% of Earth is on your side.");
-    if (tally.total >= 2){
-      mine.share = share; mine.majority = tally.counts[mine.choice] === Math.max(...tally.counts);
-      if (typeof mine.guess === "number"){
-        const real = pct(tally.counts[0], tally.total); mine.err = Math.abs(real - mine.guess);
-        v.append(" You guessed " + mine.guess + "% for " + options[0] + ", it's " + real + "% right now" + (mine.err <= 5 ? ". 🔮 Mind reader." : mine.err <= 15 ? ". Close!" : ". Earth surprised you."));
-      }
-      store.set("myVotes", myVotes);
-    }
-    if (local && lt >= 2 && cc !== "XX"){
-      const ltop = local.indexOf(Math.max(...local));
-      v.append(ltop !== top ? " Plot twist: " + COUNTRIES[cc] + " went the other way from the rest of the world." : " " + COUNTRIES[cc] + " is " + localShare + "% with you.");
-    }
-    renderCountries();
-  }
-  renderStats();
-}
-
-function renderCountries(){
-  const mine = myVotes[todayKey], bc = tally.byCountry, sum = c => c.reduce((a,b)=>a+b,0);
-  const rival = mine && bc[mine.country] && Object.keys(bc).filter(c => c !== mine.country && c !== "XX" && sum(bc[c]) >= 2).sort((a,b)=>sum(bc[b])-sum(bc[a]))[0];
-  const rv = $("rivalry"); rv.hidden = !rival || mine.country === "XX";
-  if (!rv.hidden){
-    const top = c => { const t = bc[c].indexOf(Math.max(...bc[c])); return options[t] + " " + pct(bc[c][t], sum(bc[c])) + "%"; };
-    const same = bc[rival].indexOf(Math.max(...bc[rival])) === bc[mine.country].indexOf(Math.max(...bc[mine.country]));
-    rv.textContent = "Today's rivalry: " + COUNTRIES[mine.country] + " (" + top(mine.country) + ") vs " + COUNTRIES[rival] + " (" + top(rival) + "). " + (same ? "For once, you agree." : "They see it the other way.");
-  }
-  const rows = Object.entries(tally.byCountry).map(([cc,c]) => [cc, c, c.reduce((a,b)=>a+b,0)]).sort((a,b)=>b[2]-a[2]).slice(0,10);
-  $("countries").hidden = rows.length === 0;
-  const t = $("ctable"); t.innerHTML = "";
-  rows.forEach(([cc,c,n]) => {
-    const top = c.indexOf(Math.max(...c));
-    const tr = document.createElement("tr");
-    const a = document.createElement("td"); a.textContent = flag(cc) + " " + COUNTRIES[cc];
-    const b = document.createElement("td"); b.textContent = options[top] + " " + pct(c[top], n) + "%";
-    const d = document.createElement("td"); d.textContent = n.toLocaleString() + (n===1?" answer":" answers");
-    tr.append(a,b,d); t.appendChild(tr);
-  });
-}
-
-// ---------- Feel: vibration (Android), count-up numbers ----------
-let showLocked = false, justVoted = false;
 // iPhone (iOS 18+): Safari gives a real haptic tick when a hidden switch toggles from a tap. Android: the Vibration API.
 const iosTick = (() => {
   try{
@@ -545,7 +384,6 @@ function countUp(el, to, suffix){
   const step = now => { const k = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - k, 3); el.textContent = Math.round(to * e) + suffix; if (k < 1) requestAnimationFrame(step); };
   requestAnimationFrame(step);
 }
-document.addEventListener("click", e => { if (e.isTrusted && e.target.closest(".tab,.scope,.chip,.btn,.vbtn:not(:disabled),.badge.more")) haptic(8); }, true);
 
 // ---------- Streaks with freezes ----------
 // You earn a streak freeze every 7 days in a row (hold up to 2). A missed day uses one automatically.
@@ -562,54 +400,10 @@ function bumpStreak(){
   if (s.streak % 7 === 0) s.freezes = Math.min(2, s.freezes + 1);
   s.last = today; s.best = Math.max(s.best, s.streak);
   store.set("streakState", { last:s.last, streak:s.streak, freezes:s.freezes, best:s.best });
-  if (used) toast("❄️ Streak freeze used. Your " + s.streak + "-day streak is safe.");
-  else if (s.streak % 7 === 0) toast("🔥 " + s.streak + " days! You earned a streak freeze.");
+  if (used) toast("Streak freeze used. Your " + s.streak + "-day streak is safe.");
+  else if (s.streak % 7 === 0) toast(s.streak + " days! You earned a streak freeze.");
 }
 
-// ---------- Opinion type, guessing skill, badges ----------
-function profile(){
-  const days = Object.keys(myVotes).filter(d => typeof myVotes[d].share === "number");
-  const avg = days.length ? days.reduce((a,d)=>a+myVotes[d].share,0)/days.length : null;
-  const guesses = Object.keys(myVotes).filter(d => typeof myVotes[d].err === "number");
-  const err = guesses.length ? guesses.reduce((a,d)=>a+myVotes[d].err,0)/guesses.length : null;
-  const type = avg === null || days.length < 3 ? null : avg < 40 ? "Rare thinker" : avg <= 60 ? "Free thinker" : "Mainstream";
-  return { avg, type, err, nAnswered: Object.keys(myVotes).length, nTyped: days.length, guesses };
-}
-const BADGES = [
-  ["first","🌱 First answer", p => p.nAnswered >= 1],
-  ["s3","🔥 3-day streak", () => streakNow().best >= 3],
-  ["s7","☄️ 7-day streak", () => streakNow().best >= 7],
-  ["s30","🪐 30-day streak", () => streakNow().best >= 30],
-  ["rare","🦄 Rare club (under 35%)", () => Object.values(myVotes).some(v => v.share < 35)],
-  ["mind","🔮 Mind Reader (guess within 5%)", p => p.guesses.some(d => myVotes[d].err <= 5)],
-  ["ten","🌍 10 questions answered", p => p.nAnswered >= 10],
-  ["poster","📣 First post", () => store.get("posted", false)],
-  ["talker","💬 First comment", () => store.get("commented", false)],
-  ["crew","🤝 Added a friend", () => friends().length > 0]
-];
-function renderStats(){
-  const s = streakNow(), p = profile();
-  $("streak").textContent = s.current;
-  $("freezes").textContent = s.freezes ? "· " + s.freezes + (s.freezes > 1 ? " freezes" : " freeze") : "";
-  $("otype").textContent = p.type || (p.nTyped ? (3 - p.nTyped) + " to go" : "–");
-  $("acc").textContent = p.err === null ? "–" : Math.max(0, Math.round(100 - p.err)) + "%";
-  const note = $("streakNote");
-  if (!myVotes[todayKey] && s.current > 0){ note.hidden = false; note.textContent = "Answer today to keep your " + s.current + "-day streak" + (s.freezes ? " (you have " + s.freezes + " freeze" + (s.freezes>1?"s":"") + " saved)." : "."); }
-  else if (!p.type && p.nTyped){ note.hidden = false; note.textContent = "Answer " + (3 - p.nTyped) + " more day" + (3-p.nTyped>1?"s":"") + " to unlock your opinion type: Mainstream, Free thinker or Rare thinker."; }
-  else note.hidden = true;
-  const had = store.get("badges", []), box = $("badges"); box.innerHTML = "";
-  let locked = 0;
-  for (const [id, label, test] of BADGES){
-    const got = test(p);
-    if (got || showLocked){ const b = document.createElement("span"); b.className = "badge" + (got ? "" : " locked"); b.textContent = label.replace(/^\S+ /, ""); if (got && !had.includes(id)) b.classList.add("fresh"); box.appendChild(b); }
-    if (!got) locked++;
-    if (got && !had.includes(id)){ had.push(id); store.set("badges", had); if (had.length > 1 || id !== "first"){ toast("New badge: " + label.replace(/^\S+ /, "")); haptic([10,40,14]); } }
-  }
-  if (locked){ const m = document.createElement("button"); m.className = "badge more"; m.textContent = showLocked ? "Hide locked" : locked + " more to unlock"; m.onclick = () => { showLocked = !showLocked; haptic(6); renderStats(); }; box.appendChild(m); }
-  renderRecap();
-}
-
-// ---------- Weekly recap ----------
 function recapData(){
   const days = []; for (let n = today; n > today-7; n--) if (myVotes[dayKey(n)]) days.push(n);
   if (!days.length) return null;
@@ -618,58 +412,7 @@ function recapData(){
   const maj = days.filter(n => (myVotes[dayKey(n)].share ?? 0) >= 50).length;
   return { answered: days.length, maj, rarest, s: streakNow().current };
 }
-function renderRecap(){
-  const r = recapData(); $("recap").hidden = !r || r.answered < 2; if (!r) return;
-  const box = $("recapBody"); box.innerHTML = "";
-  const cell = (big, small) => { const d=document.createElement("div"); const b=document.createElement("b"); b.textContent=big; const s=document.createElement("small"); s.textContent=small; d.append(b,s); box.appendChild(d); };
-  cell(r.answered + "/7", "days answered");
-  cell(r.maj + "/" + r.answered, "times with the majority");
-  cell(r.s + (r.s === 1 ? " day" : " days"), "current streak");
-  if (r.rarest !== undefined){ const v = myVotes[dayKey(r.rarest)], [q, o] = qFor(r.rarest); cell(v.share + "%", "your rarest take: " + o[v.choice] + " on \"" + q + "\""); }
-}
-$("recapShare").onclick = async () => {
-  const r = recapData(); if (!r) return; const p = profile();
-  const text = "My week on Verd 🌍\n" + r.answered + "/7 days answered · with the majority " + r.maj + " times\n" + (p.type ? "I'm a " + p.type + ". " : "") + "🔥 " + r.s + " day streak\nWhat are you? " + (CONFIG.siteUrl || location.href.split("#")[0]);
-  try{ await navigator.clipboard.writeText(text); toast("Copied. Post it anywhere."); }catch{ const ta=$("shareText"); ta.value=text; ta.hidden=false; ta.select(); }
-};
 
-// ---------- Guess the split ----------
-let guessTouched = false;
-$("guess").oninput = () => { guessTouched = true; $("guessVal").textContent = $("guess").value + "%"; };
-
-async function vote(i){
-  const cc = $("country").value; store.set("country", cc);
-  myVotes[todayKey] = { choice:i, country:cc }; if (guessTouched) myVotes[todayKey].guess = +$("guess").value;
-  store.set("myVotes", myVotes); bumpStreak();
-  addTo(tally, i, cc); haptic([14,30,20]); justVoted = true; render(); justVoted = false;
-  $("opt"+i).classList.add("pop");
-  try{ await backend.vote(todayKey, i, cc); }catch{ toast("Couldn't save your answer online. Check your connection."); }
-}
-
-function shareText(){
-  const mine = myVotes[todayKey]; if(!mine) return "";
-  const share = pct(tally.counts[mine.choice], tally.total);
-  const streak = $("streak").textContent;
-  const url = CONFIG.siteUrl || location.href.split("#")[0];
-  return "Verd #" + (today+1) + " " + flag(mine.country) + "\n" + question + "\nI'm with " + share + "% of Earth. What's your Verd? (Don't look until you answer.)\n🔥 " + streak + " day streak\n" + url;
-}
-$("share").onclick = async () => {
-  const text = shareText();
-  try{ await navigator.clipboard.writeText(text); toast("Copied. Paste it in your group chat."); }
-  catch{ const ta=$("shareText"); ta.value=text; ta.hidden=false; ta.focus(); ta.select(); toast("Select the text and copy it."); }
-};
-
-function tick(){
-  const left = START + (today+1)*DAY_MS - Date.now();
-  if (left <= 0) { location.reload(); return; }
-  const h = Math.floor(left/3600000), m = Math.floor(left%3600000/60000);
-  $("next").textContent = "Tomorrow's question drops in " + h + "h " + m + "m";
-  const tq = qFor(today+1)[0].split(" "); $("teaser").textContent = "Sneak peek: \"" + tq.slice(0, Math.min(4, tq.length-1)).join(" ") + "…\"";
-}
-
-// ---------- Ask people: approve / disapprove posts, by friends, city, state, country or world ----------
-const SCOPES = [["friends","Friends"],["city","My city"],["state","My state"],["country","My country"],["world","The world"]];
-const CATS = ["Style","Food","Music","Sports","School","Money","Tech","Life","Local","Other"];
 const HIDE_AT = 3; // reports needed to hide a post for everyone
 function codeFrom(s){ let h=2166136261; for(const c of String(s)){ h^=c.charCodeAt(0); h=Math.imul(h,16777619)>>>0; } const A="ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; let o=""; for(let i=0;i<6;i++){ o+=A[h%32]; h=Math.floor(h/32)^(i*7919); h>>>=0; } return o; }
 const norm = s => String(s||"").trim().toLowerCase();
@@ -714,12 +457,10 @@ function askLocal(){
   };
 }
 
-const ask = { api:null, posts:[], myVotes:{}, myReports:{}, scope: store.get("askScope","world"), cat:"", q:"", sort: store.get("askSort","foryou"), shown:20, open:{} };
-
 // "For you" ranking: posts you haven't judged yet, in topics you care about, still fresh, and splitting people close to 50/50.
 function rank(list){
   const catVotes = {};
-  for (const p of ask.posts) if (ask.myVotes[p.id] || p.author === ask.api.me) catVotes[p.cat] = (catVotes[p.cat]||0) + 1;
+  for (const p of ask.posts) if (ask.api && (ask.myVotes[p.id] || p.author === ask.api.me)) catVotes[p.cat] = (catVotes[p.cat]||0) + 1;
   const now = Date.now();
   const score = p => {
     const total = p.yes + p.no, hours = (now - p.t) / 3600000;
@@ -732,247 +473,330 @@ function rank(list){
   };
   return list.map(p => [score(p), p]).sort((a,b) => b[0]-a[0]).map(x => x[1]);
 }
-function myPlace(){ return { city: $("mycity").value.trim(), state: $("mystate").value.trim(), country: $("country").value }; }
-function friends(){ return store.get("friends", []); }
 
-function visible(p, scope = ask.scope){
+// ---------- App state ----------
+const today = dayNum(), todayKey = dayKey(today);
+const [question, options] = qFor(today);
+let myVotes = store.get("myVotes", {});
+let tally = emptyTally(options.length), ytally = null;
+let backend = null, order = [], animate = null, jumpTo = null, sheetPost = null;
+const pct = (n, t) => t ? Math.round(n * 100 / t) : 0;
+function guessCountry(){
+  const saved = store.get("country"); if (saved) return saved;
+  const langs = navigator.languages || [navigator.language || ""];
+  for (const l of langs){ const m = /-([A-Z]{2})$/i.exec(l); if (m && COUNTRIES[m[1].toUpperCase()]) return m[1].toUpperCase(); }
+  return "XX";
+}
+const myPlace = () => ({ city: store.get("city", ""), state: store.get("state", ""), country: guessCountry() });
+const friends = () => store.get("friends", []);
+const SCOPES = [["world","World"],["country","Country"],["state","State"],["city","City"],["friends","Friends"]];
+const COLORS = [["#5b3df5","#3d22c7"],["#ff4d4d","#d62a41"],["#0fa968","#07784a"],["#17181a","#000000"],["#2563ff","#1240c4"],["#e0338a","#ad1966"],["#f2730a","#cc4e00"],["#0e8fa3","#066a7c"]];
+const hash = s => { let h = 0; for (const c of String(s)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h; };
+const ask = { api: null, posts: [], myVotes: {}, myReports: {}, flipped: {}, scope: store.get("askScope", "world") };
+if (!SCOPES.some(([k]) => k === ask.scope)) ask.scope = "world";
+const signOf = p => p.yes > p.no ? 1 : p.yes < p.no ? -1 : 0;
+const BLOCK = [/\d[\d\s().-]{6,}\d/, /@\w/, /https?:|www\./i, /\b(kill|kys|die)\b/i];
+const ICON = {
+  comment: '<svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 0 1-11.800 7L4 20l1-4.200A8 8 0 1 1 20 12z"/></svg>',
+  share: '<svg viewBox="0 0 24 24"><path d="M12 15V4M8 8l4-4 4 4M5 13v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5"/></svg>',
+  flag: '<svg viewBox="0 0 24 24"><path d="M5 21V4M5 4h11l-2 4 2 4H5"/></svg>'
+};
+function el(tag, cls, text){ const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+function iact(icon, label, text, fn){ const b = el("button", "iact"); b.innerHTML = ICON[icon]; b.setAttribute("aria-label", label); if (text) b.append(el("span", "", text)); b.onclick = fn; return b; }
+function ago(t){ const m = Math.max(1, Math.round((Date.now() - t) / 60000)); return m < 60 ? m + "m" : m < 1440 ? Math.round(m / 60) + "h" : Math.round(m / 1440) + "d"; }
+function sizeClass(text){ return text.length > 105 ? " s" : text.length > 55 ? " m" : ""; }
+document.addEventListener("click", e => { if (e.isTrusted && e.target.closest("button")) haptic(8); }, true);
+
+// ---------- Feed ----------
+function visible(p){
   const pl = myPlace(), mine = p.author === ask.api.me;
-  if (p.reports >= HIDE_AT && !mine) return false;
-  if (ask.myReports[p.id]) return false;
-  if (p.scope !== scope) return false;
+  if ((p.reports >= HIDE_AT && !mine) || ask.myReports[p.id] || p.scope !== ask.scope) return false;
   if (p.scope === "friends") return mine || friends().includes(p.author);
   if (p.scope === "city") return p.country === pl.country && norm(p.city) === norm(pl.city) && norm(p.state) === norm(pl.state);
   if (p.scope === "state") return p.country === pl.country && norm(p.state) === norm(pl.state);
   if (p.scope === "country") return p.country === pl.country;
   return true;
 }
-
 function placeLabel(p){
-  if (p.scope === "friends") return "Friends";
-  if (p.scope === "city") return p.city;
-  if (p.scope === "state") return p.state;
-  if (p.scope === "country") return flag(p.country) + " " + COUNTRIES[p.country];
-  return "The world";
+  return p.scope === "friends" ? "Friends" : p.scope === "city" ? p.city : p.scope === "state" ? p.state : p.scope === "country" ? COUNTRIES[p.country] : "World";
+}
+// The order is frozen while you browse, so posts never jump under your thumb. New posts join at the end.
+function syncOrder(){
+  const vis = ask.api ? ask.posts.filter(visible) : [];
+  const ids = new Set(vis.map(p => p.id));
+  order = order.filter(id => ids.has(id));
+  if (jumpTo && ids.has(jumpTo) && !order.includes(jumpTo)) order.unshift(jumpTo);
+  order.push(...rank(vis.filter(p => !order.includes(p.id))).map(p => p.id));
+  order = order.slice(0, 40);
+}
+function currentId(){ const f = $("feed"); if (!f.children.length || !f.clientHeight) return null; const s = f.children[Math.round(f.scrollTop / f.clientHeight)]; return s ? s.dataset.id : null; }
+
+function shell(id, color){ const s = el("section", "slide"); s.dataset.id = id; s.style.background = "linear-gradient(165deg," + color[0] + "," + color[1] + ")"; return s; }
+function answers(id, labels, results, mineIdx, onTap){
+  const box = el("div", "answers" + (labels.length > 2 ? " stack" : ""));
+  labels.forEach((label, i) => {
+    const done = results !== null, b = el("button", "ans" + (mineIdx === i ? " mine" : ""));
+    const fill = el("i", "fill"); b.append(fill, el("span", "alabel", label));
+    if (done){
+      const p = el("span", "apct"); b.append(p); b.disabled = true;
+      const set = () => { fill.style.width = results[i] + "%"; fill.style.height = labels.length > 2 ? "100%" : results[i] + "%"; };
+      if (animate === id){ countUp(p, results[i], "%"); requestAnimationFrame(() => requestAnimationFrame(set)); }
+      else { p.textContent = results[i] + "%"; set(); }
+    } else b.onclick = () => onTap(i);
+    box.append(b);
+  });
+  return box;
 }
 
-function renderAsk(){
-  if (!ask.api) return;
-  const drafts = {}; document.querySelectorAll('#feed input').forEach(i => drafts[i.id] = i.value);
-  const focusId = document.activeElement && document.activeElement.id;
-  renderAskInner();
-  for (const id in drafts){ const el = document.getElementById(id); if (el) el.value = drafts[id]; }
-  if (focusId && focusId.startsWith("c-")){ const el = document.getElementById(focusId); if (el) el.focus(); }
+function verdict(mine){
+  const share = pct(tally.counts[mine.choice], tally.total);
+  const top = tally.counts.indexOf(Math.max(...tally.counts)), second = [...tally.counts].sort((a, b) => b - a)[1] || 0;
+  const close = tally.total >= 4 && Math.abs(pct(tally.counts[top], tally.total) - pct(second, tally.total)) <= 8;
+  const main = tally.total < 2 ? "You're the first voice on Earth today." : close ? "Earth is almost perfectly split on this."
+    : share < 35 ? "Only " + share + "% of Earth is with you. Rare club." : share >= 75 ? share + "% of Earth agrees with you." : share + "% of Earth is on your side.";
+  let sub = ""; const local = tally.byCountry[mine.country];
+  if (local && mine.country !== "XX"){ const lt = local.reduce((a, b) => a + b, 0);
+    if (lt >= 2) sub = local.indexOf(Math.max(...local)) !== top ? "Plot twist: " + COUNTRIES[mine.country] + " went the other way." : COUNTRIES[mine.country] + " is " + pct(local[mine.choice], lt) + "% with you."; }
+  if (tally.total >= 2){ mine.share = share; mine.majority = tally.counts[mine.choice] === Math.max(...tally.counts); store.set("myVotes", myVotes); }
+  return [main, sub];
 }
-function renderAskInner(){
-  const sc = $("scopes"); sc.innerHTML = "";
-  SCOPES.forEach(([k,l]) => { const b=document.createElement("button"); b.className="scope"+(k===ask.scope?" on":""); b.textContent=l; b.setAttribute("role","tab"); b.setAttribute("aria-selected", k===ask.scope); b.onclick=()=>{ ask.scope=k; store.set("askScope",k); renderAsk(); }; sc.appendChild(b); });
-  const ch = $("chips"); ch.innerHTML = "";
-  ["", ...CATS].forEach(c => { const b=document.createElement("button"); b.className="chip"+(c===ask.cat?" on":""); b.textContent=c||"All topics"; b.onclick=()=>{ ask.cat=c; renderAsk(); }; ch.appendChild(b); });
-  const q = norm(ask.q);
-  let list = ask.posts.filter(p => visible(p) && (!ask.cat || p.cat === ask.cat) && (!q || norm(p.text).includes(q) || norm(p.cat).includes(q)));
-  if (ask.sort === "foryou") list = rank(list);
-  const so = $("sorts"); so.innerHTML = "";
-  [["foryou","For you"],["new","Newest"]].forEach(([k,l]) => { const b=document.createElement("button"); b.className="chip"+(k===ask.sort?" on":""); b.textContent=l; b.onclick=()=>{ ask.sort=k; store.set("askSort",k); ask.shown=20; renderAsk(); }; so.appendChild(b); });
-  const feed = $("feed"); feed.innerHTML = "";
-  const pl = myPlace();
-  if (!list.length){
-    const e = document.createElement("div"); e.className = "empty";
-    e.textContent = (ask.scope==="city" && !pl.city) || (ask.scope==="state" && !pl.state) ? "Add your city and state below to find out what people around you really think."
-      : ask.scope==="friends" && !friends().length ? "Your friends have opinions about you. Add one with their code below, then put something up for a verdict."
-      : q || ask.cat ? "Nobody has asked about that yet. Ask it first and see what people say."
-      : "It's quiet here. The first post sets the tone, so make it a good one.";
-    feed.appendChild(e);
-  }
-  for (const p of list.slice(0, ask.shown)){
-    const mine = p.author === ask.api.me, my = ask.myVotes[p.id], total = p.yes + p.no;
-    const card = document.createElement("article"); card.className = "post";
-    const t = document.createElement("p"); t.textContent = p.text;
-    const tags = document.createElement("div"); tags.className = "ptags";
-    [ask.flipped[p.id] ? "Flipped" : "", p.cat, placeLabel(p), mine ? "Your post" : ""].filter(Boolean).forEach(s => { const sp=document.createElement("span"); sp.textContent=s; tags.appendChild(sp); });
-    card.append(tags, t);
-    if (!mine && !my){
-      const v = document.createElement("div"); v.className = "votes";
-      [["Approve",1,"yes"],["Disapprove",-1,"no"]].forEach(([l,val,cls]) => { const b=document.createElement("button"); b.className="vbtn "+cls; b.textContent=l; b.onclick=()=>votePost(p.id,val); v.appendChild(b); });
-      card.appendChild(v);
-    } else {
-      const bar = document.createElement("div"); bar.className = "bar"; const i = document.createElement("i"); i.style.width = pct(p.yes,total)+"%"; bar.appendChild(i);
-      card.appendChild(bar);
-    }
-    const foot = document.createElement("div"); foot.className = "pfoot";
-    const s = document.createElement("span");
-    const where = p.scope === "friends" ? "Your friends" : p.scope === "world" ? "The world" : placeLabel(p).replace(/^\S+ (?=[A-Z])/, "");
-    const split = total ? pct(p.yes,total) : 0, isClose = total >= 4 && Math.abs(split - 50) <= 10;
-    s.textContent = (mine || my)
-      ? (!total ? "Waiting for the first verdict" : isClose ? where + " is split " + split + "/" + (100-split) + ". Could go either way."
-         : split >= 75 ? where + " loves it: " + split + "% approve" : split <= 25 ? where + " says no: " + (100-split) + "% disapprove"
-         : split + "% approve, " + (100-split) + "% don't") + (my ? " · you said " + (my>0?"approve":"disapprove") : "") + " · " + total + (total===1?" vote":" votes")
-      : !total ? "Nobody's judged this yet. Be first."
-      : isClose ? "🔥 This one is splitting people. Vote to see how close."
-      : total + (total===1?" person has":" people have") + " voted. Vote to see the verdict.";
-    foot.appendChild(s);
-    const acts = document.createElement("span"); acts.className = "row"; acts.style.gap = "14px";
-    const shownC = p.comments.filter(c => (c.reports < HIDE_AT || c.author === ask.api.me) && !ask.myReports[c.id]);
-    const cl = document.createElement("button"); cl.className = "link"; cl.textContent = (shownC.length ? shownC.length + (shownC.length===1?" comment":" comments") : "Comment");
-    cl.setAttribute("aria-expanded", !!ask.open[p.id]); cl.onclick = () => { ask.open[p.id] = !ask.open[p.id]; renderAsk(); };
-    acts.appendChild(cl);
-    if (!mine){ const r=document.createElement("button"); r.className="link"; r.textContent="Report"; r.onclick=()=>reportPost(p.id); acts.appendChild(r); }
-    foot.appendChild(acts); card.appendChild(foot);
-    if (ask.open[p.id]){
-      const box = document.createElement("div"); box.className = "comments";
-      for (const c of shownC){
-        const row = document.createElement("div"); row.className = "cmt";
-        const who = document.createElement("b"); who.textContent = c.author === ask.api.me ? "You" : friends().includes(c.author) ? "Friend " + c.author : "Someone";
-        const tx = document.createElement("span"); tx.textContent = c.text;
-        row.append(who, tx);
-        if (c.author !== ask.api.me){ const r=document.createElement("button"); r.className="link"; r.textContent="Report"; r.onclick=()=>reportPost(c.id); row.appendChild(r); }
-        box.appendChild(row);
-      }
-      const f = document.createElement("form"); f.className = "row";
-      const inp = document.createElement("input"); inp.className = "field"; inp.id = "c-"+p.id; inp.maxLength = 200; inp.placeholder = "Say why, kindly"; inp.setAttribute("aria-label","Write a comment"); inp.style.flex = "1"; inp.style.minWidth = "0";
-      const sb = document.createElement("button"); sb.className = "btn ghost"; sb.type = "submit"; sb.textContent = "Send";
-      f.append(inp, sb); f.onsubmit = e => { e.preventDefault(); const v = inp.value; inp.value = ""; sendComment(p.id, v); };
-      box.appendChild(f); card.appendChild(box);
-    }
-    feed.appendChild(card);
-  }
-  if (list.length > ask.shown){
-    const more = document.createElement("button"); more.className = "btn ghost"; more.textContent = "Show more";
-    more.onclick = () => { ask.shown += 20; renderAsk(); }; feed.appendChild(more);
-  } else if (list.length){
-    const end = document.createElement("div"); end.className = "empty"; end.textContent = "You're all caught up here. Try another place or topic, or check back later.";
-    feed.appendChild(end);
-  }
+function nextIn(){ const left = START + (today + 1) * DAY_MS - Date.now(); return Math.floor(left / 3600000) + "h " + Math.floor(left % 3600000 / 60000) + "m"; }
+
+function dailySlide(){
+  const s = shell("daily", COLORS[today % COLORS.length]), mine = myVotes[todayKey], body = el("div", "sbody");
+  body.append(el("div", "kicker", "Today's question · No. " + (today + 1)), el("h2", "stext" + sizeClass(question), question));
+  if (mine){ const [main, sub] = verdict(mine); body.append(el("p", "sverdict", main)); if (sub) body.append(el("p", "ssub", sub)); }
+  const res = mine ? options.map((_, i) => pct(tally.counts[i], tally.total)) : null;
+  const foot = el("div", "sfoot"), nc = Object.keys(tally.byCountry).length;
+  const info = el("span", "", mine ? "Next question in " + nextIn() : tally.total ? tally.total.toLocaleString() + (tally.total === 1 ? " person" : " people") + " answered. Tap to see the verdict." : "Be the first on Earth to answer.");
+  if (mine) info.id = "nextIn";
+  foot.append(info); const acts = el("div", "sacts");
+  if (mine) acts.append(iact("share", "Share", "Share", shareDaily));
+  foot.append(acts);
+  s.append(body, answers("daily", options, res, mine ? mine.choice : -1, vote), foot);
+  return s;
+}
+function yesterdaySlide(){
+  const [yq, yo] = qFor(today - 1), s = shell("yday", COLORS[(today + 7) % COLORS.length]), body = el("div", "sbody"), mine = myVotes[dayKey(today - 1)];
+  body.append(el("div", "kicker", "Yesterday's final verdict"), el("h2", "stext" + sizeClass(yq), yq));
+  const foot = el("div", "sfoot"); foot.append(el("span", "", ytally.total.toLocaleString() + " answers")); foot.append(el("div", "sacts"));
+  s.append(body, answers("yday", yo, yo.map((_, i) => pct(ytally.counts[i], ytally.total)), mine ? mine.choice : -1, () => {}), foot);
+  return s;
+}
+function postSlide(p){
+  const mine = p.author === ask.api.me, my = ask.myVotes[p.id], total = p.yes + p.no, show = mine || !!my, yes = pct(p.yes, total);
+  const s = shell(p.id, COLORS[(typeof p.color === "number" ? p.color : hash(p.id)) % COLORS.length]), body = el("div", "sbody");
+  body.append(el("div", "kicker", [placeLabel(p), ago(p.t), mine ? "Your post" : "", ask.flipped[p.id] ? "Flipped since you voted" : ""].filter(Boolean).join(" · ")));
+  body.append(el("h2", "stext" + sizeClass(p.text), p.text));
+  const close = total >= 4 && Math.abs(yes - 50) <= 10;
+  if (show){ const v = !total ? "Waiting for the first verdict." : close ? "Split " + yes + "/" + (100 - yes) + ". Could go either way." : total >= 3 && yes >= 75 ? "People are into it." : total >= 3 && yes <= 25 ? "People say no." : ""; if (v) body.append(el("p", "sverdict", v)); }
+  const foot = el("div", "sfoot");
+  foot.append(el("span", "", show ? total + (total === 1 ? " vote" : " votes") : !total ? "Be the first to judge." : close ? "This one is splitting people. Tap to see." : total + (total === 1 ? " person" : " people") + " voted. Tap to see the verdict."));
+  const acts = el("div", "sacts"), nC = p.comments.filter(c => (c.reports < HIDE_AT || c.author === ask.api.me) && !ask.myReports[c.id]).length;
+  acts.append(iact("comment", "Comments", nC ? String(nC) : "", () => openSheet(p.id)));
+  if (!mine) acts.append(iact("flag", "Report", "", () => report(p.id)));
+  foot.append(acts);
+  s.append(body, answers(p.id, ["Yes", "No"], show && total ? [yes, 100 - yes] : null, my ? (my > 0 ? 0 : 1) : -1, i => mine ? toast("You can't vote on your own post.") : votePost(p.id, i === 0 ? 1 : -1)), foot);
+  return s;
+}
+function endSlide(){
+  const s = el("section", "slide end"); s.dataset.id = "end"; const body = el("div", "sbody"), pl = myPlace();
+  let h = "You're all caught up.", sub = "Come back later for more, or put something up for a verdict.", cta = ["Post something", openCompose];
+  if (!ask.api){ sub = "Posts from people are coming soon. A new question drops in " + nextIn() + "."; cta = null; }
+  else if ((ask.scope === "city" && (!pl.city || !pl.state)) || (ask.scope === "state" && !pl.state)){ h = "Where are you?"; sub = "Add your city and state to see what people near you really think."; cta = ["Set my place", () => showPage("me")]; }
+  else if (ask.scope === "friends" && !friends().length){ h = "No friends here yet."; sub = "Swap codes with a friend and judge each other's posts."; cta = ["Add a friend", () => showPage("me")]; }
+  else if (!order.length && ask.scope !== "world"){ h = "Nothing here yet."; sub = "Be the first one to ask."; }
+  body.append(el("h2", "stext m", h), el("p", "ssub", sub));
+  if (cta){ const b = el("button", "cta", cta[0]); b.onclick = cta[1]; body.append(b); }
+  s.append(body); return s;
+}
+function renderFeed(){
+  const feed = $("feed"), cur = jumpTo || currentId();
+  syncOrder(); feed.innerHTML = "";
+  if (ask.scope === "world"){ feed.append(dailySlide()); if (ytally && ytally.total) feed.append(yesterdaySlide()); }
+  const byId = Object.fromEntries(ask.posts.map(p => [p.id, p]));
+  for (const id of order) feed.append(postSlide(byId[id]));
+  feed.append(endSlide());
+  const keep = cur && [...feed.children].find(s => s.dataset.id === cur);
+  feed.scrollTop = keep ? keep.offsetTop : 0;
+  if (keep && jumpTo === cur) jumpTo = null;
+  animate = null;
+}
+function renderTop(){
+  const box = $("scopes"); box.innerHTML = "";
+  SCOPES.forEach(([k, l]) => { const b = el("button", "scope" + (k === ask.scope ? " on" : ""), l); b.setAttribute("role", "tab"); b.setAttribute("aria-selected", k === ask.scope);
+    b.onclick = () => { ask.scope = k; store.set("askScope", k); order = []; renderTop(); renderFeed(); $("feed").scrollTop = 0; }; box.append(b); });
 }
 
-async function votePost(id, v){ ask.myVotes = {...ask.myVotes, [id]: v}; const p = ask.posts.find(x=>x.id===id); if(p){ v>0?p.yes++:p.no++; } renderAsk(); try{ await ask.api.vote(id, v); }catch{ toast("Couldn't save your vote. Try again."); } }
-async function sendComment(postId, raw){
-  const text = String(raw||"").trim();
-  if (text.length < 2) return;
+// ---------- Actions ----------
+async function vote(i){
+  const cc = guessCountry(); myVotes[todayKey] = { choice: i, country: cc }; store.set("myVotes", myVotes); bumpStreak();
+  addTo(tally, i, cc); haptic([14, 30, 20]); animate = "daily"; renderFeed(); checkBadges();
+  try{ await backend.vote(todayKey, i, cc); }catch{ toast("Couldn't save your answer online. Check your connection."); }
+}
+async function votePost(id, v){
+  ask.myVotes = { ...ask.myVotes, [id]: v }; const p = ask.posts.find(x => x.id === id);
+  if (p){ v > 0 ? p.yes++ : p.no++; const signs = store.get("askSigns", {}); signs[id] = signOf(p) || v; store.set("askSigns", signs); }
+  haptic([14, 30, 20]); animate = id; renderFeed();
+  try{ await ask.api.vote(id, v); }catch{ toast("Couldn't save your vote. Try again."); }
+}
+async function report(id){ ask.myReports = { ...ask.myReports, [id]: 1 }; toast("Reported. It's hidden for you."); renderFeed(); if (sheetPost) renderSheet(); try{ await ask.api.report(id); }catch{} }
+function checkFlips(){ const signs = store.get("askSigns", {}); for (const p of ask.posts) if (ask.myVotes[p.id] && signs[p.id] && p.yes + p.no >= 4){ const s = signOf(p); if (s && s !== signs[p.id]) ask.flipped[p.id] = true; } }
+async function copyOrShow(text, okMsg){
+  try{ await navigator.clipboard.writeText(text); toast(okMsg); }
+  catch{ sheetPost = null; $("stitle").textContent = "Copy this"; $("clist").hidden = true; $("cform").hidden = true; const b = $("shareBox"); b.hidden = false; b.value = text; $("sheet").hidden = false; b.focus(); b.select(); }
+}
+function shareDaily(){
+  const mine = myVotes[todayKey]; if (!mine) return;
+  const url = CONFIG.siteUrl || location.href.split("#")[0];
+  copyOrShow("Verd #" + (today + 1) + "\n" + question + "\nI'm with " + pct(tally.counts[mine.choice], tally.total) + "% of Earth. What's your Verd? (No peeking before you answer.)\n" + streakNow().current + " day streak\n" + url, "Copied. Paste it in your group chat.");
+}
+
+// ---------- Comments ----------
+function openSheet(id){ sheetPost = id; $("stitle").textContent = "Comments"; $("clist").hidden = false; $("cform").hidden = false; $("shareBox").hidden = true; renderSheet(); $("sheet").hidden = false; }
+function closeSheet(){ $("sheet").hidden = true; sheetPost = null; }
+function renderSheet(){
+  const p = ask.posts.find(x => x.id === sheetPost), box = $("clist"); if (!p) return; box.innerHTML = "";
+  const list = p.comments.filter(c => (c.reports < HIDE_AT || c.author === ask.api.me) && !ask.myReports[c.id]);
+  if (!list.length) box.append(el("p", "note", "No comments yet. Say why you voted the way you did."));
+  for (const c of list){ const row = el("div", "cmt");
+    row.append(el("b", "", c.author === ask.api.me ? "You" : friends().includes(c.author) ? c.author : "Someone"), el("span", "", c.text));
+    if (c.author !== ask.api.me){ const r = el("button", "lnk", "Report"); r.onclick = () => report(c.id); row.append(r); }
+    box.append(row); }
+}
+$("sclose").onclick = closeSheet;
+$("sheet").onclick = e => { if (e.target === $("sheet")) closeSheet(); };
+$("cform").onsubmit = async e => {
+  e.preventDefault(); const text = $("cinput").value.trim(); if (text.length < 2 || !sheetPost) return;
   if (BLOCK.some(r => r.test(text))){ toast("Leave out phone numbers, @handles, links and threats."); return; }
-  const item = { id: "c-" + ask.api.me + "-" + Date.now().toString(36), post: postId, author: ask.api.me, text, t: Date.now() };
-  const p = ask.posts.find(x => x.id === postId); if (p) p.comments.push({...item, reports:0});
-  ask.open[postId] = true; renderAsk();
-  try{ await ask.api.comment(item); store.set("commented", true); renderStats(); }catch{ toast("Couldn't send your comment. Try again."); }
-}
-async function reportPost(id){ ask.myReports = {...ask.myReports, [id]: 1}; renderAsk(); toast("Reported. Thanks, it's hidden for you."); try{ await ask.api.report(id); }catch{} }
+  const item = { id: "c-" + ask.api.me + "-" + Date.now().toString(36), post: sheetPost, author: ask.api.me, text, t: Date.now() };
+  const p = ask.posts.find(x => x.id === sheetPost); if (p) p.comments.push({ ...item, reports: 0 });
+  $("cinput").value = ""; renderSheet(); renderFeed();
+  try{ await ask.api.comment(item); store.set("commented", true); checkBadges(); }catch{ toast("Couldn't send your comment. Try again."); }
+};
 
-const BLOCK = [/\d[\d\s().-]{6,}\d/, /@\w/, /https?:|www\./i, /\b(kill|kys|die)\b/i];
-function setupAsk(api){
-  if (!api){ $("askOn").hidden = true; $("askOff").hidden = false; return; }
-  ask.api = api;
-  $("mycity").value = store.get("city",""); $("mystate").value = store.get("state","");
-  $("mycity").oninput = () => { store.set("city",$("mycity").value.trim()); renderAsk(); };
-  $("mystate").oninput = () => { store.set("state",$("mystate").value.trim()); renderAsk(); };
-  $("pscope").innerHTML = ""; SCOPES.forEach(([k,l]) => $("pscope").add(new Option(l,k))); $("pscope").value = ask.scope;
-  $("pcat").innerHTML = ""; CATS.forEach(c => $("pcat").add(new Option(c,c)));
-  $("psearch").oninput = e => { ask.q = e.target.value; renderAsk(); };
-  $("pform").onsubmit = async e => {
-    e.preventDefault();
-    const text = $("ptext").value.trim(), scope = $("pscope").value, pl = myPlace();
-    if (text.length < 4){ toast("Write a bit more."); return; }
-    if (BLOCK.some(r => r.test(text))){ toast("Leave out phone numbers, @handles, links and threats."); return; }
-    if (scope==="city" && (!pl.city || !pl.state)){ toast("Add your city and state below first."); return; }
-    if (scope==="state" && !pl.state){ toast("Add your state below first."); return; }
-    const item = { id: api.me+"-"+Date.now().toString(36), author: api.me, text, cat: $("pcat").value, scope, city: pl.city, state: pl.state, country: pl.country, t: Date.now() };
-    $("psend").disabled = true;
-    try{ await api.post(item); store.set("posted", true); renderStats(); $("ptext").value = ""; ask.scope = scope; store.set("askScope",scope); toast("Posted."); }
-    catch{ toast("Couldn't post. Check your connection and try again."); }
-    $("psend").disabled = false; renderAsk();
-  };
-  api.watch((posts, myVotes, myReports) => { ask.posts = posts; ask.myVotes = {...myVotes, ...ask.myVotes}; ask.myReports = {...myReports, ...ask.myReports}; askAlerts(); renderAsk(); });
+// ---------- New post ----------
+let cColor = 0, cScope = "world";
+function openCompose(){
+  if (!ask.api){ toast("Posting opens soon."); return; }
+  cColor = Math.floor(Math.random() * COLORS.length); cScope = ask.scope; drawCompose(); $("compose").hidden = false; $("ptext").focus();
 }
+function drawCompose(){
+  $("compose").style.background = "linear-gradient(165deg," + COLORS[cColor][0] + "," + COLORS[cColor][1] + ")";
+  const sw = $("swatches"); sw.innerHTML = "";
+  COLORS.forEach((c, i) => { const b = el("button", "sw" + (i === cColor ? " on" : "")); b.style.background = c[0]; b.setAttribute("aria-label", "Color " + (i + 1)); b.onclick = () => { cColor = i; drawCompose(); }; sw.append(b); });
+  const au = $("aud"); au.innerHTML = "";
+  SCOPES.forEach(([k, l]) => { const b = el("button", k === cScope ? "on" : "", l); b.onclick = () => { cScope = k; drawCompose(); }; au.append(b); });
+}
+$("cclose").onclick = () => { $("compose").hidden = true; };
+$("psend").onclick = async () => {
+  const text = $("ptext").value.trim().replace(/\s+/g, " "), pl = myPlace();
+  if (text.length < 4){ toast("Write a little more."); return; }
+  if (BLOCK.some(r => r.test(text))){ toast("Leave out phone numbers, @handles, links and threats."); return; }
+  if ((cScope === "city" && (!pl.city || !pl.state)) || (cScope === "state" && !pl.state)){ toast("Add your city and state on the Me page first."); return; }
+  const item = { id: ask.api.me + "-" + Date.now().toString(36), author: ask.api.me, text, color: cColor, scope: cScope, city: pl.city, state: pl.state, country: pl.country, t: Date.now() };
+  $("psend").disabled = true;
+  try{
+    if (ask.scope !== cScope){ ask.scope = cScope; store.set("askScope", cScope); order = []; renderTop(); }
+    jumpTo = item.id; await ask.api.post(item); store.set("posted", true);
+    $("ptext").value = ""; $("compose").hidden = true; showPage("feed"); renderFeed(); toast("Posted."); checkBadges();
+  }catch{ jumpTo = null; toast("Couldn't post. Check your connection and try again."); }
+  $("psend").disabled = false;
+};
 
-function showTab(which){
-  const today = which === "today";
-  $("viewToday").hidden = !today; $("viewAsk").hidden = today;
-  $("tabToday").classList.toggle("on", today); $("tabAsk").classList.toggle("on", !today);
-  $("tabToday").setAttribute("aria-selected", today); $("tabAsk").setAttribute("aria-selected", !today);
-  store.set("tab", which); if (!today){ askAlerts(); renderAsk(); markAskSeen(); $("tabAsk").textContent = "Ask"; }
+// ---------- Me ----------
+function profile(){
+  const days = Object.keys(myVotes).filter(d => typeof myVotes[d].share === "number");
+  const avg = days.length ? days.reduce((a, d) => a + myVotes[d].share, 0) / days.length : null;
+  return { type: days.length < 3 ? null : avg < 40 ? "Rare thinker" : avg <= 60 ? "Free thinker" : "Mainstream", nTyped: days.length, nAnswered: Object.keys(myVotes).length,
+    judged: days.length, maj: days.filter(d => myVotes[d].majority).length };
 }
-$("tabToday").onclick = () => showTab("today");
-$("tabAsk").onclick = () => showTab("ask");
-
-// ---------- Since you were gone: new posts near you, and posts that flipped ----------
-const signOf = p => p.yes > p.no ? 1 : p.yes < p.no ? -1 : 0;
-ask.flipped = {};
-function askAlerts(){
-  if (!ask.api) return;
-  const seen = store.get("askSeen", 0), signs = store.get("askSigns", {});
-  const fresh = ask.posts.filter(p => p.t > seen && p.author !== ask.api.me && SCOPES.some(([k]) => visible(p, k))).length;
-  $("tabAsk").textContent = "Ask" + (fresh && $("viewAsk").hidden ? " · " + fresh + " new" : "");
-  for (const p of ask.posts) if (ask.myVotes[p.id] && p.yes + p.no >= 4){ const s = signOf(p); if (signs[p.id] && s && s !== signs[p.id]) ask.flipped[p.id] = true; }
-  const n = Object.keys(ask.flipped).length, b = $("flips");
-  b.hidden = !n; b.textContent = n ? n + (n===1 ? " post you voted on has flipped" : " posts you voted on have flipped") + " since you last looked." : "";
+const BADGES = [
+  ["first", "First answer", p => p.nAnswered >= 1], ["s3", "3-day streak", () => streakNow().best >= 3], ["s7", "7-day streak", () => streakNow().best >= 7],
+  ["s30", "30-day streak", () => streakNow().best >= 30], ["rare", "Rare club", () => Object.values(myVotes).some(v => v.share < 35)], ["ten", "10 answers", p => p.nAnswered >= 10],
+  ["poster", "First post", () => store.get("posted", false)], ["talker", "First comment", () => store.get("commented", false)], ["crew", "Added a friend", () => friends().length > 0]
+];
+function checkBadges(){
+  const had = store.get("badges", []), p = profile(); let fresh = null;
+  for (const [id, label, test] of BADGES) if (test(p) && !had.includes(id)){ had.push(id); fresh = label; }
+  if (fresh){ store.set("badges", had); if (had.length > 1){ setTimeout(() => toast("New badge: " + fresh), 1400); } }
 }
-function markAskSeen(){
-  if (!ask.api) return;
-  store.set("askSeen", Date.now());
-  const signs = store.get("askSigns", {});
-  for (const p of ask.posts) if (ask.myVotes[p.id]){ const s = signOf(p); if (s) signs[p.id] = s; }
-  store.set("askSigns", signs);
+function renderMe(){
+  const s = streakNow(), p = profile();
+  $("meta").textContent = "No. " + (today + 1);
+  $("streak").textContent = s.current;
+  $("streakNote").textContent = !myVotes[todayKey] && s.current > 0 ? "Answer today to keep it alive." + (s.freezes ? " " + s.freezes + " freeze" + (s.freezes > 1 ? "s" : "") + " saved." : "")
+    : s.freezes ? s.freezes + " streak freeze" + (s.freezes > 1 ? "s" : "") + " saved. A freeze covers one missed day." : "Answer every day. Seven in a row earns a streak freeze.";
+  $("otype").textContent = p.type || "–";
+  $("otypeNote").textContent = p.type ? "your opinion type" : "opinion type, " + (3 - p.nTyped) + " more to unlock";
+  $("agree").textContent = p.judged ? p.maj + "/" + p.judged : "–";
+  $("answered").textContent = p.nAnswered;
+  const box = $("badges"); box.innerHTML = "";
+  for (const [, label, test] of BADGES) box.append(el("span", test(p) ? "" : "off", label));
+  const r = recapData(), rb = $("recapBody"); $("recap").hidden = !r || r.answered < 2; rb.innerHTML = "";
+  if (r){ const row = (a, b) => { const d = el("div"); d.append(el("b", "", a), el("span", "", b)); rb.append(d); };
+    row("Days answered", r.answered + " of 7"); row("With the majority", r.maj + " of " + r.answered); row("Streak", r.s + (r.s === 1 ? " day" : " days"));
+    if (r.rarest !== undefined){ const v = myVotes[dayKey(r.rarest)], [q, o] = qFor(r.rarest); row("Rarest take", o[v.choice] + ", " + v.share + "%"); } }
+  renderFriends();
 }
-
-// ---------- You vs your friends ----------
 async function renderFriends(){
-  const fl = friends(), box = $("flist"); box.innerHTML = "";
-  if (!fl.length){ const p=document.createElement("p"); p.className="note"; p.textContent="No friends yet. Send them your code and see who really thinks like you."; box.appendChild(p); return; }
-  let theirs = {}; try{ theirs = await backend.friendVotes(fl); }catch{}
-  const mine = {}; for (const d in myVotes) mine[d] = myVotes[d].choice;
-  const rows = fl.map(c => { const t = theirs[c] || {}; const both = Object.keys(t).filter(d => d in mine); const same = both.filter(d => t[d] === mine[d]).length; return { c, n: both.length, m: both.length ? pct(same, both.length) : null, today: t[todayKey] }; })
-    .sort((a,b) => (b.m ?? -1) - (a.m ?? -1));
-  for (const r of rows){
-    const row = document.createElement("div"); row.className = "fm";
-    const name = document.createElement("b"); name.className = "code"; name.textContent = r.c;
-    const meter = document.createElement("div"); meter.className = "meter"; const i = document.createElement("i"); i.style.width = (r.m ?? 0) + "%"; meter.appendChild(i);
-    const txt = document.createElement("span"); txt.className = "note";
-    txt.textContent = r.m === null ? "No shared answers yet"
-      : (r.m >= 80 ? "Same brain. " : r.m <= 30 ? "Total opposites. " : "") + r.m + "% match (" + r.n + ")"
-      + (r.today !== undefined && !myVotes[todayKey] ? " · they answered today 👀" : "");
-    row.append(name, meter, txt); box.appendChild(row);
-  }
+  const fl = friends(), box = $("flist"); let theirs = {};
+  try{ if (backend && fl.length) theirs = await backend.friendVotes(fl); }catch{}
+  box.innerHTML = ""; const mine = {}; for (const d in myVotes) mine[d] = myVotes[d].choice;
+  fl.map(c => { const t = theirs[c] || {}, both = Object.keys(t).filter(d => d in mine), same = both.filter(d => t[d] === mine[d]).length; return { c, n: both.length, m: both.length ? pct(same, both.length) : null, today: t[todayKey] }; })
+    .sort((a, b) => (b.m ?? -1) - (a.m ?? -1))
+    .forEach(r => { const d = el("div"); d.append(el("b", "", r.c), el("span", "", r.m === null ? (r.today !== undefined ? "Answered today" : "No shared answers yet") : (r.m >= 80 ? "Same brain, " : r.m <= 30 ? "Opposites, " : "") + r.m + "% match")); box.append(d); });
 }
-function setupFriends(me){
-  $("mycode").textContent = me;
-  $("copycode").onclick = async () => { try{ await navigator.clipboard.writeText(me); toast("Code copied. Send it to a friend."); }catch{ toast("Your code is " + me); } };
-  $("fform").onsubmit = e => { e.preventDefault(); const c = $("fcode").value.trim().toUpperCase(); if(!/^[A-Z0-9]{6}$/.test(c)){ toast("Friend codes are 6 letters and numbers."); return; } if(c===me){ toast("That's your own code."); return; } const f = friends(); if(!f.includes(c)) f.push(c); store.set("friends", f); $("fcode").value=""; toast("Friend added."); renderFriends(); renderStats(); renderAsk(); };
-  renderFriends(); setInterval(renderFriends, 30000);
+$("recapShare").onclick = () => { const r = recapData(), p = profile(); if (!r) return;
+  copyOrShow("My week on Verd\n" + r.answered + "/7 days answered, with the majority " + r.maj + " times\n" + (p.type ? "I'm a " + p.type + ". " : "") + r.s + " day streak\nWhat are you? " + (CONFIG.siteUrl || location.href.split("#")[0]), "Copied. Post it anywhere."); };
+$("copycode").onclick = () => copyOrShow($("mycode").textContent, "Code copied. Send it to a friend.");
+$("fform").onsubmit = e => { e.preventDefault(); const c = $("fcode").value.trim().toUpperCase(), me = $("mycode").textContent;
+  if (!/^[A-Z0-9]{6}$/.test(c)){ toast("Friend codes are 6 letters and numbers."); return; } if (c === me){ toast("That's your own code."); return; }
+  const f = friends(); if (!f.includes(c)) f.push(c); store.set("friends", f); $("fcode").value = ""; toast("Friend added."); checkBadges(); renderMe(); order = []; renderFeed(); };
+function setupPlace(){
+  const sel = $("country");
+  Object.entries(COUNTRIES).sort((a, b) => a[0] === "XX" ? 1 : b[0] === "XX" ? -1 : a[1].localeCompare(b[1])).forEach(([cc, name]) => sel.add(new Option(flag(cc) + "  " + name, cc)));
+  sel.value = guessCountry(); $("mycity").value = store.get("city", ""); $("mystate").value = store.get("state", "");
+  const changed = () => { order = []; renderFeed(); };
+  sel.onchange = () => { store.set("country", sel.value); changed(); };
+  $("mycity").onchange = () => { store.set("city", $("mycity").value.trim()); changed(); };
+  $("mystate").onchange = () => { store.set("state", $("mystate").value.trim()); changed(); };
 }
 
-let backend;
+// ---------- Navigation ----------
+function showPage(name){
+  $("me").hidden = name !== "me"; $("navHome").classList.toggle("on", name === "feed"); $("navMe").classList.toggle("on", name === "me");
+  if (name === "me"){ renderMe(); $("me").scrollTop = 0; }
+}
+$("navHome").onclick = () => { if ($("me").hidden) $("feed").scrollTo({ top: 0, behavior: "smooth" }); showPage("feed"); };
+$("navMe").onclick = () => showPage("me");
+$("navPlus").onclick = openCompose;
+setInterval(() => { const n = $("nextIn"); if (n) n.textContent = "Next question in " + nextIn(); }, 30000);
+
 (async function start(){
-  showTab(store.get("tab","today"));
-  fillCountries(); render(); tick(); setInterval(tick, 30000);
+  setupPlace(); renderTop(); renderFeed();
   backend = await pickBackend();
-  $("mode").textContent = backend.label;
-  setupFriends(backend.me);
-  setupAsk(backend.ask || null);
+  $("mode").textContent = backend.label; $("mycode").textContent = backend.me;
+  if (backend.ask){
+    ask.api = backend.ask;
+    ask.api.watch((posts, mv, mr) => { ask.posts = posts; ask.myVotes = { ...mv, ...ask.myVotes }; ask.myReports = { ...mr, ...ask.myReports }; checkFlips(); renderFeed(); if (sheetPost) renderSheet(); });
+  } else $("navPlus").hidden = true;
   if (backend.suggest){
     $("suggest").hidden = false;
-    $("sform").onsubmit = async e => {
-      e.preventDefault();
-      const q = $("sq").value.trim(), a = $("sa").value.split(",").map(s=>s.trim()).filter(Boolean);
+    $("sform").onsubmit = async e => { e.preventDefault();
+      const q = $("sq").value.trim(), a = $("sa").value.split(",").map(s => s.trim()).filter(Boolean);
       if (a.length < 2 || a.length > 4){ toast("Give 2 to 4 answers, separated by commas."); return; }
       $("ssend").disabled = true;
-      try{ await backend.suggest(q, a); $("sform").reset(); toast("Sent. Watch for it!"); }
-      catch{ toast("Couldn't send it. Check your connection and try again."); }
-      $("ssend").disabled = false;
-    };
+      try{ await backend.suggest(q, a); $("sform").reset(); toast("Sent. Watch for it."); }catch{ toast("Couldn't send it. Try again."); }
+      $("ssend").disabled = false; };
   }
-  backend.watch(todayKey, options.length, t => {
-    // keep my own answer counted even before the server catches up
-    const mine = myVotes[todayKey];
-    if (mine && t.total === 0) addTo(t, mine.choice, mine.country);
-    tally = t; render();
-  });
+  backend.watch(todayKey, options.length, t => { const mine = myVotes[todayKey]; if (mine && t.total === 0) addTo(t, mine.choice, mine.country); tally = t; renderFeed(); });
   if (today > 0){
-    const yKey = dayKey(today-1), [yq, yo] = qFor(today-1);
-    backend.watch(yKey, yo.length, t => {
-      if (!t.total) return;
-      $("yday").hidden = false; $("yq").textContent = yq;
-      $("yres").textContent = yo.map((o,i)=> o + " " + pct(t.counts[i], t.total) + "%").join("  ·  ") + "  (" + t.total.toLocaleString() + " answers)";
-      const mine = myVotes[yKey];
-      if (mine && t.total >= 2){ mine.majority = t.counts[mine.choice] === Math.max(...t.counts); mine.share = pct(t.counts[mine.choice], t.total); if (typeof mine.guess === "number") mine.err = Math.abs(pct(t.counts[0], t.total) - mine.guess); store.set("myVotes", myVotes); renderStats(); }
-    });
+    const yKey = dayKey(today - 1), yo = qFor(today - 1)[1];
+    backend.watch(yKey, yo.length, t => { ytally = t; const mine = myVotes[yKey];
+      if (mine && t.total >= 2){ mine.majority = t.counts[mine.choice] === Math.max(...t.counts); mine.share = pct(t.counts[mine.choice], t.total); store.set("myVotes", myVotes); }
+      renderFeed(); });
   }
+  renderFeed(); checkBadges();
 })();
 </script>

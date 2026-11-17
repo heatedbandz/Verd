@@ -7,7 +7,7 @@ printf '<!doctype html>\n<html lang="en"><head><meta charset="utf-8"><meta name=
 printf '<meta name="description" content="One question a day for the whole planet. Answer in ten seconds, then see how the world answered.">\n'
 printf '<meta property="og:title" content="Verd: what does the world think today?">\n'
 printf '<meta property="og:description" content="What&#39;s the Verd? One question a day for everyone on Earth. Answer in 10 seconds, then see the world&#39;s verdict.">\n'
-printf '<meta property="og:type" content="website"><meta name="twitter:card" content="summary"><meta name="theme-color" content="#fbfbf9">\n'
+printf '<meta property="og:type" content="website"><meta name="twitter:card" content="summary"><meta name="theme-color" content="#0b0b0b">\n'
 printf '<link rel="icon" href="%s">\n' "$ICON"
 printf '<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;font:14px system-ui,sans-serif}img{max-width:100%%}[hidden]{display:none!important}</style>\n</head><body>\n'
 grep -v 'claude:viewport-fit-sides' app.html
