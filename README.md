@@ -1,7 +1,8 @@
 # Verd
 
-**What's the Verd?** One question a day for the whole planet. Answer in ten seconds, then see how the world and your country answered.
+**What's the Verd?** One question a day for the whole planet. Answer in ten seconds, then see how the world answered.
 
-- `index.html` is the whole website (served by GitHub Pages).
-- `app.html` is the same app without the page wrapper; `sh build.sh` rebuilds `index.html` from it.
-- `setup.sql` creates the free Supabase database. Paste the project URL and anon key into `CONFIG` at the top of the script in `app.html`, then run `sh build.sh`.
+- `index.html` is the page: markup and all CSS. GitHub Pages serves it as is, with no build step.
+- `app.js` is all the code, loaded as an ES module.
+- `setup.sql` creates the Supabase database.
+- `build.sh` only makes `app.html`, a single-file copy for the claude.ai preview. The website doesn't need it.

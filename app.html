@@ -2,7 +2,7 @@
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&display=swap">
-<style>
+<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;font:14px system-ui,sans-serif}img{max-width:100%}[hidden]{display:none!important}</style><style>
 /* Layout: a full-screen feed. Each post is one screen of big text on a color, with two tap targets at the bottom. Chrome stays out of the way. */
 :root{
   --bg:#ffffff; --surface:#f3f3f1; --surface-2:#e6e6e2; --ink:#0f100e; --muted:#6d6f68; --line:#e9e9e5; --accent:#10a966; --accent-ink:#0a7d4b;
@@ -221,7 +221,6 @@ button{border:0;background:none;padding:0;cursor:pointer}
 }
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 </style>
-
 <div class="app">
   <div class="stage">
     <main class="feed" id="feed" aria-label="Feed"></main>
@@ -302,8 +301,7 @@ button{border:0;background:none;padding:0;cursor:pointer}
     <button id="navMe" aria-label="Me"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c1.5-4 4.5-6 8-6s6.500 2 8 6"/></svg></button>
   </nav>
 </div>
-
-<script>
+<script type="module">
 // ---------- Settings. Paste your free Supabase project URL and anon key here to go public. ----------
 const CONFIG = { supabaseUrl: "", supabaseKey: "", siteUrl: "" };
 
