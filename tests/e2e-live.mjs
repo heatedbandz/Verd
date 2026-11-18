@@ -31,7 +31,11 @@ async function page(init = {}) {
   return { p, ctx, errors };
 }
 const dbVotes = async (d) => (await fake.pool.query('select user_id, choice from public.votes where day = $1', [d])).rows;
-const tap = async (p, i = 0) => { const b = await p.$$('.slide[data-id=daily] .ans:not(:disabled)'); await b[i].click(); const g = await p.$('[data-guess]'); if (g) await g.click(); };
+// Answer today's question, then take the guess if one is offered (the guess step comes a frame after the tap).
+const tap = async (p, i = 0) => {
+  const b = await p.$$('.slide[data-id=daily] .ans:not(:disabled)'); await b[i].click();
+  const g = await p.waitForSelector('[data-guess]', { timeout: 1500 }).catch(() => null); if (g) await g.click();
+};
 
 before(async () => {
   const root = new pg.Client({ connectionString: ADMIN_URL }); await root.connect();

@@ -57,10 +57,27 @@ export function promptLine(res, mode){
 export function verdictMain(counts, mine){
   const s = shares(counts), share = s[mine], top = [...s].sort((a, b) => b - a);
   if (top[0] - top[1] <= 8) return "It's neck and neck.";
-  if (share === 0) return "Nobody else picked that. Yet.";
+  if (share === 0) return "Almost nobody picked that. Rare club.";
   if (share < 35) return "Only " + share + "% are with you. Rare club.";
   if (share >= 75) return share + "% agree with you.";
   return share + "% are on your side.";
+}
+
+// A short second line about the split, for when the headline is about your guess.
+export function flavor(counts, mine){
+  const s = shares(counts), share = s[mine], top = [...s].sort((a, b) => b - a);
+  if (top[0] - top[1] <= 8) return "It's neck and neck.";
+  if (share < 35) return "Rare club.";
+  if (share >= 75) return "Most people are with you.";
+  return "";
+}
+
+// The guess before the reveal: how many people picked the same answer as you?
+export const GUESSES = [["most", "Most"], ["half", "About half"], ["few", "Few"]];
+export const bucket = share => share >= 60 ? "most" : share >= 40 ? "half" : "few";
+export function guessLine(guess, share){
+  if (bucket(share) === guess) return "You called it. " + share + "% are with you.";
+  return "You guessed " + { most: "most people", half: "about half", few: "only a few" }[guess] + ". It's " + share + "%.";
 }
 
 // Before the minimum: how far along the count is, in plain numbers.

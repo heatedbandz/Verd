@@ -2,7 +2,7 @@
 //   cd tests && node --test core.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { shares, leader, localLevel, dayState, promptLine, verdictMain, lockedLines, pickTeaser } from '../core.js';
+import { shares, leader, localLevel, dayState, promptLine, verdictMain, lockedLines, pickTeaser, guessLine, bucket, flavor } from '../core.js';
 
 const MIN = { world: 10, country: 30, state: 30, city: 30 };
 // Builds a results object the way the database sends it: counts are null below the minimum.
@@ -115,4 +115,14 @@ test('every number in a teaser comes from a level that met its minimum', () => {
     assert.ok(k, 'a percentage appeared with no local level over its minimum: ' + line);
     assert.equal(Number(m[1]), shares(r[k].counts)[mine]);
   }
+});
+
+test('the guess is judged against the real share', () => {
+  assert.equal(bucket(64), 'most'); assert.equal(bucket(59), 'half'); assert.equal(bucket(40), 'half'); assert.equal(bucket(39), 'few');
+  assert.equal(guessLine('most', 64), 'You called it. 64% are with you.');
+  assert.equal(guessLine('few', 64), "You guessed only a few. It's 64%.");
+  assert.equal(guessLine('half', 51), 'You called it. 51% are with you.');
+  assert.equal(flavor([52, 48], 0), "It's neck and neck.");
+  assert.equal(flavor([20, 80], 0), 'Rare club.');
+  assert.equal(flavor([65, 35], 0), '');
 });

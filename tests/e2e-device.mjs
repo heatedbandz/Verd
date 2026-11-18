@@ -27,8 +27,9 @@ test('no database: the reveal shows no percentage, count or fake verdict', async
   const { p, ctx, errors } = await open();
   assert.match(await dailyText(p), /Tap your answer\./);
   await p.click('.slide[data-id=daily] .ans');
-  const g = await p.$('[data-guess]'); if (g) await g.click();
-  await p.waitForTimeout(1200);
+  await p.waitForTimeout(600);
+  assert.equal(await p.$('[data-guess]'), null, 'no guess step with no database: there is nothing to check it against');
+  await p.waitForTimeout(600);
   const text = await dailyText(p);
   assert.doesNotMatch(text, /\d\s*%/, 'a percentage appeared with no database: ' + text);
   assert.doesNotMatch(text, /first voice|of Earth|people answered|Plot twist|agree with you/i, text);

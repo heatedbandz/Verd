@@ -144,6 +144,7 @@ How these were measured: Lighthouse 13.6, median of 3 runs, in two profiles. "De
 | 1. Real backend | 100 / 100 | 1.40 s / 0.59 s | 96 | 56–72 ms | 17–33 ms | 21.0 + 7.2 KB (+30 KB font) | blank | no |
 | 2. Honest numbers | 100 / 100 | 1.40 s / 0.59 s | 96 | 56 ms | 33–50 ms | 23.3 + 7.2 KB (+30 KB font) | blank | no |
 | 3. Feel system | 100 / 100 | **0.62 s / 0.24 s** (LCP 1.12 / 0.43) | **100** | 64 ms | 33 ms | 23.6 + 8.1 KB, no font | blank | no |
+| 4. The reveal | 100 / 100 | 0.61 s / 0.25 s (LCP 1.09 / 0.43) | 100 | **40–56 ms** (live reveal: 16 ms vote, 32–40 ms guess) | **0–1 frames over 20 ms**, only the tap's own frame | 27.1 + 8.4 KB | blank | no |
 
 ### 1. Real backend
 
@@ -171,6 +172,15 @@ How these were measured: Lighthouse 13.6, median of 3 runs, in two profiles. "De
 - **Motion:** one shared spring (stiffness 380, damping 26, 6% overshoot, settles in about 500 ms) written as a CSS `linear()` curve. Buttons squish to 0.96 on press and spring back on release. Result bars now animate `transform` instead of `height`/`width`, and nothing animates colour, shadow or size any more.
 - **Haptics:** one helper with four named moments: vote, reveal, streak milestone and new badge. The haptic on every button tap is gone.
 - **Numbers:** FCP fell from 1.40 s to **0.62 s** on the harsh profile and from 0.59 s to **0.24 s** on the iPhone profile, almost all from dropping the font. Page weight fell from 60 KB to 32 KB.
+
+### 4. The reveal
+
+- **The moment, in order:** you tap an answer and it squishes, rings white and ticks in the same frame (16 ms at 4× CPU), before anything is saved. Then one quick guess: "How many people picked Cats? Most · About half · Few". Then the reveal on one timeline: bars grow on `transform` and the percentages count up with an ease-out for 0.8 s and land exactly on the database's numbers; the headline arrives at 420 ms ("You called it. 69% are with you." or "You guessed only a few. It's 69%."), then one true teaser at 700 ms.
+- **When there's nothing to check the guess against** (no database), there's no guess step. Under the minimum the guess is kept: "You're one of the first 7 voters. 3 more votes until the verdict unlocks. Your guess is saved." The first time you see an unlocked verdict, even on a later visit, it plays the full reveal.
+- **Share:** one tap opens the share sheet with a 1080 × 1350 image card: "What's the Verd?", the question, "I'm with 69% of 13 people. Which side are you on?", the answers without numbers, the link and your friend code. It never says which side won, so friends still have to answer. The card is drawn ahead of time while you read, so the share sheet opens straight away on iPhone. Where there's no share sheet (most computers) the card is saved and the text copied.
+- **Speed:** a vote or a new count redraws only today's slide, and keeps the slide itself so its full-screen gradient isn't repainted. Nothing redraws when nothing visible changed, so a button is never swapped out under your finger (this was a real race: a count arriving mid-guess replaced the guess buttons). Slides use CSS containment.
+- **View Transitions** cross-fade the tabs and each step of the reveal on Safari 18+ and Chrome. Older browsers get the existing slide-up animation. Reduced motion turns both off and shows final numbers straight away.
+- **Tests:** `tests/reveal.mjs` runs the whole moment against the real `setup.sql` in light and dark: answer, guess, reveal, share. It checks the count-up's final text equals the database's split, the guess line, the answer count, that the card is a 1080 × 1350 PNG with the branding, and that no text drawn on the card names the winning side. **3 of 3 pass.** It also measures taps (16 ms answer, 32–40 ms guess) and frames: over 1.8 s of reveal at 4× CPU, 0 or 1 frames run over 20 ms, and the only one is the tap's own response frame (33–50 ms at 4×, about a quarter of that on a phone at full speed).
 
 ## Next single step
 

@@ -1,4 +1,4 @@
-import { sum, pct, num, countsOf, shares, dayState, promptLine, verdictMain, lockedLines, pickTeaser } from "./core.js";
+import { sum, pct, num, countsOf, shares, dayState, promptLine, verdictMain, lockedLines, pickTeaser, flavor, GUESSES, guessLine } from "./core.js";
 
 // ---------- Settings ----------
 // To go live: paste the Supabase Project URL and anon public key (Project Settings > API).
@@ -252,11 +252,22 @@ const haptics = (() => {
     badge: () => play([16, 50, 16], [0, 110])            // a new badge
   };
 })();
+const calm = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+// Counts up with an ease-out and always lands exactly on the real number.
 function countUp(el, to, suffix){
-  if (matchMedia("(prefers-reduced-motion: reduce)").matches){ el.textContent = to + suffix; return; }
-  const t0 = performance.now(), dur = 750;
-  const step = now => { const k = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - k, 3); el.textContent = Math.round(to * e) + suffix; if (k < 1) requestAnimationFrame(step); };
-  requestAnimationFrame(step);
+  if (calm()){ el.textContent = to + suffix; return; }
+  const t0 = performance.now(), dur = 800;
+  const step = now => { const k = Math.min(1, (now - t0) / dur); el.textContent = (k < 1 ? Math.round(to * (1 - Math.pow(1 - k, 3))) : to) + suffix; if (k < 1) requestAnimationFrame(step); };
+  el.textContent = "0" + suffix; requestAnimationFrame(step);
+}
+// Let the browser paint the tap first, then do the work (keeps every tap well under 100 ms).
+const afterPaint = fn => requestAnimationFrame(() => setTimeout(fn, 0));
+const idle = fn => "requestIdleCallback" in window ? requestIdleCallback(fn, { timeout: 2000 }) : setTimeout(fn, 600);
+// View Transitions where the browser has them (Safari 18+, Chrome); otherwise the change just happens.
+function withTransition(update){
+  if (!document.startViewTransition || calm() || document.hidden) return update();
+  const root = document.documentElement; root.classList.add("vt");
+  document.startViewTransition(update).finished.finally(() => root.classList.remove("vt"));
 }
 
 // ---------- Streaks with freezes ----------
@@ -371,7 +382,7 @@ const today = dayNum(), todayKey = dayKey(today);
 const [question, options] = qFor(today);
 let myVotes = store.get("myVotes", {});
 let res = null, yres = null;   // today's and yesterday's results (see Backends for the shape)
-let backend = null, order = [], animate = null, jumpTo = null, sheetPost = null, revealPending = false;
+let backend = null, ready = null, order = [], animate = null, jumpTo = null, sheetPost = null;
 function guessCountry(){
   const saved = store.get("country"); if (saved) return saved;
   const langs = navigator.languages || [navigator.language || ""];
@@ -427,19 +438,19 @@ function syncOrder(){
 function currentId(){ const f = $("feed"); if (!f.children.length || !f.clientHeight) return null; const s = f.children[Math.round(f.scrollTop / f.clientHeight)]; return s ? s.dataset.id : null; }
 
 function shell(id, color){ const s = hue(el("section", "slide"), color); s.dataset.id = id; return s; }
-function answers(id, labels, results, mineIdx, onTap){
+function answers(id, labels, results, mineIdx, onTap, anim){
   const box = el("div", "answers" + (labels.length > 2 ? " stack" : ""));
   labels.forEach((label, i) => {
     const b = el("button", "ans" + (mineIdx === i ? " mine" : ""));
     const fill = el("i", "fill"); b.append(fill, el("span", "alabel", label));
-    if (animate === id && mineIdx === i) b.classList.add("pop");
+    if (anim && mineIdx === i) b.classList.add("pop");
     if (results){
       const p = el("span", "apct"); b.append(p); b.disabled = true;
       const set = () => { fill.style.transform = (labels.length > 2 ? "scaleX(" : "scaleY(") + results[i] / 100 + ")"; };   // transform only: no layout per frame
-      if (animate === id){ countUp(p, results[i], "%"); requestAnimationFrame(() => requestAnimationFrame(set)); }
+      if (anim){ countUp(p, results[i], "%"); requestAnimationFrame(() => requestAnimationFrame(set)); }
       else { p.textContent = results[i] + "%"; set(); }
     } else if (mineIdx >= 0) b.disabled = true;   // answered: locked in while the count comes
-    else b.onclick = () => onTap(i);
+    else b.onclick = () => onTap(i, b);
     box.append(b);
   });
   return box;
@@ -456,8 +467,10 @@ function verdict(state, mine){
   if (state === "device") return ["Your answer is saved.", "Live results aren't switched on yet, so there's no verdict to show."];
   if (state === "offline") return ["Your answer is saved.", "It counts as soon as you're back online."];
   if (state === "loading" || state === "counting") return ["Your answer is in.", "Counting the votes…"];
-  if (state === "locked") return lockedLines(res);
-  return [verdictMain(countsOf(res.world), mine.choice), pickTeaser(res, mine.choice, placeNames())];
+  if (state === "locked"){ const [a, b] = lockedLines(res); return [a, b + (mine.guess ? " Your guess is saved." : "")]; }
+  const counts = countsOf(res.world), teaser = pickTeaser(res, mine.choice, placeNames());
+  if (mine.guess) return [guessLine(mine.guess, shares(counts)[mine.choice]), teaser || flavor(counts, mine.choice)];
+  return [verdictMain(counts, mine.choice), teaser];
 }
 // Remember how your answer did once the real count is in (for badges, your week and your opinion type).
 function noteShare(key, r){
@@ -473,27 +486,67 @@ function dailyFoot(){
   if (!myVotes[todayKey]) return promptLine(res, backend && backend.mode);
   return (todayState() === "revealed" ? num(n) + (n === 1 ? " answer" : " answers") + " · " : "") + "Next question in " + nextIn();
 }
-function dailySlide(){
-  const s = shell("daily", COLORS[today % COLORS.length]), mine = myVotes[todayKey], body = el("div", "sbody"), state = todayState();
+// Today's slide moves through: open → (tap) guess → (tap) reveal. With no database there's no guess,
+// because there will be nothing to check it against.
+// What today's slide shows, as plain data. Two models with the same key look identical on screen.
+function dailyModel(){
+  const mine = myVotes[todayKey], state = todayState();
+  const guessing = !!(mine && backend && backend.mode !== "device" && mine.guess == null && !mine.seen);
+  const counts = state === "revealed" && !guessing ? countsOf(res.world) : null;
+  return {
+    choice: mine ? mine.choice : -1, guessing, share: !!mine && !guessing, foot: dailyFoot(),
+    lines: guessing ? ["Quick guess before the reveal.", "How many people picked " + options[mine.choice] + "?"] : mine ? verdict(state, mine) : null,
+    results: counts ? shares(counts) : null,
+    reveal: !!counts && !mine.seen   // the first time you see this verdict
+  };
+}
+const modelKey = m => JSON.stringify({ ...m, reveal: 0 });
+function dailySlide(m = dailyModel()){
+  const s = shell("daily", COLORS[today % COLORS.length]), body = el("div", "sbody"), mine = myVotes[todayKey];
+  s.dataset.key = modelKey(m);
   body.append(el("div", "kicker", "Today's question · No. " + (today + 1)), el("h2", "stext" + sizeClass(question), question));
-  if (mine){ const [main, sub] = verdict(state, mine); body.append(el("p", "sverdict", main)); if (sub) body.append(el("p", "ssub", sub)); }
-  const counts = state === "revealed" ? countsOf(res.world) : null;
-  const foot = el("div", "sfoot");
-  const info = el("span", "", dailyFoot());
+  if (m.lines){ body.append(el("p", "sverdict", m.lines[0])); if (m.lines[1]) body.append(el("p", "ssub", m.lines[1])); }
+  const foot = el("div", "sfoot"), info = el("span", "", m.foot);
   if (mine) info.id = "nextIn";
   foot.append(info); const acts = el("div", "sacts");
-  if (mine) acts.append(iact("share", "Share", "Share", shareDaily));
+  if (m.share) acts.append(iact("share", "Share", "Share", shareDaily));
   foot.append(acts);
-  s.append(body, answers("daily", options, counts ? shares(counts) : null, mine ? mine.choice : -1, vote), foot);
-  if (mine && animate === "daily"){ const h = el("div", "hint", "Swipe up for more"); s.append(h); }
+  s.append(body, m.guessing ? guessRow() : answers("daily", options, m.results, m.choice, vote, m.reveal), foot);
+  if (m.reveal){
+    s.classList.add("reveal"); s.append(el("div", "hint", "Swipe up for more"));
+    mine.seen = true; store.set("myVotes", myVotes); revealing = Date.now() + 1400; haptics.reveal();
+  }
+  if (m.share) setTimeout(() => idle(prepareCard), m.reveal ? 3000 : 2500);   // drawn while you read, never during the reveal
   return s;
+}
+function guessRow(){
+  const box = el("div", "answers stack guess");
+  for (const [k, label] of GUESSES){ const b = el("button", "ans"); b.dataset.guess = k; b.append(el("span", "alabel", label)); b.onclick = () => guess(k); box.append(b); }
+  return box;
+}
+// Re-draw only today's slide, not the whole feed, and keep the slide itself: its full-screen gradient
+// stays painted and only what changed inside it is drawn again. This keeps a vote or a new count cheap.
+let revealing = 0, later = null;
+// If nothing visible changed (say, a new count arrives while you're choosing a guess), nothing is redrawn,
+// so a button is never swapped out from under your finger.
+function renderDaily(){
+  const old = $("feed").querySelector('.slide[data-id="daily"]');
+  if (!old) return renderFeed();
+  const m = dailyModel(); if (old.dataset.key === modelKey(m)) return;
+  const fresh = dailySlide(m); old.className = fresh.className + (old.classList.contains("in") ? " in" : ""); old.dataset.key = fresh.dataset.key; old.replaceChildren(...fresh.childNodes);
+}
+// A new count while the reveal is still playing waits for it to finish.
+function onToday(r){
+  if (r){ res = r; noteShare(todayKey, r); }
+  clearTimeout(later); const wait = revealing - Date.now();
+  if (wait > 0) later = setTimeout(renderDaily, wait); else renderDaily();
 }
 function yesterdaySlide(){
   const [yq, yo] = qFor(today - 1), s = shell("yday", COLORS[(today + 7) % COLORS.length]), body = el("div", "sbody"), mine = myVotes[dayKey(today - 1)];
   body.append(el("div", "kicker", "Yesterday's final verdict"), el("h2", "stext" + sizeClass(yq), yq));
   const yc = countsOf(yres.world), yt = sum(yc);
   const foot = el("div", "sfoot"); foot.append(el("span", "", num(yt) + (yt === 1 ? " answer" : " answers"))); foot.append(el("div", "sacts"));
-  s.append(body, answers("yday", yo, shares(yc), mine ? mine.choice : -1, () => {}), foot);
+  s.append(body, answers("yday", yo, shares(yc), mine ? mine.choice : -1, () => {}, false), foot);
   return s;
 }
 function postSlide(p){
@@ -516,7 +569,7 @@ function postSlide(p){
   acts.append(iact("comment", "Comments", nC ? String(nC) : "", () => openSheet(p.id)));
   if (!mine) acts.append(iact("flag", "Report", "", () => report(p.id)));
   foot.append(acts);
-  s.append(body, answers(p.id, labels, show && total ? [yes, 100 - yes] : null, my ? (my > 0 ? 0 : 1) : -1, tap), foot);
+  s.append(body, answers(p.id, labels, show && total ? [yes, 100 - yes] : null, my ? (my > 0 ? 0 : 1) : -1, tap, animate === p.id), foot);
   return s;
 }
 function endSlide(){
@@ -553,14 +606,29 @@ function renderTop(){
 }
 
 // ---------- Actions ----------
-async function vote(i){
+// The tap itself only marks your answer and ticks (under 16 ms). Saving and drawing happen after that frame.
+let voting = false;
+function vote(i, btn){
+  if (myVotes[todayKey] || voting) return; voting = true;
+  if (btn){ btn.classList.add("mine", "pop"); for (const b of btn.parentNode.children) b.disabled = true; }
+  haptics.vote();
+  afterPaint(() => commitVote(i));
+}
+async function commitVote(i){
   const place = myPlace(); myVotes[todayKey] = { choice: i, country: place.country }; store.set("myVotes", myVotes); bumpStreak();
   if (res) res = { ...res, mine: i };
-  haptics.vote(); animate = "daily"; revealPending = true; renderFeed(); checkBadges();
+  withTransition(renderDaily); checkBadges();
+  if (!backend) await ready;
   let ok = false;
   try{ ok = await backend.vote(todayKey, i, options.length, place); }catch{}
+  voting = false;
   if (ok){ store.set("sent", todayKey); showCode(); }
-  else { toast("Saved. It will count when you're back online."); renderFeed(); }
+  else { toast("Saved. It will count when you're back online."); renderDaily(); }
+}
+function guess(k){
+  const mine = myVotes[todayKey]; if (!mine || mine.guess) return;
+  mine.guess = k; store.set("myVotes", myVotes);
+  withTransition(renderDaily);
 }
 async function votePost(id, v){
   ask.myVotes = { ...ask.myVotes, [id]: v }; const p = ask.posts.find(x => x.id === id);
@@ -574,12 +642,78 @@ async function copyOrShow(text, okMsg){
   try{ await navigator.clipboard.writeText(text); toast(okMsg); }
   catch{ sheetPost = null; $("stitle").textContent = "Copy this"; $("clist").hidden = true; $("cform").hidden = true; const b = $("shareBox"); b.hidden = false; b.value = text; $("sheet").hidden = false; b.focus(); b.select(); }
 }
-function shareDaily(){
-  const mine = myVotes[todayKey]; if (!mine) return;
-  const url = CONFIG.siteUrl || location.href.split("#")[0];
-  const counts = todayState() === "revealed" ? countsOf(res.world) : null;
-  const line = counts ? "I'm with " + shares(counts)[mine.choice] + "% of the " + num(sum(counts)) + " people who answered." : "I answered. The verdict isn't in yet.";
-  copyOrShow("Verd #" + (today + 1) + "\n" + question + "\n" + line + " What's your Verd? (No peeking before you answer.)\n" + streakNow().current + " day streak\n" + url, "Copied. Paste it in your group chat.");
+// ---------- Share: a result card image, through the share sheet ----------
+// The card says how big your side is, never which side won, so friends still have to answer to find out.
+const FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
+const siteUrl = () => CONFIG.siteUrl || location.href.split("#")[0].split("?")[0];
+function shareLines(){
+  const mine = myVotes[todayKey], counts = todayState() === "revealed" ? countsOf(res.world) : null;
+  if (counts) return ["I'm with " + shares(counts)[mine.choice] + "% of " + num(sum(counts)) + " people.", "Which side are you on?"];
+  return ["I answered. The verdict isn't in yet.", "What's your Verd?"];
+}
+function wrapText(g, text, width){
+  const lines = []; let line = "";
+  for (const w of text.split(" ")){ const t = line ? line + " " + w : w; if (line && g.measureText(t).width > width){ lines.push(line); line = w; } else line = t; }
+  return line ? [...lines, line] : lines;
+}
+function drawCard(){
+  const W = 1080, H = 1350, P = 88, cv = document.createElement("canvas"); cv.width = W; cv.height = H;
+  const g = cv.getContext("2d"), [c0, c1] = COLORS[today % COLORS.length];
+  let gr = g.createLinearGradient(W * .37, 0, W * .63, H); gr.addColorStop(0, c0); gr.addColorStop(1, c1); g.fillStyle = gr; g.fillRect(0, 0, W, H);
+  gr = g.createRadialGradient(0, 0, 0, 0, 0, W * 1.2); gr.addColorStop(0, "rgba(255,255,255,.1)"); gr.addColorStop(.6, "rgba(255,255,255,0)"); g.fillStyle = gr; g.fillRect(0, 0, W, H);
+  g.fillStyle = "#fff"; g.textBaseline = "alphabetic";
+  g.font = "800 54px " + FONT; g.fillText("What's the Verd?", P, 160);
+  g.font = "600 36px " + FONT; g.textAlign = "right"; g.fillText("No. " + (today + 1), W - P, 158); g.textAlign = "left";
+  let size = 124, lines;   // the question, as big as fits
+  do { size -= 6; g.font = "800 " + size + "px " + FONT; lines = wrapText(g, question, W - 2 * P); } while ((lines.length > 5 || lines.length * size * 1.04 > 500) && size > 56);
+  const [l1, l2] = shareLines(); g.font = "700 50px " + FONT; const l1s = wrapText(g, l1, W - 2 * P);
+  const n = options.length, gap = 24, pw = (W - 2 * P - gap * (n - 1)) / n, ph = 120, py = H - 330;
+  const block = lines.length * size * 1.04 + 40 + l1s.length * 62 + 42;   // centre the words between the header and the answers
+  let y = 200 + Math.max(40, (py - 200 - block) / 2) + size * .8;
+  g.font = "800 " + size + "px " + FONT; for (const l of lines){ g.fillText(l, P, y); y += size * 1.04; }
+  y += 40; g.font = "700 50px " + FONT; for (const l of l1s){ g.fillText(l, P, y); y += 62; }
+  g.font = "500 42px " + FONT; g.fillText(l2, P, y);
+  // the answers, without numbers
+  options.forEach((o, i) => {
+    const x = P + i * (pw + gap); g.beginPath(); g.roundRect ? g.roundRect(x, py, pw, ph, 28) : g.rect(x, py, pw, ph);
+    g.fillStyle = "rgba(255,255,255,.16)"; g.fill(); g.strokeStyle = "rgba(255,255,255,.28)"; g.lineWidth = 2; g.stroke();
+    let fs = 44; do { g.font = "700 " + fs + "px " + FONT; fs -= 2; } while (g.measureText(o).width > pw - 40 && fs > 22);
+    g.fillStyle = "#fff"; g.textAlign = "center"; g.fillText(o, x + pw / 2, py + ph / 2 + fs * .36); g.textAlign = "left";
+  });
+  const code = store.get("myCode", "");
+  g.font = "600 34px " + FONT; g.fillText("Answer at " + siteUrl().replace(/^https?:\/\//, "").replace(/\/$/, ""), P, code ? H - 140 : H - 100);
+  if (code){ g.font = "500 34px " + FONT; g.fillText("Add me on Verd: " + code, P, H - 88); }
+  return cv;
+}
+const cardName = () => "verd-" + (today + 1) + ".png";
+function fileFromCanvas(cv){
+  const bin = atob(cv.toDataURL("image/png").split(",")[1]), u8 = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+  return new File([u8], cardName(), { type: "image/png" });
+}
+// The card is drawn ahead of time, in idle moments, so tapping Share opens the sheet straight away.
+let card = null;
+const cardKey = () => todayState() + "|" + shareLines()[0] + "|" + store.get("myCode", "");
+function prepareCard(){
+  if (!myVotes[todayKey]) return;
+  const key = cardKey(); if (card && card.key === key) return;
+  try{ drawCard().toBlob(b => { if (b) card = { key, file: new File([b], cardName(), { type: "image/png" }) }; }, "image/png"); }catch{}
+}
+function saveFile(file){
+  try{ const a = el("a"); a.href = URL.createObjectURL(file); a.download = file.name; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000); }catch{}
+}
+async function shareDaily(){
+  if (!myVotes[todayKey]) return;
+  const [l1, l2] = shareLines(), url = siteUrl();
+  const text = "Verd No. " + (today + 1) + ": " + question + "\n" + l1 + " " + l2 + " (No peeking before you answer.)";
+  let file = card && card.key === cardKey() ? card.file : null;
+  if (!file){ try{ file = fileFromCanvas(drawCard()); }catch{} }
+  try{
+    if (file && navigator.canShare && navigator.canShare({ files: [file] })){ await navigator.share({ files: [file], text: text + "\n" + url }); return; }
+    if (navigator.share){ await navigator.share({ title: "What's the Verd?", text, url }); return; }
+  }catch(e){ if (e && e.name === "AbortError") return; }
+  if (file) saveFile(file);   // no share sheet here (most computers): save the card and copy the text
+  copyOrShow(text + "\n" + url, file ? "Card saved. The text is copied too." : "Copied. Paste it in your group chat.");
 }
 
 // ---------- Comments ----------
@@ -806,7 +940,8 @@ $("qclear").onclick = () => { $("q").value = ""; renderSearch(); $("q").focus();
 $("qcancel").onclick = () => { $("q").value = ""; showPage("feed"); };
 
 // ---------- Navigation ----------
-function showPage(name){
+function showPage(name){ withTransition(() => showPageNow(name)); }
+function showPageNow(name){
   $("me").hidden = name !== "me"; $("search").hidden = name !== "search"; document.querySelector(".app").classList.toggle("paged", name !== "feed");
   $("navHome").classList.toggle("on", name === "feed"); $("navSearch").classList.toggle("on", name === "search"); $("navMe").classList.toggle("on", name === "me");
   if (name === "search"){ renderSearch(); $("search").scrollTop = 0; setTimeout(() => $("q").focus(), 60); }
@@ -820,7 +955,7 @@ setInterval(() => { const n = $("nextIn"); if (n) n.textContent = dailyFoot(); }
 
 (async function start(){
   setupPlace(); renderTop(); renderFeed();
-  backend = await pickBackend();
+  ready = pickBackend(); backend = await ready;
   $("mode").textContent = backend.label;
   showCode();
   if (backend.ask){
@@ -836,10 +971,7 @@ setInterval(() => { const n = $("nextIn"); if (n) n.textContent = dailyFoot(); }
       try{ await backend.suggest(q, a); $("sform").reset(); toast("Sent. Watch for it."); }catch{ toast("Couldn't send it. Try again."); }
       $("ssend").disabled = false; };
   }
-  backend.watch(todayKey, options.length, myPlace(), r => {
-    if (r){ res = r; noteShare(todayKey, r); if (revealPending && todayState() === "revealed"){ revealPending = false; animate = "daily"; haptics.reveal(); } }
-    renderFeed();
-  });
+  backend.watch(todayKey, options.length, myPlace(), onToday);
   if (today > 0){
     const yKey = dayKey(today - 1), yo = qFor(today - 1)[1];
     backend.watch(yKey, yo.length, myPlace(), r => { if (!r) return; yres = r; noteShare(yKey, r); renderFeed(); });
