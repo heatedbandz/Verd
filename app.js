@@ -61,7 +61,7 @@ const backends = {
         catch(e){ if (!e.status || e.status >= 500) throw e; }   // offline or server trouble: keep the session for later
       }
       await auth("signup", { data: {} });   // anonymous sign-in: no email, no password, no signup wall
-      importLocal();
+      importLocal(); syncFriends();
       return session.at;
     }
     // needAuth: create a session if there is none (voting). Otherwise use it only if it exists.
@@ -95,6 +95,9 @@ const backends = {
         } finally { flushing = null; }
       })();
     }
+    // Your friend list lives on this phone. The database gets a copy once you have an account, so a friend
+    // match can check that you both added each other. No account is made just for this.
+    function syncFriends(){ if (session) rpc("set_friends", { codes: store.get("friends", []) }, true).catch(() => {}); }
     // Answers this phone saved before the database existed, copied once (today's goes through the outbox).
     async function importLocal(){
       if (store.get("imported", false)) return;
@@ -118,7 +121,9 @@ const backends = {
       async results(dayKey, n, place){ const r = shape(await rpc("get_results", { d: dayKey, n, ...placeArgs(place) })); store.set("res:" + dayKey, r); return r; },
       retry(){ flush(); subs.forEach((_, d) => refresh(d)); },
       async profile(){ return session ? rpc("my_profile", {}, true) : null; },   // no account until the first vote
-      async friendMatch(codes){ return codes.length && session ? rpc("friend_match", { codes }, true) : []; },
+      // null: can't check yet (no account until your first answer). Only friends who added you too come back.
+      async friendMatch(codes){ return !codes.length ? [] : session ? rpc("friend_match", { codes }, true) : null; },
+      setFriends: syncFriends,
       async board(dayKey, n, place, level){ return rpc("get_board", { d: dayKey, n, cc: level === "country" ? null : place.country, st: level === "city" ? place.state : null }); },
       async suggest(q, answers){ return rpc("suggest_question", { q, answers }, true); },
       waiting: d => stuck && store.get("outbox", []).some(x => x.d === d)   // saved, but no connection to send it
@@ -180,7 +185,7 @@ const backends = {
       async results(dayKey){ return result(dayKey); },
       async vote(dayKey){ const cb = cbs.get(dayKey); if (cb) cb(result(dayKey)); return true; },
       async profile(){ return { code: me }; },
-      async friendMatch(){ return []; },
+      async friendMatch(){ return null; },   // nothing to compare with until live results are switched on
       async board(){ return []; }
     };
   }
@@ -364,6 +369,13 @@ function guessCountry(){
 }
 const myPlace = () => ({ city: store.get("city", ""), state: store.get("state", ""), country: guessCountry() });
 const friends = () => store.get("friends", []);
+// First names from invite links. They're kept on this phone only.
+const nick = c => store.get("nicks", {})[c] || "";
+function saveFriends(list){ store.set("friends", list); if (backend && backend.setFriends) backend.setFriends(); }
+// Your friend code. Codes from the database and stand-in codes from before it existed are kept apart,
+// so an invite never carries a code that won't work.
+const myCode = () => store.get("myCode:" + (backend ? backend.mode : ""), "");
+const ownCode = c => c === codeFrom(voterId()) || ["live", "preview"].some(m => store.get("myCode:" + m, "") === c);
 const SCOPES = [["world","World"],["country","Country"],["state","State"],["city","City"],["friends","Friends"]];
 // Slide colours: violet, crimson, green, ink, blue, pink, rust, teal. Each is dark enough that white text passes
 // WCAG AA (4.5:1) on both ends of its gradient, under the sheen. tests/contrast.mjs checks every pair (#verd-data).
@@ -532,7 +544,7 @@ function patchDaily(old, m){
 }
 // A new count while the reveal is still playing waits for it to finish.
 function onToday(r){
-  if (r){ res = r; noteShare(todayKey, r); if (!r.stale) netDown = false; } else netDown = true;
+  if (r){ res = r; noteShare(todayKey, r); if (!r.stale) netDown = false; if (!r.stale && r.mine != null) boardSoon(); } else netDown = true;
   renderNet(); clearTimeout(later); const wait = revealing - Date.now();
   if (wait > 0) later = setTimeout(renderDaily, wait); else renderDaily();
 }
@@ -540,6 +552,52 @@ function onToday(r){
 function finalLine(c, o, mine){
   if (mine) return "You said " + o[mine.choice] + ". " + verdictMain(c, mine.choice);
   const lead = leader(c); return lead < 0 ? "It ended in a tie." : shares(c)[lead] > 50 ? "Most people said " + o[lead] + "." : o[lead] + " came out on top.";
+}
+// ---------- Today's board ----------
+// Countries, and cities in your state, with enough answers today (30 each, set in the database), and how many in
+// each picked your answer. Live only, once the database has your answer. Below the minimum it says so.
+let board = null, boardAt = 0;
+function boardSoon(){
+  if (!backend || backend.mode !== "live" || !myVotes[todayKey] || Date.now() - boardAt < 60000) return;
+  boardAt = Date.now();
+  const place = myPlace(), n = options.length;
+  Promise.all([backend.board(todayKey, n, place, "country"), place.state ? backend.board(todayKey, n, place, "city") : null])
+    .then(([countries, cities]) => {
+      const next = { countries: countries || [], cities }; if (JSON.stringify(next) === JSON.stringify(board)) return;
+      board = next; setTimeout(() => idle(renderFeed), Math.max(0, revealing - Date.now()));   // never during the reveal
+    })
+    .catch(() => { boardAt = 0; });
+}
+const placeKey = s => String(s || "").trim().replace(/\s+/g, " ").toLowerCase();
+const titleCase = s => String(s).replace(/(^|[\s-])(\p{L})/gu, (m, a, b) => a + b.toUpperCase());
+function boardSlide(){
+  const mine = myVotes[todayKey].choice, pl = myPlace(), min = k => (res && res.min && res.min[k]) || CONFIG.min[k];
+  const s = shell("board", COLORS[(today + 3) % COLORS.length]), body = el("div", "sbody"), list = el("div", "board");
+  body.append(el("div", "kicker", "Today's board"), el("h2", "stext m", "Who said " + options[mine] + "?"));
+  // The biggest places, plus yours if it made the board lower down.
+  const rows = (all, isMe, label) => {
+    const show = all.slice(0, 5), me = all.find(isMe); if (me && !show.includes(me)) show.push(me);
+    for (const r of show){
+      const p = shares(r.counts)[mine], d = el("div", "brow" + (isMe(r) ? " you" : "")), bar = el("i");
+      bar.style.setProperty("--p", p / 100); bar.setAttribute("aria-hidden", "true");
+      d.append(el("span", "", label(r)), el("b", "", p + "%"), bar); list.append(d);
+    }
+  };
+  const notes = [], { countries, cities } = board;
+  if (countries.length){
+    rows(countries, r => r.place === pl.country, r => flag(r.place) + " " + (COUNTRIES[r.place] || r.place));
+    if (pl.country !== "XX" && !countries.some(r => r.place === pl.country)) notes.push(COUNTRIES[pl.country] + " shows up at " + min("country") + " answers.");
+  } else notes.push("No country has " + min("country") + " answers yet. Share today's question to put yours on the board.");
+  if (cities && cities.length){
+    list.append(el("p", "blabel", "Cities in " + titleCase(pl.state)));
+    rows(cities, r => r.place === placeKey(pl.city), r => titleCase(r.place));
+  } else if (cities) notes.push("No city in " + titleCase(pl.state) + " has " + min("city") + " answers yet.");
+  if (list.children.length) body.append(list);
+  for (const t of notes) body.append(el("p", "ssub", t));
+  const foot = el("div", "sfoot"), acts = el("div", "sacts");
+  acts.append(iact("share", "Share", "Share", shareDaily));
+  foot.append(el("span", "sinfo", "Places show at " + min("country") + " answers."), acts);
+  s.append(body, foot); return s;
 }
 function yesterdaySlide(){
   const [yq, yo] = qFor(today - 1), s = shell("yday", COLORS[(today + 7) % COLORS.length]), body = el("div", "sbody"), mine = myVotes[dayKey(today - 1)];
@@ -599,7 +657,7 @@ function renderFeed(){
   // Today's slide is patched where it is (see patchDaily); everything else is rebuilt.
   const old = feed.querySelector('.slide[data-id="daily"]'), daily = ask.scope !== "world" ? null : old ? (patchDaily(old, dailyModel()), old) : dailySlide();
   for (const c of [...feed.children]) if (c !== daily) c.remove();
-  if (daily){ if (!daily.isConnected) feed.prepend(daily); if (countsOf(yres && yres.world)) feed.append(yesterdaySlide()); }
+  if (daily){ if (!daily.isConnected) feed.prepend(daily); if (board && myVotes[todayKey]) feed.append(boardSlide()); if (countsOf(yres && yres.world)) feed.append(yesterdaySlide()); }
   const byId = Object.fromEntries(ask.posts.map(p => [p.id, p]));
   for (const id of order) feed.append(postSlide(byId[id]));
   feed.append(endSlide());
@@ -711,7 +769,7 @@ function drawCard(){
     let fs = 44; do { g.font = "700 " + fs + "px " + FONT; fs -= 2; } while (g.measureText(o).width > pw - 40 && fs > 22);
     g.fillStyle = "#fff"; g.textAlign = "center"; g.fillText(o, x + pw / 2, py + ph / 2 + fs * .36); g.textAlign = "left";
   });
-  const code = store.get("myCode", "");
+  const code = myCode();
   g.font = "600 34px " + FONT; g.fillText("Answer at " + siteUrl().replace(/^https?:\/\//, "").replace(/\/$/, ""), P, code ? H - 140 : H - 100);
   if (code){ g.font = "500 34px " + FONT; g.fillText("Add me on Verd: " + code, P, H - 88); }
   return cv;
@@ -724,7 +782,7 @@ function fileFromCanvas(cv){
 }
 // The card is drawn ahead of time, in idle moments, so tapping Share opens the sheet straight away.
 let card = null;
-const cardKey = () => todayState() + "|" + shareLines()[0] + "|" + store.get("myCode", "");
+const cardKey = () => todayState() + "|" + shareLines()[0] + "|" + myCode();
 function prepareCard(){
   if (!myVotes[todayKey]) return;
   const key = cardKey(); if (card && card.key === key) return;
@@ -735,7 +793,7 @@ function saveFile(file){
 }
 async function shareDaily(){
   if (!myVotes[todayKey]) return;
-  const [l1, l2] = shareLines(), url = siteUrl();
+  const [l1, l2] = shareLines(), url = inviteUrl();
   const text = "Verd No. " + (today + 1) + ": " + question + "\n" + l1 + " " + l2 + " (No peeking before you answer.)";
   let file = card && card.key === cardKey() ? card.file : null;
   if (!file){ try{ file = fileFromCanvas(drawCard()); }catch{} }
@@ -871,33 +929,68 @@ function renderMe(){
 }
 // Your friend code. On the live site it exists once you've answered (that's when your account is made).
 function showCode(){
-  $("mycode").textContent = store.get("myCode", "······");
-  if (backend) backend.profile().then(p => { if (p && p.code){ $("mycode").textContent = p.code; store.set("myCode", p.code); } }).catch(() => {});
+  $("mycode").textContent = myCode() || "······";
+  if (backend) backend.profile().then(p => { if (p && p.code){ $("mycode").textContent = p.code; store.set("myCode:" + backend.mode, p.code); } }).catch(() => {});
 }
 // Your friends and how often you agree. Placeholder rows show while the matches load.
+// A match needs you both to have added each other, and 3 past questions you both answered.
 let friendsCall = 0;
 async function renderFriends(){
-  const fl = friends(), box = $("flist"), call = ++friendsCall;
+  const fl = friends(), box = $("flist"), call = ++friendsCall, live = !!backend && backend.mode === "live";
+  // by: undefined while loading, null when it can't be checked yet, else the matches by code
   const draw = (by, failed) => {
     box.innerHTML = "";
-    fl.map(c => { const r = by && by[c]; return { c, shared: r ? r.shared : 0, m: r && r.agree !== null && r.shared ? pct(r.agree, r.shared) : null }; })
+    fl.map(c => { const r = by && by[c]; return { c, r, m: r && r.agree !== null && r.shared ? pct(r.agree, r.shared) : null }; })
       .sort((a, b) => (b.m ?? -1) - (a.m ?? -1))
-      .forEach(r => { const d = el("div"), t = !by ? "Loading" : r.m === null ? (r.shared ? r.shared + " shared answers so far" : "No shared answers yet") : (r.m >= 80 ? "Same brain, " : r.m <= 30 ? "Opposites, " : "") + r.m + "% match";
-        d.append(el("b", "", r.c), el("span", by ? "" : "sk", t)); box.append(d); });
+      .forEach(({ c, r, m }) => {
+        const t = failed ? "" : by === undefined ? "Loading"
+          : by === null ? (live ? "Matches start after your first answer." : "Matches start when live results do.")
+          : !r ? (live ? "Shows once they add you too." : "No shared answers yet")
+          : m === null ? (r.shared ? r.shared + " shared " + (r.shared === 1 ? "answer" : "answers") + " so far" : "No shared answers yet")
+          : (m >= 80 ? "Same brain, " : m <= 30 ? "Opposites, " : "") + m + "% match";
+        const d = el("div"); d.append(el("b", "", nick(c) ? nick(c) + " · " + c : c), el("span", by === undefined && !failed ? "sk" : "", t)); box.append(d); });
     if (failed) box.append(el("p", "note", "Couldn't load your matches. Check your connection."));
   };
   if (!fl.length){ box.innerHTML = ""; return; }
-  draw(null);
-  let rows = [], failed = false;
+  draw(undefined);
+  let rows = null, failed = false;
   try{ if (backend) rows = await backend.friendMatch(fl); }catch{ failed = true; }
-  if (call === friendsCall) draw(Object.fromEntries(rows.map(r => [r.code, r])), failed);
+  if (call === friendsCall) draw(rows ? Object.fromEntries(rows.map(r => [r.code, r])) : null, failed);
 }
 $("recapShare").onclick = () => { const r = recapData(), p = profile(); if (!r) return;
-  copyOrShow("My week on Verd\n" + r.answered + "/7 days answered" + (r.known ? ", with the majority " + r.maj + " of " + r.known + " times" : "") + "\n" + (p.type ? "I'm a " + p.type + ". " : "") + r.s + " day streak\nWhat are you? " + (CONFIG.siteUrl || location.href.split("#")[0]), "Copied. Post it anywhere."); };
-$("copycode").onclick = () => { const c = $("mycode").textContent; if (!/^[A-Z0-9]{6}$/.test(c)){ toast("Your code shows up after your first answer."); return; } copyOrShow(c, "Code copied. Send it to a friend."); };
+  copyOrShow("My week on Verd\n" + r.answered + "/7 days answered" + (r.known ? ", with the majority " + r.maj + " of " + r.known + " times" : "") + "\n" + (p.type ? "I'm a " + p.type + ". " : "") + r.s + " day streak\nWhat are you? " + inviteUrl(), "Copied. Post it anywhere."); };
+// ---------- Invites ----------
+// Your invite link is the site plus #f=CODE&n=Name. Nothing after the # is ever sent to a server, and the
+// name is optional. Opening a friend's link adds them on your phone; the link is then cleared from the address bar.
+const cleanName = s => String(s || "").normalize("NFC").replace(/[^\p{L}\p{M} '’-]/gu, "").replace(/\s+/g, " ").trim().slice(0, 20);
+function inviteUrl(){
+  const c = myCode(), n = cleanName(store.get("myName", ""));
+  return siteUrl() + (/^[A-Z2-9]{6}$/.test(c) ? "#f=" + c + (n ? "&n=" + encodeURIComponent(n) : "") : "");
+}
+$("invite").onclick = async () => {
+  if (!/^[A-Z2-9]{6}$/.test(myCode())){ toast("Your invite link is ready after your first answer."); return; }
+  const text = "Answer today's question on Verd, then we can see how often we agree.", url = inviteUrl();
+  try{ if (navigator.share){ await navigator.share({ title: "What's the Verd?", text, url }); return; } }catch(e){ if (e && e.name === "AbortError") return; }
+  copyOrShow(text + " " + url, "Invite link copied. Send it to a friend.");
+};
+$("myname").value = store.get("myName", "");
+$("myname").onchange = () => { const v = cleanName($("myname").value); $("myname").value = v; store.set("myName", v); };
+function takeInvite(){
+  const h = new URLSearchParams(location.hash.slice(1)), code = (h.get("f") || "").trim().toUpperCase();
+  if (!h.has("f")) return;
+  history.replaceState(null, "", location.pathname + location.search);
+  if (!/^[A-Z2-9]{6}$/.test(code)) return;
+  if (ownCode(code)){ toast("That's your own invite link."); return; }
+  const name = cleanName(h.get("n"));
+  if (name) store.set("nicks", { ...store.get("nicks", {}), [code]: name });
+  if (!friends().includes(code)) saveFriends([...friends(), code]);
+  toast("Added " + (name || "your friend") + ". Send your link back so you can compare.");
+  if (!$("me").hidden) renderMe();
+}
+addEventListener("hashchange", takeInvite);
 $("fform").onsubmit = e => { e.preventDefault(); const c = $("fcode").value.trim().toUpperCase(), me = $("mycode").textContent;
-  if (!/^[A-Z0-9]{6}$/.test(c)){ toast("Friend codes are 6 letters and numbers."); return; } if (c === me){ toast("That's your own code."); return; }
-  const f = friends(); if (!f.includes(c)) f.push(c); store.set("friends", f); $("fcode").value = ""; toast("Friend added."); checkBadges(); renderMe(); order = []; renderFeed(); };
+  if (!/^[A-Z0-9]{6}$/.test(c)){ toast("Friend codes are 6 letters and numbers."); return; } if (c === me || ownCode(c)){ toast("That's your own code."); return; }
+  if (!friends().includes(c)) saveFriends([...friends(), c]); $("fcode").value = ""; toast("Friend added."); checkBadges(); renderMe(); order = []; renderFeed(); };
 function setupPlace(){
   const sel = $("country");
   Object.entries(COUNTRIES).sort((a, b) => a[0] === "XX" ? 1 : b[0] === "XX" ? -1 : a[1].localeCompare(b[1])).forEach(([cc, name]) => sel.add(new Option(flag(cc) + "  " + name, cc)));
@@ -1076,13 +1169,14 @@ document.addEventListener("visibilitychange", () => { if (document.visibilitySta
 document.addEventListener("keydown", e => { if (e.key !== "Escape") return; if (!$("dayview").hidden) closeDay(); else if (!$("sheet").hidden) closeSheet(); else if (!$("compose").hidden) closeCompose(); });
 
 (async function start(){
-  setupPlace(); renderTop(); renderFeed();
+  setupPlace(); renderTop(); renderFeed(); takeInvite();
   // Answered on the page painted from index.html, before this file arrived? It counts: same frame, no flash.
   const early = window.verdTap; window.verdTap = null;
   if (early && early.day === todayKey) vote(early.i, $("feed").querySelectorAll('.slide[data-id="daily"] .ans')[early.i], true);
   ready = pickBackend(); backend = await ready;
   $("mode").textContent = backend.label;
   showCode(); renderNet();
+  if (friends().length && backend.setFriends) backend.setFriends();
   if (backend.ask){
     ask.api = backend.ask; $("navPlus").hidden = false;   // posting starts hidden: it's off on the public site
     ask.api.watch((posts, mv, mr) => { ask.posts = posts; ask.myVotes = { ...mv, ...ask.myVotes }; ask.myReports = { ...mr, ...ask.myReports }; checkFlips(); renderTop(); renderFeed(); if (sheetPost) renderSheet(); if (!$("search").hidden) renderSearch(); });

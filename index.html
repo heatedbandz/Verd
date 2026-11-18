@@ -144,6 +144,14 @@ button{border:0;background:none;padding:0;cursor:pointer}
 .answers.wait .ans::after{content:"";position:absolute;inset:0;background:var(--sheen);animation:breathe var(--dur-3) var(--ease-out) infinite alternate}
 .cta.ghost{background:var(--glass);color:var(--on-color)}
 .peekline{margin:var(--s1) 0 0;display:flex;flex-wrap:wrap;align-items:center;gap:var(--s2);font-size:var(--t-md);font-weight:600}
+/* Today's board: a bar per place, scaled with transform only */
+.board{display:grid;gap:var(--s3)}
+.brow{display:grid;grid-template-columns:1fr auto;align-items:baseline;gap:var(--s1) var(--s3);font-size:var(--t-base);font-weight:600}
+.brow b{font-variant-numeric:tabular-nums;font-weight:800}
+.brow.you span::after{content:"You";margin-left:var(--s2);padding:2px var(--s2);border-radius:var(--r-pill);background:var(--glass);font-size:var(--t-xs);font-weight:800}
+.brow i{grid-column:1/-1;height:6px;border-radius:var(--r-pill);background:var(--fill);overflow:hidden}
+.brow i::after{content:"";display:block;height:100%;background:var(--on-color);transform-origin:left;transform:scaleX(var(--p,0))}
+.blabel{margin:var(--s2) 0 0;font-size:var(--t-sm);font-weight:700}
 .peekline b{font-weight:800;padding:var(--s1) var(--s3);border-radius:var(--r-pill);background:var(--glass)}
 .net{display:grid;place-items:center;min-height:var(--tap);margin-right:auto}
 .net span{font-size:var(--t-xs);font-weight:700;padding:var(--s1) var(--s3);border-radius:var(--r-pill);background:var(--scrim);color:var(--on-color);backdrop-filter:var(--blur1);-webkit-backdrop-filter:var(--blur1)}
@@ -417,8 +425,9 @@ html.vt .page{animation:none}
       <div class="sec" id="recap" hidden><h3>Your week</h3><div class="rowlist" id="recapBody"></div><div><button class="b2 soft" id="recapShare">Share my week</button></div></div>
       <div class="sec">
         <h3>Friends</h3>
-        <p class="note">Share your code. Add theirs. See who really thinks like you.</p>
-        <div class="line"><b class="code" id="mycode">······</b><button class="b2 soft" id="copycode">Copy</button></div>
+        <p class="note">Send your invite link. Once you've both added each other, see who really thinks like you.</p>
+        <div class="line"><b class="code" id="mycode">······</b><button class="b2 soft" id="invite">Invite</button></div>
+        <input class="field" id="myname" maxlength="20" autocomplete="given-name" placeholder="Your first name, for your invite (optional)" aria-label="Your first name, for your invite link (optional)">
         <form class="line" id="fform"><input class="field" id="fcode" maxlength="6" placeholder="Friend's code" aria-label="Friend's code" style="text-transform:uppercase"><button class="b2">Add</button></form>
         <div class="rowlist" id="flist"></div>
       </div>

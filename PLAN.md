@@ -149,6 +149,7 @@ How these were measured: Lighthouse 13.6, median of 3 runs, in two profiles. "De
 | 6. Instant first paint | 100 / 100 | 0.63 s / 0.25 s (**LCP 0.63 / 0.25**, the same as first paint) | 100 | 32–40 ms | 0–1 frames over 20 ms | 30.1 + 11.2 KB | blank | no |
 | 7. Installable, works offline | 100 / 100 | 0.62 s / 0.25 s (LCP 0.62 / 0.25) | 100, and 0 axe issues on all 6 screens | 32 ms | 1–2 frames over 20 ms, only the tap's own frame | 30.6 + 11.6 KB (+1.2 KB `sw.js`, after load) | **works** | **yes** |
 | 8. Return loop | 100 / 100 | 0.62 s / 0.25 s (LCP 0.62 / 0.25) | 100 | 32–40 ms | 0–1 frames over 20 ms | 31.4 + 11.7 KB | works | yes |
+| 9. Friends and rivalries | 100 / 100 | 0.67 s / 0.25 s (LCP 0.67 / 0.25) | 100, and 0 axe issues on the board and Me | 40–48 ms | 0–2 frames over 20 ms | 33.5 + 11.9 KB | works | yes |
 
 ### 1. Real backend
 
@@ -258,6 +259,27 @@ How these were measured: Lighthouse 13.6, median of 3 runs, in two profiles. "De
   - `live`: 9 (+1, yesterday's slide says how your answer did).
   - `guardrails`: 1 (new).
 - **Numbers:** unchanged. Lighthouse 100 / 100 / 100, and the largest paint is 0.62 s / 0.25 s.
+
+### 9. The first 1,000 users: friends and rivalries
+
+- **Invite links.** Me → Friends has an Invite button. It opens the share sheet with your link: the site plus `#f=YOURCODE&n=Name`.
+  - Nothing after the `#` ever reaches a server, GitHub's included. The first name is optional, letters only, and kept only on the phones that open the link.
+  - Opening a friend's link adds them on your phone and clears it from the address bar. It doesn't make an account: that still waits for your first answer, and then your friend list is copied to the database.
+  - Opening your own link is caught. The share card and every share link carry your invite too.
+- **A friend match now needs both people to add each other.** Before, anyone who knew your code could compare themselves with you, and with only 3 shared answers a 100% or 0% match gave away exactly how you answered those days. Now:
+  - A new `friend_adds` table holds each person's list, locked like votes (RLS on, no browser access). `set_friends` replaces your list, up to 50 codes, so removing someone ends the match for both of you.
+  - `friend_match` only returns friends who added you too. It still uses past days only, and shows agreement only after 3 shared answers.
+  - Each friend's line says where things stand: "Matches start after your first answer.", "Shows once they add you too.", "2 shared answers so far", or "67% match".
+- **Today's board.** After you answer (live only), a slide under today's asks "Who said Cats?". It lists countries, and cities in your state, with the share in each that picked your answer, and marks yours "You".
+  - A place shows only at 30 answers, the database's minimum. Until then it says so: "No country has 30 answers yet. Share today's question to put yours on the board."
+  - It loads once your answer is counted and draws after the reveal, so the reveal stays smooth.
+- **Codes are kept apart by mode.** The stand-in code a phone makes before the database exists never goes into an invite once Verd is live, because it wouldn't work there.
+- **Tests:** 7 new, and all 63 pass.
+  - `db`: 15. Matches need both people; removing someone ends it for both; lists are capped at 50 and can't be read or written directly.
+  - `device`: 6. An invite link adds the friend by name and clears itself, your own link is refused, and your invite carries your code and name.
+  - `live`: 11. Opening an invite makes no account. The match goes from "after your first answer" to "once they add you too" to "67% match". The board shows its empty state, then France and the US once they reach 30 answers, with yours marked.
+  - `live-rls.mjs`, the check you run on the real project, now covers `friend_adds` too.
+- **Numbers:** Lighthouse 100 / 100 / 100. The code grew 2.1 KB gzipped.
 
 ## Next single step
 

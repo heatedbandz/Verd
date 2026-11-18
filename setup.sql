@@ -16,6 +16,8 @@
 --   * Results are totals only. A split is returned only when enough people voted (app_config),
 --     and today's totals only come back after you have voted, so nobody can peek.
 --   * Location is stored as country, state and city only. Never coordinates.
+--   * A friend match compares two people only when both added each other, over past days, and
+--     never returns an answer. Friend lists are locked like votes: no browser role can read them.
 --   * tests/db.test.mjs and tests/live-rls.mjs try to break all of this and must fail to.
 
 -- Older test versions of this file used a different votes table (voter text). Replace it.
@@ -93,13 +95,24 @@ insert into public.blocked_terms (pattern) values
   ('\m(kys|kill (yo)?urself|kill you)\M')                         -- threats
 on conflict (pattern) do nothing;
 
+-- The friends each person added, by code. A friend match needs both people to have added each
+-- other, so knowing someone's code is not enough to compare yourself with them.
+create table if not exists public.friend_adds (
+  user_id  uuid not null references auth.users (id) on delete cascade,
+  code     text not null check (code ~ '^[A-Z2-9]{6}$'),
+  added_at timestamptz not null default now(),
+  primary key (user_id, code)
+);
+create index if not exists friend_adds_by_code on public.friend_adds (code);
+
 -- Lock every table: RLS on, no policies, no privileges for the browser roles.
 alter table public.app_config    enable row level security;
 alter table public.profiles      enable row level security;
 alter table public.votes         enable row level security;
 alter table public.suggestions   enable row level security;
 alter table public.blocked_terms enable row level security;
-revoke all on public.app_config, public.profiles, public.votes, public.suggestions, public.blocked_terms
+alter table public.friend_adds   enable row level security;
+revoke all on public.app_config, public.profiles, public.votes, public.suggestions, public.blocked_terms, public.friend_adds
   from public, anon, authenticated;
 revoke all on sequence public.suggestions_id_seq from public, anon, authenticated;
 
@@ -303,28 +316,56 @@ begin
   return k;
 end $$;
 
--- How often you agree with friends, by their codes. Past days only (today stays private),
--- and only once you share enough answers. Never returns anyone's actual answers.
+-- How often you agree with friends, by their codes. Only friends who added you too get a row
+-- (shared = 0 when you have no past answers in common yet). Past days only (today stays private),
+-- agreement only once you share enough answers. Never returns anyone's actual answers.
 create or replace function public.friend_match(codes text[])
 returns table (code text, shared int, agree int)
 language plpgsql stable security definer set search_path = public as $$
 declare
   uid     uuid := auth.uid();
   minimum int := verd_private.cfg('min_friend_overlap');
+  mine    text;
 begin
   if uid is null then
     raise exception 'sign in first' using errcode = '28000';
   end if;
+  select pr.code into mine from public.profiles pr where pr.id = uid;
   return query
     select p.code,
-           count(*)::int,
-           case when count(*) >= minimum then (count(*) filter (where f.choice = m.choice))::int end
+           count(m.day)::int,
+           case when count(m.day) >= minimum then (count(*) filter (where f.choice = m.choice))::int end
       from public.profiles p
-      join public.votes f on f.user_id = p.id and f.day < verd_private.today()
-      join public.votes m on m.user_id = uid and m.day = f.day
+      join public.friend_adds i_added    on i_added.user_id = uid and i_added.code = p.code
+      join public.friend_adds they_added on they_added.user_id = p.id and they_added.code = mine
+      left join public.votes f on f.user_id = p.id and f.day < verd_private.today()
+      left join public.votes m on m.user_id = uid and m.day = f.day
      where p.code = any (codes[1:50])
        and p.id <> uid
      group by p.code;
+end $$;
+
+-- Your friend list, as the app has it. It replaces what was saved, so removing someone here ends
+-- the match for both of you. Up to 50 codes; your own code and malformed ones are skipped.
+create or replace function public.set_friends(codes text[])
+returns int
+language plpgsql volatile security definer set search_path = public as $$
+declare
+  uid  uuid := auth.uid();
+  mine text;
+  k    int;
+begin
+  if uid is null then
+    raise exception 'sign in first' using errcode = '28000';
+  end if;
+  mine := verd_private.ensure_profile(uid);
+  delete from public.friend_adds where user_id = uid;
+  insert into public.friend_adds (user_id, code)
+  select distinct uid, upper(c)
+    from unnest((coalesce(codes, '{}'::text[]))[1:50]) as c
+   where upper(c) ~ '^[A-Z2-9]{6}$' and upper(c) <> mine;
+  get diagnostics k = row_count;
+  return k;
 end $$;
 
 -- Today's board: countries (no cc), states in a country (no st) or cities in a state,
@@ -415,12 +456,14 @@ revoke all on function public.cast_vote(date, smallint, smallint, text, text, te
 revoke all on function public.my_profile() from public;
 revoke all on function public.import_votes(jsonb) from public;
 revoke all on function public.friend_match(text[]) from public;
+revoke all on function public.set_friends(text[]) from public;
 revoke all on function public.get_board(date, smallint, text, text) from public;
 revoke all on function public.suggest_question(text, text[]) from public;
 revoke all on function public.cast_vote(date, smallint, smallint, text, text, text) from anon;
 revoke all on function public.my_profile() from anon;
 revoke all on function public.import_votes(jsonb) from anon;
 revoke all on function public.friend_match(text[]) from anon;
+revoke all on function public.set_friends(text[]) from anon;
 revoke all on function public.suggest_question(text, text[]) from anon;
 grant execute on function public.get_results(date, smallint, text, text, text) to anon, authenticated;
 grant execute on function public.get_board(date, smallint, text, text) to anon, authenticated;
@@ -428,4 +471,5 @@ grant execute on function public.cast_vote(date, smallint, smallint, text, text,
 grant execute on function public.my_profile() to authenticated;
 grant execute on function public.import_votes(jsonb) to authenticated;
 grant execute on function public.friend_match(text[]) to authenticated;
+grant execute on function public.set_friends(text[]) to authenticated;
 grant execute on function public.suggest_question(text, text[]) to authenticated;

@@ -69,7 +69,7 @@ after(async () => { await pool?.end(); });
 
 test('browser roles cannot read any table', async () => {
   const u = await user();
-  for (const t of ['votes', 'profiles', 'suggestions', 'app_config', 'blocked_terms']) {
+  for (const t of ['votes', 'profiles', 'suggestions', 'app_config', 'blocked_terms', 'friend_adds']) {
     await denied(as('anon', null, `select * from public.${t}`), `anon reads ${t}`);
     await denied(as('authenticated', u, `select * from public.${t}`), `authenticated reads ${t}`);
   }
@@ -180,20 +180,41 @@ test('results never include who voted', async () => {
   assert.ok(!/user|uid|[0-9a-f]{8}-[0-9a-f]{4}/i.test(text), 'results leak an id: ' + text);
 });
 
-test('friend match: past days only, needs 3 shared answers, never raw answers', async () => {
+test('friend match: only between two people who added each other, past days only, 3 shared answers, never raw answers', async () => {
   const a = await user(), b = await user();
   const codeA = (await as('authenticated', a, 'select public.my_profile() as p')).rows[0].p.code;
   const codeB = (await as('authenticated', b, 'select public.my_profile() as p')).rows[0].p.code;
   assert.match(codeA, /^[A-Z2-9]{6}$/);
   const put = (u, d, c) => admin('insert into public.votes (day, user_id, choice) values ($1, $2, $3)', [d, u, c]);
+  const setFriends = async (u, codes) => (await as('authenticated', u, 'select public.set_friends($1) as k', [codes])).rows[0].k;
+  const match = async (u, codes) => (await as('authenticated', u, 'select * from public.friend_match($1)', [codes])).rows;
+  assert.equal(await setFriends(a, [codeB]), 1);
+  assert.deepEqual(await match(a, [codeB]), [], 'knowing a code is not enough: they have to add you too');
+  // their own code, a lowercase duplicate and junk are skipped
+  assert.equal(await setFriends(b, [codeA.toLowerCase(), codeA, 'bad!!', codeB]), 1);
+  assert.deepEqual(await match(a, [codeB]), [{ code: codeB, shared: 0, agree: null }], 'friends both ways, nothing in common yet');
   await put(a, day(today, -3), 0); await put(b, day(today, -3), 0);
   await put(a, day(today, -4), 1); await put(b, day(today, -4), 0);
-  let m = (await as('authenticated', a, 'select * from public.friend_match($1)', [[codeB]])).rows;
-  assert.deepEqual(m, [{ code: codeB, shared: 2, agree: null }], 'match shown with 2 shared answers');
+  await put(b, day(today, -6), 1);   // only they answered: not shared
+  assert.deepEqual(await match(a, [codeB]), [{ code: codeB, shared: 2, agree: null }], 'no agreement shown with 2 shared answers');
   await put(a, day(today, -5), 1); await put(b, day(today, -5), 1);
   await vote(a, today, 1); await vote(b, today, 1);   // today must not count
-  m = (await as('authenticated', a, 'select * from public.friend_match($1)', [[codeB, codeA, 'ZZZZZZ']])).rows;
-  assert.deepEqual(m, [{ code: codeB, shared: 3, agree: 2 }], 'today counted, own code included or unknown code returned');
+  assert.deepEqual(await match(a, [codeB, codeA, 'ZZZZZZ']), [{ code: codeB, shared: 3, agree: 2 }], 'today, your own code and unknown codes left out');
+  assert.deepEqual(await match(b, [codeA]), [{ code: codeA, shared: 3, agree: 2 }], 'the same both ways');
+  // Removing someone ends it for both of you.
+  assert.equal(await setFriends(b, []), 0);
+  assert.deepEqual(await match(a, [codeB]), []);
+  assert.deepEqual(await match(b, [codeA]), []);
+});
+
+test('friend lists: signed in only, at most 50, and never readable', async () => {
+  const u = await user(), L = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const codes = Array.from({ length: 70 }, (_, i) => 'FRND' + L[Math.floor(i / 24)] + L[i % 24]);
+  assert.equal((await as('authenticated', u, 'select public.set_friends($1) as k', [codes])).rows[0].k, 50);
+  assert.equal((await admin('select count(*)::int as n from public.friend_adds where user_id = $1', [u])).rows[0].n, 50);
+  await denied(as('anon', null, `select public.set_friends('{AAAAAA}')`), 'anon sets a friend list');
+  await denied(as('authenticated', u, 'select * from public.friend_adds'), 'reads friend lists');
+  await denied(as('authenticated', u, `insert into public.friend_adds (user_id, code) values ($1, 'AAAAAA')`, [u]), 'writes a friend list directly');
 });
 
 test('import of old local votes: once, launch to today, at most 60', async () => {

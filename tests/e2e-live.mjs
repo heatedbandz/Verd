@@ -10,6 +10,7 @@ import { createRequire } from 'node:module';
 import pg from 'pg';
 import { startFakeSupabase } from './fake-supabase.mjs';
 import { serveSite } from './serve.mjs';
+import { shares } from '../core.js';
 
 const require = createRequire(import.meta.url);
 const { chromium } = require('playwright');
@@ -17,7 +18,9 @@ const ADMIN_URL = process.env.DATABASE_URL || 'postgres://postgres:postgres@loca
 const DB = 'verd_e2e';
 let fake, site, siteServer, browser, today, yesterday;
 
-async function page(init = {}) {
+const day = (base, delta) => { const d = new Date(base + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + delta); return d.toISOString().slice(0, 10); };
+async function newUser() { return (await fake.pool.query('insert into auth.users (id) values (gen_random_uuid()) returning id')).rows[0].id; }
+async function page(init = {}, hash = '') {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
   await ctx.route('**/app.js', async route => {
     const r = await route.fetch(); let js = await r.text();
@@ -27,7 +30,7 @@ async function page(init = {}) {
   if (Object.keys(init).length) await ctx.addInitScript(items => { if (!sessionStorage.getItem('seeded')) { for (const [k, v] of Object.entries(items)) localStorage.setItem(k, v); sessionStorage.setItem('seeded', '1'); } }, init);
   const p = await ctx.newPage(); const errors = [];
   p.on('pageerror', e => errors.push(e.message));
-  await p.goto(site + '/verd/'); await p.waitForTimeout(600);
+  await p.goto(site + '/verd/' + hash); await p.waitForTimeout(600);
   return { p, ctx, errors };
 }
 const dbVotes = async (d) => (await fake.pool.query('select user_id, choice from public.votes where day = $1', [d])).rows;
@@ -196,6 +199,50 @@ test("the next day, yesterday's final verdict says how your answer did", async (
   const text = await p.innerText('.slide[data-id=yday]');
   const options = await p.$$eval('.slide[data-id=yday] .ans .alabel', b => b.map(x => x.textContent));
   assert.match(text, new RegExp("You said " + options[1] + "\\. \\S"), text);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test('invites: no account just for opening one, and a match needs both of you to add each other', async () => {
+  // A friend who answered the last 3 days
+  const friend = await newUser(), fcode = (await fake.pool.query('select verd_private.ensure_profile($1) as c', [friend])).rows[0].c;
+  for (const d of [1, 2, 3]) await fake.pool.query('insert into public.votes (day, user_id, choice, country) values ($1, $2, 0, $3)', [day(today, -d), friend, 'US']);
+  fake.calls.length = 0;
+  const { p, ctx, errors } = await page({}, '#f=' + fcode + '&n=Jay');
+  assert.ok(!fake.calls.includes('POST /auth/v1/signup'), 'opening an invite made an account: ' + fake.calls.join(', '));
+  await p.click('#navMe'); await p.waitForTimeout(500);
+  assert.match(await p.innerText('#flist'), new RegExp('Jay · ' + fcode + '\\s+Matches start after your first answer\\.'));
+  await p.click('#navHome'); await p.waitForTimeout(300); await tap(p, 0); await p.waitForTimeout(1500);
+  const rows = (await fake.pool.query('select user_id from public.friend_adds where code = $1', [fcode])).rows;
+  assert.equal(rows.length, 1, 'the database got your friend list once you had an account');
+  await p.click('#navMe'); await p.waitForTimeout(900);
+  assert.match(await p.innerText('#flist'), /Shows once they add you too\./);
+  // They add you back, and you both answered the same 3 past days: 2 alike
+  const me = rows[0].user_id, mycode = (await fake.pool.query('select code from public.profiles where id = $1', [me])).rows[0].code;
+  await fake.pool.query('insert into public.friend_adds (user_id, code) values ($1, $2)', [friend, mycode]);
+  for (const [d, c] of [[1, 0], [2, 0], [3, 1]]) await fake.pool.query('insert into public.votes (day, user_id, choice, country) values ($1, $2, $3, $4) on conflict do nothing', [day(today, -d), me, c, 'US']);
+  await p.click('#navHome'); await p.waitForTimeout(300); await p.click('#navMe'); await p.waitForTimeout(900);
+  assert.match(await p.innerText('#flist'), /Jay · \w{6}\s+67% match/);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("today's board: a place shows at 30 answers, and until then it says how to get yours on", async () => {
+  const perCountry = async () => Object.fromEntries((await fake.pool.query('select country, count(*)::int as n from public.votes where day = $1 group by country', [today])).rows.map(r => [r.country, r.n]));
+  const { p, ctx, errors } = await page({ es_country: JSON.stringify('FR') });
+  await tap(p, 0); await p.waitForSelector('.slide[data-id=board]', { timeout: 6000 });
+  if (Math.max(...Object.values(await perCountry())) < 30)
+    assert.match(await p.innerText('.slide[data-id=board]'), /No country has 30 answers yet\. Share today's question to put yours on the board\./);
+  // 30 more answers from France (20 picked the first answer) and enough from the US
+  for (let i = 0; i < 30; i++) await fake.pool.query('insert into public.votes (day, user_id, choice, country) values ($1, $2, $3, $4)', [today, await newUser(), i < 20 ? 0 : 1, 'FR']);
+  for (let i = (await perCountry()).US || 0; i < 30; i++) await fake.pool.query('insert into public.votes (day, user_id, choice, country) values ($1, $2, 1, $3)', [today, await newUser(), 'US']);
+  await p.reload(); await p.waitForSelector('.slide[data-id=board] .brow', { timeout: 6000 });
+  const fr = (await fake.pool.query('select count(*) filter (where choice = 0)::int as k, count(*)::int as n from public.votes where day = $1 and country = $2', [today, 'FR'])).rows[0];
+  const rows = await p.$$eval('.slide[data-id=board] .brow', r => r.map(x => ({ text: x.innerText.replace(/\s+/g, ' ').trim(), me: x.classList.contains('you') })));
+  const france = rows.find(r => /France/.test(r.text));
+  assert.ok(france && france.me, 'your country is marked: ' + JSON.stringify(rows));
+  assert.match(france.text, new RegExp(shares([fr.k, fr.n - fr.k])[0] + '%'));
+  assert.ok(rows.some(r => /United States/.test(r.text)), JSON.stringify(rows));
   assert.deepEqual(errors, []);
   await ctx.close();
 });

@@ -19,7 +19,7 @@ const denied = r => r.status === 401 || r.status === 403 || r.status === 404;
 
 const user = await signIn();
 for (const [who, token] of [['anon', null], ['signed-in user', user]]) {
-  for (const t of ['votes', 'profiles', 'suggestions', 'app_config', 'blocked_terms']) {
+  for (const t of ['votes', 'profiles', 'suggestions', 'app_config', 'blocked_terms', 'friend_adds']) {
     const r = await fetch(`${url}/rest/v1/${t}?select=*`, { headers: h(token) });
     const body = await r.text();
     check(denied(r) || body === '[]', `${who} cannot read ${t}`, `${r.status} ${body.slice(0, 120)}`);
