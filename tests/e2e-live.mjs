@@ -266,7 +266,7 @@ test("today's board: a place shows at 30 answers, and until then it says how to 
   await ctx.close();
 });
 
-test('posting stays off on the live site: no post button, no tabs, nothing opens the composer', async () => {
+test('posting stays off on the live site until there is a moderator: no post button, no tabs, nothing opens the composer', async () => {
   const { p, ctx, errors } = await page();
   assert.equal(await p.$eval('#navPlus', e => e.hidden), true);
   assert.equal(await p.$eval('#scopes', e => e.hidden), true);
@@ -306,4 +306,195 @@ test("a past question in search opens with the database's final verdict", async 
   assert.doesNotMatch(n >= 10 ? '' : text, /\d\s*%/);
   assert.deepEqual(errors, []);
   await ctx.close();
+});
+
+// ---------- Posting: Google sign-in, age, review, reports ----------
+// Google is the stand-in page on fake-supabase.mjs. Each sign-in there types an email address.
+const yearsAgo = (n, m = '01') => (new Date().getUTCFullYear() - n) + '-' + m;
+async function google(p, email) {
+  await p.waitForURL(/\/fake-google/, { timeout: 5000 });
+  await p.fill('#email', email);
+  await Promise.all([p.waitForURL(u => u.pathname.startsWith('/verd/'), { timeout: 5000 }), p.click('#go')]);
+  await p.waitForTimeout(1200);
+}
+const sessionOf = p => p.evaluate(() => localStorage.getItem('es_sb'));
+const uidOf = async p => fake.userOf(JSON.parse(await sessionOf(p)).at);
+const pickAge = async (p, y, m) => { await p.selectOption('#ayear', String(y)); await p.selectOption('#amonth', m); await p.click('#ago'); await p.waitForTimeout(300); };
+const slideWith = (p, text) => p.$(`.slide:has(h2:text-is("${text}"))`);
+let modSession, writerSession;
+
+test('posting stays closed until Verd has a moderator, even for someone signed in', async () => {
+  const { p, ctx, errors } = await page({ es_born: JSON.stringify(yearsAgo(40, '03')) });
+  await p.waitForTimeout(400);
+  assert.equal(await p.$eval('#navPlus', e => e.hidden), true, 'the + button shows with no moderator');
+  // The account section is there (Google sign-in is on). Signing in from Me: no account existed, so this is a fresh Google one.
+  await p.click('#navMe'); await p.waitForSelector('#account:not([hidden])');
+  assert.match(await p.innerText('#account'), /Sign in to post and comment\. Your name is never shown to anyone\./);
+  await p.click('#acctBtn'); await p.waitForSelector('#acct:not([hidden])');
+  assert.match(await p.innerText('#acct'), /Sign in to post[\s\S]*your birth month and year are kept with the account/);
+  await p.click('#ago'); await google(p, 'mod@verd.test');
+  assert.equal(new URL(p.url()).search, '', 'the one-time code is left in the address');
+  assert.match(await p.innerText('#account'), /Signed in with Google\./);
+  const uid = await uidOf(p), u = (await fake.pool.query('select is_anonymous, email from auth.users where id = $1', [uid])).rows[0];
+  assert.deepEqual(u, { is_anonymous: false, email: 'mod@verd.test' });
+  assert.equal((await fake.pool.query('select born from public.profiles where id = $1', [uid])).rows[0].born, (new Date().getUTCFullYear() - 40) * 12 + 2, 'the age from this phone is kept with the account');
+  assert.equal(await p.$eval('#navPlus', e => e.hidden), true, 'signed in, but no moderator yet');
+  assert.equal(await p.$eval('#review', e => e.hidden), true);
+  modSession = await sessionOf(p);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test('someone under 13 is never sent to sign in: no account, no email, and the sheet says why', async () => {
+  await fake.pool.query("insert into public.moderators (user_id) select id from auth.users where email = 'mod@verd.test'");
+  fake.calls.length = 0;
+  const { p, ctx, errors } = await page({ es_born: JSON.stringify(yearsAgo(11)) });
+  await p.waitForTimeout(500);
+  assert.equal(await p.$eval('#navPlus', e => e.hidden), false, 'posting is open now');
+  await p.click('#navPlus'); await p.waitForSelector('#acct:not([hidden])');
+  assert.match(await p.innerText('#acct'), /Posting is for 13 and older[\s\S]*You can still answer every day, judge posts and report anything that looks wrong\./);
+  assert.equal(await p.$eval('#ago', e => e.hidden), true);
+  assert.equal(await p.$eval('#compose', e => e.hidden), true);
+  await p.click('#aclose'); await p.click('#navMe'); await p.waitForTimeout(300);
+  assert.equal(await p.$eval('#account', e => e.hidden), true, 'no sign-in on Me either');
+  assert.ok(!fake.calls.some(c => /authorize|signup|token/.test(c)), fake.calls.join(', '));
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test('a post: age asked first, then Google, then it waits for review and only the writer sees it', async () => {
+  const { p, ctx, errors } = await page();
+  await p.waitForTimeout(400);
+  await p.click('#navPlus'); await p.waitForSelector('#acct:not([hidden])');
+  assert.match(await p.innerText('#atitle'), /One question first/);
+  assert.doesNotMatch(await p.innerText('#atitle') + ' ' + await p.innerText('#anote'), /13|older|young/, 'the age question hints at the cut-off');
+  await pickAge(p, new Date().getUTCFullYear() - 16, '05');
+  assert.match(await p.innerText('#atitle'), /Sign in to post/);
+  await p.click('#ago'); await google(p, 'writer@verd.test');
+  await p.waitForSelector('#compose:not([hidden])', { timeout: 4000 });
+  assert.equal(await p.$eval('#photoRow', e => e.hidden), true, 'photos are offered on the live site');
+  assert.match(await p.innerText('#cnote'), /A moderator checks every post before anyone else sees it/);
+  await p.fill('#ptext', 'add me on snap if you want'); await p.click('#psend'); await p.waitForTimeout(200);
+  assert.match(await p.innerText('#toast'), /Leave out contact info/);
+  await p.fill('#ptext', 'Is cereal a soup?'); await p.click('#psend'); await p.waitForTimeout(900);
+  assert.match(await p.innerText('#toast'), /Sent for review\./);
+  const rows = (await fake.pool.query("select status, body, user_id from public.posts")).rows;
+  assert.equal(rows.length, 1); assert.equal(rows[0].status, 'pending'); assert.equal(rows[0].body, 'Is cereal a soup?');
+  assert.equal(rows[0].user_id, await uidOf(p));
+  const mine = await slideWith(p, 'Is cereal a soup?');
+  assert.ok(mine, 'your post is in your feed');
+  assert.match(await mine.innerText(), /Waiting for review[\s\S]*Only you can see this until a moderator approves it\./);
+  // Two minutes between posts, said in plain words
+  await p.click('#navPlus'); await p.waitForSelector('#compose:not([hidden])');
+  await p.fill('#ptext', 'Is a hot dog a sandwich?'); await p.click('#psend'); await p.waitForTimeout(700);
+  assert.match(await p.innerText('#toast'), /Wait a moment before the next one\./);
+  assert.equal((await fake.pool.query('select count(*)::int as n from public.posts')).rows[0].n, 1);
+  writerSession = await sessionOf(p);
+  // Someone else sees nothing yet
+  const other = await page();
+  await other.p.waitForTimeout(500);
+  assert.equal(await slideWith(other.p, 'Is cereal a soup?'), null, 'a post showed before review');
+  await other.ctx.close();
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test('the moderator approves it from Me; then people judge it, see the split, and can report it', async () => {
+  const mod = await page({ es_sb: modSession, es_born: JSON.stringify(yearsAgo(40, '03')) });
+  await mod.p.click('#navMe'); await mod.p.waitForSelector('#review:not([hidden]) .ritem');
+  assert.match(await mod.p.innerText('#review'), /1 waiting\. Nothing new shows to others until you approve it\.[\s\S]*Post · \S+ ago · First one from this writer[\s\S]*Is cereal a soup\?/);
+  assert.doesNotMatch(await mod.p.innerText('#review'), /writer@verd\.test/, 'the writer\'s email is shown to the moderator');
+  await mod.p.click('#reviewList button:text-is("Approve")'); await mod.p.waitForTimeout(800);
+  assert.match(await mod.p.innerText('#reviewNote'), /Nothing waiting\./);
+  assert.equal((await fake.pool.query('select status from public.posts')).rows[0].status, 'approved');
+  assert.deepEqual(mod.errors, []); await mod.ctx.close();
+
+  const { p, ctx, errors } = await page();
+  await p.waitForTimeout(600);
+  const s = await slideWith(p, 'Is cereal a soup?');
+  assert.ok(s, 'the approved post shows to others');
+  assert.match(await s.innerText(), /Be the first to judge\./);
+  assert.doesNotMatch(await s.innerText(), /writer|@verd/);
+  await (await s.$('.ans')).click(); await p.waitForTimeout(900);
+  const after = await (await slideWith(p, 'Is cereal a soup?')).innerText();
+  assert.match(after, /100%/, 'the split shows once you judge: ' + after);
+  assert.match(after, /1 vote/);
+  assert.equal((await fake.pool.query('select count(*)::int as n from public.post_votes')).rows[0].n, 1);
+  await (await (await slideWith(p, 'Is cereal a soup?')).$('button[aria-label="Report"]')).click(); await p.waitForTimeout(700);
+  assert.match(await p.innerText('#toast'), /Reported\. It's hidden for you\./);
+  assert.equal((await fake.pool.query("select count(*)::int as n from public.reports where kind = 'post'")).rows[0].n, 1);
+  await p.reload(); await p.waitForTimeout(800);
+  assert.equal(await slideWith(p, 'Is cereal a soup?'), null, 'a post you reported came back');
+  assert.deepEqual(errors, []);
+  await ctx.close();
+
+  // The writer sees it's up, and can't judge their own
+  const w = await page({ es_sb: writerSession, es_born: JSON.stringify(yearsAgo(16, '05')) });
+  await w.p.waitForTimeout(600);
+  const ws = await slideWith(w.p, 'Is cereal a soup?');
+  assert.match(await ws.innerText(), /Your post[\s\S]*1 vote/);
+  assert.deepEqual(w.errors, []); await w.ctx.close();
+});
+
+test('comments wait for review too, and show as yours until then', async () => {
+  const { p, ctx, errors } = await page({ es_sb: writerSession, es_born: JSON.stringify(yearsAgo(16, '05')) });
+  await p.waitForTimeout(600);
+  await (await (await slideWith(p, 'Is cereal a soup?')).$('button[aria-label="Comments"]')).click();
+  await p.waitForSelector('#sheet:not([hidden])');
+  await p.fill('#cinput', 'Milk makes it a soup'); await p.click('#csend'); await p.waitForTimeout(900);
+  assert.match(await p.innerText('#toast'), /Sent\. Others see it once a moderator approves it\./);
+  assert.match(await p.innerText('#clist'), /You[\s\S]*Waiting for review[\s\S]*Milk makes it a soup/);
+  assert.equal((await fake.pool.query("select status from public.comments")).rows[0].status, 'pending');
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test('a Google account that already has Verd: this phone signs in to it, and nothing is counted twice', async () => {
+  const { p, ctx, errors } = await page({ es_born: JSON.stringify(yearsAgo(16, '05')) });
+  await tap(p, 0); await p.waitForTimeout(900);
+  const anon = await uidOf(p), votesBefore = (await dbVotes(today)).length;
+  await p.click('#navMe'); await p.waitForSelector('#account:not([hidden])');
+  await p.click('#acctBtn'); await p.waitForSelector('#acct:not([hidden])'); await p.click('#ago');
+  await google(p, 'writer@verd.test');   // linking is refused: that Google account is the writer's
+  await google(p, 'writer@verd.test');   // so the app signs in to the writer's account instead
+  const writer = (await fake.pool.query("select id from auth.users where email = 'writer@verd.test'")).rows[0].id;
+  assert.equal(await uidOf(p), writer);
+  assert.notEqual(anon, writer);
+  assert.equal((await dbVotes(today)).length, votesBefore, "today's answer was counted again");
+  assert.equal((await fake.pool.query('select is_anonymous from auth.users where id = $1', [anon])).rows[0].is_anonymous, true);
+  assert.match(await p.innerText('#account'), /Signed in with Google\./);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test('if Supabase manual linking is off, signing in says so instead of making a second account', async () => {
+  fake.setManualLinking(false);
+  try {
+    const { p, ctx, errors } = await page({ es_born: JSON.stringify(yearsAgo(16, '05')) });
+    await tap(p, 1); await p.waitForTimeout(900);
+    const users = (await fake.pool.query('select count(*)::int as n from auth.users')).rows[0].n;
+    await p.click('#navMe'); await p.waitForSelector('#account:not([hidden])');
+    await p.click('#acctBtn'); await p.waitForSelector('#acct:not([hidden])'); await p.click('#ago'); await p.waitForTimeout(600);
+    assert.match(await p.innerText('#toast'), /Signing in isn't fully switched on yet\./);
+    assert.ok(!/fake-google/.test(p.url()));
+    assert.equal((await fake.pool.query('select count(*)::int as n from auth.users')).rows[0].n, users);
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  } finally { fake.setManualLinking(true); }
+});
+
+test('with Google sign-in switched off, the site is just the daily question: no posts are even fetched', async () => {
+  fake.setGoogle(false);
+  try {
+    fake.calls.length = 0;
+    const { p, ctx, errors } = await page({ es_born: JSON.stringify(yearsAgo(16, '05')) });
+    await p.waitForTimeout(600);
+    assert.equal(await p.$eval('#navPlus', e => e.hidden), true);
+    assert.equal(await slideWith(p, 'Is cereal a soup?'), null);
+    assert.ok(!fake.calls.includes('POST /rest/v1/rpc/get_posts'), fake.calls.join(', '));
+    await p.click('#navMe'); await p.waitForTimeout(300);
+    assert.equal(await p.$eval('#account', e => e.hidden), true);
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  } finally { fake.setGoogle(true); }
 });

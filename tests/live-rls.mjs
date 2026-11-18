@@ -69,5 +69,41 @@ for (const [who, token] of user ? [['anon', null], ['signed-in user who has not 
   check(r.ok && b && b.visible === false && b.world.counts === null, `${who} cannot peek at today's results`, `${r.status} ${JSON.stringify(b).slice(0, 160)}`);
 }
 
+// Posting (the posting part of setup.sql). Skipped until that's installed. Then: anyone can read approved posts
+// and nothing more, the tables stay closed, and an anonymous account can't post, comment, review or block.
+// Nothing here writes: every call below is refused before it would, and nothing is judged or reported.
+const gp = await fetch(`${url}/rest/v1/rpc/get_posts`, { method: 'POST', headers: h(), body: '{}' });
+if (gp.status === 404) console.log('SKIP posting checks: the posting part of setup.sql is not installed yet');
+else {
+  const text = await gp.text(); let b = null; try { b = JSON.parse(text); } catch {}
+  check(gp.ok && b && Array.isArray(b.posts), 'anyone can read approved posts', `${gp.status} ${text.slice(0, 160)}`);
+  check(!/user_id|reviewed_by|"email"/.test(text), 'posts carry no account ids or emails', text.slice(0, 160));
+  for (const [who, token] of user ? [['anon', null], ['signed-in user', user]] : [['anon', null]]) {
+    for (const t of ['posts', 'post_votes', 'comments', 'reports', 'moderators', 'bans']) {
+      const r = await fetch(`${url}/rest/v1/${t}?select=*`, { headers: h(token) });
+      const body = await r.text();
+      check(denied(r) || body === '[]', `${who} cannot read ${t}`, `${r.status} ${body.slice(0, 120)}`);
+    }
+    const w = await fetch(`${url}/rest/v1/posts`, { method: 'POST', headers: { ...h(token), Prefer: 'return=representation' }, body: JSON.stringify({ body: 'Is this a test?', scope: 'world' }) });
+    check(denied(w), `${who} cannot write posts directly`, `${w.status} ${(await w.text()).slice(0, 120)}`);
+  }
+  for (const [fn, args] of [['create_post', { body: 'Is this a test?', color: 0, scope: 'world' }], ['create_comment', { pid: 1, body: 'A test' }],
+      ['judge_post', { pid: 1, yes: true }], ['report_item', { what: 'post', iid: 1 }], ['delete_mine', { what: 'post', iid: 1 }],
+      ['set_birth', { y: 2000, m: 1 }], ['review_queue', {}], ['review_item', { what: 'post', iid: 1, decision: 'approve' }], ['ban_author', { what: 'post', iid: 1 }]]) {
+    const r = await fetch(`${url}/rest/v1/rpc/${fn}`, { method: 'POST', headers: h(), body: JSON.stringify(args) });
+    check(denied(r), `anon cannot call ${fn}`, `${r.status} ${(await r.text()).slice(0, 120)}`);
+  }
+  if (user) for (const [fn, args, why] of [
+      ['create_post', { body: 'Is this a test?', color: 0, scope: 'world', cc: 'US' }, /posting is closed|sign in to post/],
+      ['create_comment', { pid: 1, body: 'A test' }, /posting is closed|sign in to post/],
+      ['review_queue', {}, /moderators only/],
+      ['review_item', { what: 'post', iid: 1, decision: 'approve' }, /moderators only/],
+      ['ban_author', { what: 'post', iid: 1 }, /moderators only/]]) {
+    const r = await fetch(`${url}/rest/v1/rpc/${fn}`, { method: 'POST', headers: h(user), body: JSON.stringify(args) });
+    const body = await r.text();
+    check(r.status >= 400 && why.test(body), `an anonymous account cannot call ${fn}`, `${r.status} ${body.slice(0, 120)}`);
+  }
+}
+
 console.log(failed ? `\n${failed} check(s) FAILED` : '\nAll checks passed: the public key can only do what setup.sql allows.');
 process.exit(failed ? 1 : 0);

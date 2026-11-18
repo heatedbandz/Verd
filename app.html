@@ -244,6 +244,14 @@ button{border:0;background:none;padding:0;cursor:pointer}
 .chead .lnk{margin-left:auto}
 .chead i{font-style:normal;font-size:var(--t-xs);font-weight:700;padding:2px var(--s2);border-radius:var(--r1);background:var(--surface-2);color:var(--ink)}
 .chead i.a{background:var(--accent-tint);color:var(--accent-ink)}
+.rlist{display:flex;flex-direction:column}
+.ritem{display:flex;flex-direction:column;gap:var(--s2);padding:var(--s4) 0;border-top:1px solid var(--line)}
+.ritem:first-child{border-top:0;padding-top:0}
+.ritem p{margin:0;font-size:var(--t-base);overflow-wrap:anywhere}
+.ritem .ron{font-size:var(--t-sm);color:var(--muted)}
+.rmeta{font-size:var(--t-sm);color:var(--muted)}
+.racts{display:flex;flex-wrap:wrap;gap:var(--s2);align-items:center}
+.racts .lnk{margin:0}
 .lnk{font-size:var(--t-sm);color:var(--muted);text-decoration:underline;text-underline-offset:3px;flex:none;min-height:var(--tap);padding:0 var(--s2);margin:-12px calc(var(--s2) * -1)}
 #shareBox{width:100%;min-height:110px;background:var(--surface);border:0;border-radius:var(--r2);padding:var(--s3);font-size:var(--t-md)}
 .ssubt{font-size:var(--t-sm);color:var(--muted);font-weight:500;margin-top:2px}
@@ -408,11 +416,21 @@ html.vt .page{animation:none}
         <h3>Your place</h3>
         <select class="field" id="country" aria-label="Country"></select>
         <div id="ageAsk">
-          <p class="note">To add your state and city, pick the month and year you were born. It stays on this phone.</p>
+          <p class="note">To add your state and city, pick the month and year you were born. It stays on this phone unless you sign in to post.</p>
           <div class="grid2"><select class="field" id="bmonth" aria-label="Month you were born"></select><select class="field" id="byear" aria-label="Year you were born"></select></div>
         </div>
         <div class="grid2" id="placeFields" hidden><input class="field" id="mystate" maxlength="40" placeholder="State" aria-label="State or region"><input class="field" id="mycity" maxlength="40" placeholder="City" aria-label="City"></div>
         <p class="note" id="placeNote">Used to compare answers with people near you. Never your exact location.</p>
+      </div>
+      <div class="sec" id="account" hidden>
+        <h3>Account</h3>
+        <p class="note" id="acctNote"></p>
+        <div><button class="b2" id="acctBtn">Sign in with Google</button></div>
+      </div>
+      <div class="sec" id="review" hidden>
+        <h3>Review</h3>
+        <p class="note" id="reviewNote"></p>
+        <div class="rlist" id="reviewList"></div>
       </div>
       <div class="sec" id="suggest" hidden>
         <h3>Suggest tomorrow's question</h3>
@@ -441,7 +459,7 @@ html.vt .page{animation:none}
     <section class="page compose" id="compose" hidden>
       <div class="cbar"><button class="x" id="cclose" aria-label="Close">×</button><button class="post" id="psend">Post</button></div>
       <textarea id="ptext" maxlength="140" placeholder="What do you want a verdict on?" aria-label="Your post"></textarea>
-      <div><div class="clabel">Photos (optional, up to 2)</div><div class="thumbs" id="thumbs"></div><input type="file" id="pfile" accept="image/*" multiple hidden></div>
+      <div id="photoRow"><div class="clabel">Photos (optional, up to 2)</div><div class="thumbs" id="thumbs"></div><input type="file" id="pfile" accept="image/*" multiple hidden></div>
       <div id="colorRow"><div class="clabel">Color</div><div class="swatches" id="swatches"></div></div>
       <div><div class="clabel">Who decides</div><div class="aud" id="aud"></div></div>
       <p class="cnote" id="cnote"></p>
@@ -451,8 +469,16 @@ html.vt .page{animation:none}
       <div class="sheetin">
         <div class="shead"><div><div id="stitle">Comments</div><div class="ssubt" id="ssubt"></div></div><button id="sclose" aria-label="Close">×</button></div>
         <div id="clist"></div>
-        <form class="line" id="cform"><input class="field" id="cinput" maxlength="200" placeholder="Add a comment" aria-label="Add a comment"><button class="b2">Send</button></form>
+        <form class="line" id="cform"><input class="field" id="cinput" maxlength="200" placeholder="Add a comment" aria-label="Add a comment"><button class="b2" id="csend">Send</button></form>
         <textarea id="shareBox" readonly hidden></textarea>
+      </div>
+    </div>
+    <div class="sheet" id="acct" hidden>
+      <div class="sheetin" role="dialog" aria-modal="true" aria-labelledby="atitle">
+        <div class="shead"><div id="atitle">Sign in to post</div><button id="aclose" aria-label="Close">×</button></div>
+        <p class="note" id="anote"></p>
+        <div class="grid2" id="aage" hidden><select class="field" id="amonth" aria-label="Month you were born"></select><select class="field" id="ayear" aria-label="Year you were born"></select></div>
+        <div><button class="b2" id="ago">Continue with Google</button></div>
       </div>
     </div>
     <div class="toast" id="toast" hidden></div>
@@ -732,8 +758,104 @@ const backends = {
     addEventListener("online", () => { flush(); subs.forEach((_, d) => refresh(d)); });
     document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible"){ flush(); subs.forEach((_, d) => refresh(d)); } });
     setInterval(() => { if (document.visibilityState === "visible") subs.forEach((_, d) => refresh(d)); }, 20000);
+
+    // ---------- Sign in with Google, to post ----------
+    // PKCE: Google sends back a one-time code, never a token in the address. If you already have an account
+    // from answering, Google is linked to it, so your answers, streak and friend code stay as they are.
+    let acct = null, settings = null;
+    const b64url = bytes => btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    async function challenge(){
+      const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
+      store.set("pkce", verifier);
+      return b64url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))));
+    }
+    // "away" (gone to Google), "linking off" (Supabase's manual linking isn't switched on), or "failed".
+    async function signIn(fresh){
+      try{
+        const q = "provider=google&redirect_to=" + encodeURIComponent(location.origin + location.pathname) + "&code_challenge=" + await challenge() + "&code_challenge_method=s256";
+        if (!session || fresh){ store.set("signin", "fresh"); location.assign(base + "/auth/v1/authorize?" + q); return "away"; }
+        const t = await (pending ||= token().finally(() => { pending = null; }));
+        const r = await fetch(base + "/auth/v1/user/identities/authorize?" + q + "&skip_http_redirect=true", { headers: { apikey: key, Authorization: "Bearer " + t } });
+        const b = await r.json().catch(() => null);
+        if (r.ok && b && b.url){ store.set("signin", "link"); location.assign(b.url); return "away"; }
+        return b && b.error_code === "manual_linking_disabled" ? "linking off" : "failed";
+      }catch{ return "failed"; }
+    }
+    // Back from Google: ?code= becomes a session. "ok", "failed", "away" (gone to sign in again), or null.
+    async function finishSignIn(){
+      const u = new URL(location.href), q = u.searchParams, h = new URLSearchParams(u.hash.slice(1));
+      const code = q.get("code"), err = q.get("error_code") || h.get("error_code") || q.get("error") || h.get("error");
+      if (!code && !err) return null;
+      ["code", "error", "error_code", "error_description", "state"].forEach(k => q.delete(k));
+      history.replaceState(null, "", u.pathname + (q.toString() ? "?" + q : "") + (h.has("error") ? "" : u.hash));
+      const verifier = store.get("pkce", ""), how = store.get("signin", ""); store.set("pkce", null); store.set("signin", null);
+      // That Google account already has a Verd account (from another phone): sign in to that one instead.
+      // This phone's answers stay counted once, with the account they were sent from.
+      if (err === "identity_already_exists" && how === "link") return (await signIn(true)) === "away" ? "away" : "failed";
+      if (err || !verifier) return "failed";
+      try{ await auth("token?grant_type=pkce", { auth_code: code, code_verifier: verifier }); }catch{ return "failed"; }
+      acct = null; importLocal(); syncFriends();
+      return "ok";
+    }
+    // What your account may do. No account is made just to ask.
+    async function account(force){
+      if (!session) return { real: false, age_given: false, age_ok: false, moderator: false, blocked: false };
+      if (!acct || force) acct = await rpc("my_profile", {}, true);
+      return acct;
+    }
+    async function authSettings(){
+      if (!settings) try{ const r = await fetch(base + "/auth/v1/settings", { headers: { apikey: key } }); settings = r.ok ? await r.json() : {}; }catch{ return {}; }
+      return settings;
+    }
+
+    // ---------- Posts: people's own questions, each checked by a moderator first ----------
+    // Posts and comments come back the way the screens expect them. "@me" stands for you; a mutual friend's
+    // posts and comments carry their code; everyone else is nobody in particular.
+    function askLive(){
+      let cb = null, open = false, loading = null;
+      const num = id => Number(String(id).slice(1));
+      const what = id => String(id)[0] === "c" ? "comment" : "post";
+      const asPost = (p, pl) => ({
+        id: "p" + p.id, text: p.body, color: p.color, cat: catOf(p.body), scope: p.scope, country: p.country,
+        state: p.scope === "state" || p.scope === "city" ? pl.state : "", city: p.scope === "city" ? pl.city : "",
+        t: p.t, author: p.mine ? "@me" : p.code || null, yes: p.yes, no: p.no, total: p.total, close: p.close, reports: 0,
+        status: p.status || "approved", reason: p.reason || "",
+        comments: p.comments.map(c => ({ id: "c" + c.id, post: "p" + p.id, author: c.mine ? "@me" : c.code || null, text: c.body, side: c.side, t: c.t, reports: 0, status: c.status || "approved" }))
+      });
+      function load(){
+        return loading ||= (async () => {
+          try{
+            const pl = myPlace(), r = await rpc("get_posts", placeArgs(pl)), mv = {};
+            open = !!r.open;
+            for (const p of r.posts) if (p.my_vote) mv["p" + p.id] = p.my_vote;
+            if (cb) cb(r.posts.map(p => asPost(p, pl)), mv, {});
+          }catch{} finally { loading = null; }
+        })();
+      }
+      document.addEventListener("visibilitychange", () => { if (cb && document.visibilityState === "visible") load(); });
+      setInterval(() => { if (cb && document.visibilityState === "visible") load(); }, 60000);
+      return {
+        me: "@me", live: true,
+        get open(){ return open; },
+        watch(f){ cb = f; load(); },
+        refresh: load,
+        async post(item){ const r = await rpc("create_post", { body: item.text, color: item.color, scope: item.scope, ...placeArgs(myPlace()) }, true); await load(); return "p" + r.id; },
+        async comment(item){ await rpc("create_comment", { pid: num(item.post), body: item.text, ...placeArgs(myPlace()) }, true); await load(); },
+        vote: (id, v) => rpc("judge_post", { pid: num(id), yes: v > 0, ...placeArgs(myPlace()) }, true),
+        report: id => rpc("report_item", { what: what(id), iid: num(id), ...placeArgs(myPlace()) }, true),
+        async remove(id){ await rpc("delete_mine", { what: what(id), iid: num(id) }, true); await load(); }
+      };
+    }
+
     return {
       mode: "live", label: "Live: everyone's answers, counted by Verd's database.",
+      ask: askLive(), account, signIn, finishSignIn, authSettings,
+      setBirth: (y, m) => rpc("set_birth", { y, m }, true).then(() => account(true)),
+      review: {
+        queue: () => rpc("review_queue", {}, true),
+        decide: (what, iid, decision, why) => rpc("review_item", { what, iid, decision, why: why || null }, true),
+        block: (what, iid, days, why) => rpc("ban_author", { what, iid, for_days: days, why }, true)
+      },
       watch(dayKey, n, place, cb){
         let s = subs.get(dayKey); if (!s){ s = { n, place, cbs: new Set() }; subs.set(dayKey, s); }
         s.cbs.add(cb); const cached = store.get("res:" + dayKey, null); if (cached) cb({ ...cached, stale: true });
@@ -969,11 +1091,11 @@ function rank(list){
   for (const p of ask.posts) if (ask.api && (ask.myVotes[p.id] || p.author === ask.api.me)) catVotes[p.cat] = (catVotes[p.cat]||0) + 1;
   const now = Date.now();
   const score = p => {
-    const total = p.yes + p.no, hours = (now - p.t) / 3600000;
+    const total = totalOf(p), hours = (now - p.t) / 3600000;
     const fresh = Math.exp(-hours / 36);                       // fades over a day and a half
     const topic = Math.min(catVotes[p.cat] || 0, 5) * 0.25;   // your interests
     const unseen = ask.myVotes[p.id] || p.author === ask.api.me ? 0 : 1;
-    const split = total >= 3 ? 1 - Math.abs(p.yes - p.no) / total : 0; // close calls are interesting
+    const split = p.yes == null ? (p.close ? 1 : 0) : total >= 3 ? 1 - Math.abs(p.yes - p.no) / total : 0; // close calls are interesting
     const talk = Math.log1p(total + 2 * p.comments.length) * 0.3;
     return unseen * 1.5 + fresh * 2 + topic + split * 0.8 + talk;
   };
@@ -1034,11 +1156,21 @@ const hue = (e, c) => { e.style.setProperty("--c0", c[0]); e.style.setProperty("
 const hash = s => { let h = 0; for (const c of String(s)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h; };
 const ask = { api: null, posts: [], myVotes: {}, myReports: {}, flipped: {}, scope: "world" };
 const signOf = p => p.yes > p.no ? 1 : p.yes < p.no ? -1 : 0;
-const BLOCK = [/\d[\d\s().-]{6,}\d/, /@\w/, /https?:|www\./i, /\b(kill|kys|die)\b/i];
+// How many judged a post. The live database sends the split only once you've judged (or it's yours).
+const totalOf = p => p.total ?? (p.yes + p.no);
+// The same kinds of things the database refuses (blocked_terms in setup.sql), caught before sending.
+const BLOCK = [/\d[\d\s().-]{6,}\d/, /@\w/, /https?:|www\./i, /\b(kill|kys|die)\b/i, /\b(dm|snap|add|text|hmu)\s+me\b/i, /\bhmu\b/i,
+  /\bmy\s+(snap|snapchat|insta|ig|discord|number|addy|address)\b/i, /\b(send|show)\s+(me\s+)?(a\s+)?(pics?|nudes?|photos?)\b/i,
+  /\bhow old (are|r) (you|u)\b/i, /\bwhere do (you|u) live\b/i, /\b(nudes?|sext(ing)?|porn|onlyfans|horny)\b/i];
+const BLOCK_MSG = "Leave out contact info, links, threats, and asking for pictures or someone's age.";
+// Posting on the live site opens once Verd has a moderator and Google sign-in is switched on.
+let signInReady = false;
+const postingOpen = () => !!ask.api && (!ask.api.live || (ask.api.open && signInReady));
 const ICON = {
   comment: '<svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 0 1-11.800 7L4 20l1-4.200A8 8 0 1 1 20 12z"/></svg>',
   share: '<svg viewBox="0 0 24 24"><path d="M12 15V4M8 8l4-4 4 4M5 13v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5"/></svg>',
-  flag: '<svg viewBox="0 0 24 24"><path d="M5 21V4M5 4h11l-2 4 2 4H5"/></svg>'
+  flag: '<svg viewBox="0 0 24 24"><path d="M5 21V4M5 4h11l-2 4 2 4H5"/></svg>',
+  trash: '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 7V4h4v3M6 7l1 13h10l1-13"/></svg>'
 };
 function el(tag, cls, text){ const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
 function iact(icon, label, text, fn){ const b = el("button", "iact"); b.innerHTML = ICON[icon]; b.setAttribute("aria-label", label); if (text) b.append(el("span", "", text)); b.onclick = fn; return b; }
@@ -1257,10 +1389,15 @@ function yesterdaySlide(){
   s.append(body, answers("yday", yo, shares(yc), mine ? mine.choice : -1, () => {}, false), foot);
   return s;
 }
+// Where your own post stands on the live site: every post waits for a moderator first.
+const standing = p => p.status === "pending" ? "Waiting for review" : p.status === "rejected" ? "Not approved" + (p.reason ? ": " + p.reason : "")
+  : p.status === "removed" ? "Removed" + (p.reason ? ": " + p.reason : "") : "Your post";
 function postSlide(p){
-  const mine = p.author === ask.api.me, my = ask.myVotes[p.id], total = p.yes + p.no, show = mine || !!my, yes = pct(p.yes, total);
+  // On the live site the split arrives once you've judged (or it's yours). Before that: how many judged, and whether it's close.
+  const mine = p.author === ask.api.me, my = ask.myVotes[p.id], total = totalOf(p), show = mine || !!my, yes = p.yes == null ? null : pct(p.yes, total);
+  const published = !p.status || p.status === "approved";
   const s = shell(p.id, COLORS[(typeof p.color === "number" ? p.color : hash(p.id)) % COLORS.length]), body = el("div", "sbody");
-  body.append(el("div", "kicker", [placeLabel(p), ago(p.t), mine ? "Your post" : "", ask.flipped[p.id] ? "Flipped since you voted" : ""].filter(Boolean).join(" · ")));
+  body.append(el("div", "kicker", [placeLabel(p), ago(p.t), mine ? standing(p) : "", ask.flipped[p.id] ? "Flipped since you voted" : ""].filter(Boolean).join(" · ")));
   const imgs = p.imgs || [], duo = imgs.length === 2, labels = duo ? ["This one", "That one"] : ["Yes", "No"];
   const tap = i => mine ? toast("You can't vote on your own post.") : votePost(p.id, i === 0 ? 1 : -1);
   if (imgs.length === 1){ s.classList.add("photo"); const im = el("img", "pbg"); im.src = imgs[0]; im.alt = ""; s.append(im); }
@@ -1268,16 +1405,18 @@ function postSlide(p){
     imgs.forEach((src, i) => { const b = el("button", my && (my > 0 ? 0 : 1) === i ? "mine" : ""), im = el("img"); im.src = src; im.alt = labels[i]; b.append(im); b.setAttribute("aria-label", labels[i]); if (show) b.disabled = true; else b.onclick = () => tap(i); g.append(b); });
     s.append(g); }
   body.append(el("h2", "stext" + (imgs.length ? " s" : sizeClass(p.text)), p.text));
-  const close = total >= 4 && Math.abs(yes - 50) <= 10;
-  if (show){ const v = !total ? "Waiting for the first verdict." : close ? "Split " + yes + "/" + (100 - yes) + ". Could go either way." : total >= 3 && yes >= 75 ? (duo ? "This one is winning." : "People are into it.") : total >= 3 && yes <= 25 ? (duo ? "That one is winning." : "People say no.") : ""; if (v) body.append(el("p", "sverdict", v)); }
+  const close = p.close ?? (total >= 4 && Math.abs(yes - 50) <= 10);
+  if (!published) body.append(el("p", "sverdict", p.status === "pending" ? "Only you can see this until a moderator approves it." : "Only you can see this."));
+  else if (show && yes != null){ const v = !total ? "Waiting for the first verdict." : close ? "Split " + yes + "/" + (100 - yes) + ". Could go either way." : total >= 3 && yes >= 75 ? (duo ? "This one is winning." : "People are into it.") : total >= 3 && yes <= 25 ? (duo ? "That one is winning." : "People say no.") : ""; if (v) body.append(el("p", "sverdict", v)); }
   const foot = el("div", "sfoot");
   foot.append(el("span", "", show ? total + (total === 1 ? " vote" : " votes") : !total ? "Be the first to judge." : close ? "This one is splitting people. Tap to see." : total + (total === 1 ? " person" : " people") + " voted. Tap to see the verdict."));
   const live = liveComments(p), nC = live.length, acts = el("div", "sacts");
   if (show && nC){ const last = live[live.length - 1], pk = el("button", "peek"); pk.append(el("b", "", whoSaid(last)), el("span", "", last.text)); pk.onclick = () => openSheet(p.id); pk.setAttribute("aria-label", "Open comments"); body.append(pk); }
-  acts.append(iact("comment", "Comments", nC ? String(nC) : "", () => openSheet(p.id)));
+  if (published) acts.append(iact("comment", "Comments", nC ? String(nC) : "", () => openSheet(p.id)));
   if (!mine) acts.append(iact("flag", "Report", "", () => report(p.id)));
+  if (mine && ask.api.remove) acts.append(iact("trash", "Delete your post", "", () => removeMine(p.id)));
   foot.append(acts);
-  s.append(body, answers(p.id, labels, show && total ? [yes, 100 - yes] : null, my ? (my > 0 ? 0 : 1) : -1, tap, animate === p.id), foot);
+  s.append(body, answers(p.id, labels, show && total && yes != null ? [yes, 100 - yes] : null, my ? (my > 0 ? 0 : 1) : -1, tap, animate === p.id), foot);
   return s;
 }
 const dropLine = () => "Tomorrow's question drops in " + nextIn() + ".";
@@ -1286,7 +1425,7 @@ function endSlide(){
   let h = "You're caught up.", sub = null, cta = null;
   if ((ask.scope === "city" && (!pl.city || !pl.state)) || (ask.scope === "state" && !pl.state)){ h = "Where are you?"; sub = "Add your city and state to see what people near you really think."; cta = ["Set my place", () => showPage("me")]; }
   else if (ask.scope === "friends" && !friends().length){ h = "No friends here yet."; sub = "Swap codes with a friend and judge each other's posts."; cta = ["Add a friend", () => showPage("me")]; }
-  else if (!order.length && ask.scope !== "world"){ h = "Nothing here yet."; sub = "Be the first one to ask."; cta = ["Post something", openCompose]; }
+  else if (!order.length && ask.scope !== "world"){ h = "Nothing here yet."; sub = postingOpen() ? "Be the first one to ask." : "Posts from people show up here."; cta = postingOpen() ? ["Post something", openCompose] : null; }
   body.append(el("h2", "stext m", h));
   if (sub) body.append(el("p", "ssub", sub));
   else {
@@ -1294,7 +1433,7 @@ function endSlide(){
     const next = el("p", "ssub", dropLine()), peek = el("p", "peekline"); next.dataset.tick = "drop";
     peek.append(el("span", "", "Tomorrow's topic"), el("b", "", topicName(topicOfDay(today + 1))));
     body.append(next, peek);
-    cta = !myVotes[todayKey] ? ["Answer today's question", () => openPost("daily")] : ask.api ? ["Post something", openCompose] : null;
+    cta = !myVotes[todayKey] ? ["Answer today's question", () => openPost("daily")] : postingOpen() ? ["Post something", openCompose] : null;
   }
   if (cta){ const b = el("button", "cta", cta[0]); b.onclick = cta[1]; body.append(b); }
   s.append(body); return s;
@@ -1371,9 +1510,21 @@ function guess(k){
 }
 async function votePost(id, v){
   ask.myVotes = { ...ask.myVotes, [id]: v }; const p = ask.posts.find(x => x.id === id);
-  if (p){ v > 0 ? p.yes++ : p.no++; const signs = store.get("askSigns", {}); signs[id] = signOf(p) || v; store.set("askSigns", signs); }
+  const sign = () => { const signs = store.get("askSigns", {}); signs[id] = signOf(p) || v; store.set("askSigns", signs); };
+  if (p && p.yes != null){ v > 0 ? p.yes++ : p.no++; if (p.total != null) p.total++; sign(); }
+  else if (p) p.total = (p.total || 0) + 1;   // live: the split comes back with your answer
   haptics.vote(); animate = id; renderFeed();
-  try{ await ask.api.vote(id, v); }catch{ toast("Couldn't save your vote. Try again."); }
+  try{
+    const r = await ask.api.vote(id, v);
+    if (p && r && typeof r.yes === "number"){ p.yes = r.yes; p.no = r.no; p.total = r.yes + r.no; sign(); animate = id; renderFeed(); }
+  }catch{ toast("Couldn't save your vote. Try again."); }
+}
+// Deleting your own post or comment: tap, then tap again within 4 seconds.
+let armed = null;
+async function removeMine(id){
+  if (armed !== id){ armed = id; toast(id[0] === "c" ? "Tap Delete again to delete your comment." : "Tap the bin again to delete your post."); setTimeout(() => { if (armed === id) armed = null; }, 4000); return; }
+  armed = null;
+  try{ await ask.api.remove(id); toast("Deleted."); }catch{ toast("Couldn't delete it. Try again."); }
 }
 async function report(id){ ask.myReports = { ...ask.myReports, [id]: 1 }; toast("Reported. It's hidden for you."); renderFeed(); if (sheetPost) renderSheet(); try{ await ask.api.report(id); }catch{} }
 function checkFlips(){ const signs = store.get("askSigns", {}); for (const p of ask.posts) if (ask.myVotes[p.id] && signs[p.id] && p.yes + p.no >= 4){ const s = signOf(p); if (s && s !== signs[p.id]) ask.flipped[p.id] = true; } }
@@ -1475,16 +1626,26 @@ function renderSheet(){
     head.append(el("b", "", whoSaid(c)));
     if (c.side === 0 || c.side === 1) head.append(el("i", c.side === 0 ? "a" : "", lab[c.side]));
     if (c.t) head.append(el("span", "", ago(c.t)));
+    if (c.status && c.status !== "approved") head.append(el("span", "", c.status === "pending" ? "Waiting for review" : "Not approved"));
     if (c.author !== ask.api.me){ const r = el("button", "lnk", "Report"); r.onclick = () => report(c.id); head.append(r); }
+    else if (ask.api.remove){ const r = el("button", "lnk", "Delete"); r.onclick = () => removeMine(c.id); head.append(r); }
     row.append(head, el("p", "", c.text)); box.append(row); }
 }
 $("sclose").onclick = closeSheet;
 $("sheet").onclick = e => { if (e.target === $("sheet")) closeSheet(); };
 $("cform").onsubmit = async e => {
   e.preventDefault(); const text = $("cinput").value.trim(); if (text.length < 2 || !sheetPost) return;
-  if (BLOCK.some(r => r.test(text))){ toast("Leave out phone numbers, @handles, links and threats."); return; }
+  if (BLOCK.some(r => r.test(text))){ toast(BLOCK_MSG); return; }
   const pp = ask.posts.find(x => x.id === sheetPost), my = ask.myVotes[sheetPost];
   if (!my && !(pp && pp.author === ask.api.me)){ toast("Vote first, then say why."); return; }
+  if (ask.api.live){
+    if (!postingOpen()){ toast("Comments open soon."); return; }
+    const post = sheetPost; if (!(await gate("comment:" + post))) return;
+    $("csend").disabled = true;
+    try{ await ask.api.comment({ post, text }); $("cinput").value = ""; store.set("commented", true); checkBadges(); toast("Sent. Others see it once a moderator approves it."); }
+    catch(err){ const m = writeError(err); if (m) toast(m); else gate("comment:" + post); }
+    $("csend").disabled = false; return;
+  }
   const item = { id: "c-" + ask.api.me + "-" + Date.now().toString(36), post: sheetPost, author: ask.api.me, text, t: Date.now() };
   if (my) item.side = my > 0 ? 0 : 1;
   const p = ask.posts.find(x => x.id === sheetPost); if (p) p.comments.push({ ...item, reports: 0 });
@@ -1505,8 +1666,9 @@ $("pfile").onchange = async e => {
   for (const f of [...e.target.files].slice(0, 2 - cPhotos.length)){ try{ cPhotos.push(await shrink(f)); }catch{ toast("That photo couldn't be opened."); } }
   e.target.value = ""; if (cPhotos.length) cScope = "friends"; drawCompose();
 };
-function openCompose(prefill){
-  if (!ask.api){ toast("Posting opens soon."); return; }
+async function openCompose(prefill){
+  if (!postingOpen()){ toast("Posting opens soon."); return; }
+  if (ask.api.live && !(await gate("post"))) return;
   cColor = Math.floor(Math.random() * COLORS.length); cScope = ask.scope; cPhotos = []; drawCompose(); $("compose").hidden = false; paintStatusBar();
   if (typeof prefill === "string") $("ptext").value = prefill; $("ptext").focus();
 }
@@ -1520,11 +1682,14 @@ function drawCompose(){
   cPhotos.forEach((src, i) => { const t = el("div", "thumb"), im = el("img"); im.src = src; im.alt = "Photo " + (i + 1); const x = el("button"); x.append(el("span", "", "×")); x.setAttribute("aria-label", "Remove photo"); x.onclick = () => { cPhotos.splice(i, 1); drawCompose(); }; t.append(im, x); th.append(t); });
   if (cPhotos.length < 2){ const a = el("button", "addp"); a.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>'; a.setAttribute("aria-label", "Add a photo"); a.onclick = () => $("pfile").click(); th.append(a); }
   $("compose").classList.toggle("haspic", cPhotos.length > 0); $("colorRow").hidden = cPhotos.length > 0;
+  // No photos on the live site: words can be checked before anyone sees them, photos can't yet.
+  $("photoRow").hidden = !!ask.api.live;
   $("ptext").placeholder = cPhotos.length === 2 ? "Which one?" : cPhotos.length === 1 ? "Yes or no?" : "What do you want a verdict on?";
   $("cnote").textContent = cPhotos.length === 2 ? "Friends pick This one or That one. Photo posts go to friends only for now."
     : cPhotos.length === 1 ? "Friends answer Yes or No. Photo posts go to friends only for now."
     : "People answer Yes or No. No names, phone numbers or anything mean about a real person.";
   if (backend && backend.mode === "device") $("cnote").textContent = "Only you can see your posts until Verd goes live. " + $("cnote").textContent;
+  if (ask.api.live) $("cnote").textContent = "A moderator checks every post before anyone else sees it, and your name is never shown. " + $("cnote").textContent;
 }
 function closeCompose(){ $("compose").hidden = true; paintStatusBar(); }
 $("cclose").onclick = closeCompose;
@@ -1533,10 +1698,19 @@ $("psend").onclick = async () => {
   if (imgs.length && !text) text = imgs.length === 2 ? "Which one?" : "Yes or no?";
   if (imgs.length && !friends().length){ toast("Add a friend on your profile first. Photo posts go to friends."); return; }
   if (text.length < 4){ toast("Write a little more."); return; }
-  if (BLOCK.some(r => r.test(text))){ toast("Leave out phone numbers, @handles, links and threats."); return; }
+  if (BLOCK.some(r => r.test(text))){ toast(BLOCK_MSG); return; }
   if ((cScope === "city" && (!pl.city || !pl.state)) || (cScope === "state" && !pl.state)){ toast("Add your city and state on the Me page first."); return; }
   const item = { id: ask.api.me + "-" + Date.now().toString(36), author: ask.api.me, text, color: cColor, photos: imgs.length, cat: catOf(text), scope: imgs.length ? "friends" : cScope, city: pl.city, state: pl.state, country: pl.country, t: Date.now() };
   $("psend").disabled = true;
+  if (ask.api.live){
+    try{
+      const id = await ask.api.post(item); store.set("posted", true);
+      if (ask.scope !== item.scope){ ask.scope = item.scope; order = []; renderTop(); }
+      jumpTo = id; $("ptext").value = ""; closeCompose(); showPage("feed"); renderFeed();
+      toast("Sent for review. Others see it once a moderator approves it."); checkBadges();
+    }catch(err){ const m = writeError(err); if (m) toast(m); else { closeCompose(); gate("post"); } }
+    $("psend").disabled = false; return;
+  }
   try{
     if (ask.scope !== item.scope){ ask.scope = item.scope; order = []; renderTop(); }
     jumpTo = item.id; if (imgs.length) await ask.api.photo(item.id, imgs); await ask.api.post(item); store.set("posted", true);
@@ -1544,6 +1718,124 @@ $("psend").onclick = async () => {
   }catch{ jumpTo = null; toast("Couldn't post. Check your connection and try again."); }
   $("psend").disabled = false;
 };
+
+// ---------- Accounts, for posting on the live site ----------
+// Writing needs the month and year you were born (asked before signing in, so nobody under 13 hands over an
+// email), a real account (Google), 13 or older, and no block. Reading, judging and reporting need none of it.
+// then: what to do once that's all done ("post", "comment:<post id>" or "me"), kept through the trip to Google.
+async function gate(then){
+  if (under13()){ openAcct("young"); return false; }
+  let a;
+  try{ a = await backend.account(true); }catch{ toast("Couldn't check your account. Check your connection."); return false; }
+  const born = /^(\d{4})-(\d{2})$/.exec(store.get("born", ""));
+  if (!a.real){ openAcct(born ? "signin" : "age", then); return false; }
+  if (!a.age_given){
+    if (!born){ openAcct("age", then); return false; }
+    try{ a = await backend.setBirth(+born[1], +born[2]); }catch{ toast("Couldn't save that. Check your connection."); return false; }
+  }
+  if (!a.age_ok){ openAcct("young"); return false; }
+  if (a.blocked){ toast("Posting is blocked for this account right now."); return false; }
+  return true;
+}
+function openAcct(mode, then){
+  $("atitle").textContent = { signin: "Sign in to post", age: "One question first", young: "Posting is for 13 and older" }[mode];
+  $("anote").textContent = mode === "signin" ? "Posts and comments come from real accounts, so the rules stick. Your name is never shown, and your birth month and year are kept with the account."
+    : mode === "age" ? "Pick the month and year you were born."
+    : "That goes for comments too. You can still answer every day, judge posts and report anything that looks wrong.";
+  $("aage").hidden = mode !== "age"; $("amonth").value = $("ayear").value = "";
+  const go = $("ago"); go.hidden = mode === "young"; go.disabled = false;
+  go.textContent = mode === "signin" ? "Continue with Google" : "Continue";
+  go.onclick = mode === "signin" ? () => startSignIn(then, go) : async () => {
+    const y = $("ayear").value, m = $("amonth").value;
+    if (!y || !m){ toast("Pick a month and a year."); return; }
+    saveBorn(y + "-" + m); closeAcct();
+    if (await gate(then)) resume(then);
+  };
+  $("acct").hidden = false;
+}
+function closeAcct(){ $("acct").hidden = true; }
+$("aclose").onclick = closeAcct;
+$("acct").onclick = e => { if (e.target === $("acct")) closeAcct(); };
+async function startSignIn(then, b){
+  store.set("afterSignIn", then || "me");
+  store.set("draft", then === "post" ? $("ptext").value : then && then.startsWith("comment:") ? $("cinput").value : "");
+  b.disabled = true;
+  const r = await backend.signIn();
+  if (r === "away") return;
+  b.disabled = false;
+  toast(r === "linking off" ? "Signing in isn't fully switched on yet. Try again later." : "Couldn't start signing in. Check your connection.");
+}
+// Back on this page from Google with the Back button: the buttons work again.
+addEventListener("pageshow", e => { if (e.persisted) for (const id of ["ago", "acctBtn"]) $(id).disabled = false; });
+function resume(then){
+  const d = store.get("draft", ""); store.set("draft", null);
+  if (then === "post") openCompose(d || undefined);
+  else if (then && then.startsWith("comment:")){ openSheet(then.slice(8)); if (d) $("cinput").value = d; }
+  else if (then === "me") showPage("me");
+}
+// The database's refusals, in plain words. null: the gate deals with it (signing in, age).
+function writeError(e){
+  const m = (e && e.message) || "";
+  return /blocked words/.test(m) ? BLOCK_MSG
+    : /enough posts/.test(m) ? "That's the limit for today. You can post again tomorrow."
+    : /enough comments/.test(m) ? "That's the limit for today. You can comment again tomorrow."
+    : /wait a moment/.test(m) ? "Wait a moment before the next one."
+    : /are \d+ to 200 characters/.test(m) ? m[0].toUpperCase() + m.slice(1) + "."
+    : /set your place/.test(m) ? "Add your city and state on the Me page first."
+    : /closed/.test(m) ? "Posting is paused right now."
+    : /judge it first/.test(m) ? "Vote first, then say why."
+    : /no such post/.test(m) ? "That post isn't up anymore."
+    : /blocked for you/.test(m) ? "Posting is blocked for this account right now."
+    : /sign in|age needed|13 and older/.test(m) ? null
+    : "Couldn't send it. Check your connection and try again.";
+}
+// Me: signing in, and the review queue for moderators.
+async function renderAccount(){
+  const sec = $("account");
+  if (!backend || !backend.signIn || !signInReady || under13()){ sec.hidden = true; $("review").hidden = true; return; }
+  sec.hidden = false;
+  let a = null; try{ a = await backend.account(); }catch{}
+  const real = !!(a && a.real), b = $("acctBtn");
+  $("acctNote").textContent = real ? "Signed in with Google. Your name is never shown to anyone." : "Sign in to post and comment. Your name is never shown to anyone.";
+  b.hidden = real; b.disabled = false;
+  b.onclick = async () => { if (await gate("me")) renderAccount(); };
+  renderReview(a);
+}
+const REASONS = ["Personal info", "Mean or unsafe", "Not a yes or no question", "Spam"];
+async function renderReview(a){
+  const sec = $("review"); sec.hidden = !(a && a.moderator); if (sec.hidden) return;
+  let q; try{ q = await backend.review.queue(); }catch{ $("reviewNote").textContent = "Couldn't load what's waiting. Check your connection."; $("reviewList").replaceChildren(); return; }
+  const w = q.waiting.length, r = q.reported.length;
+  $("reviewNote").textContent = !w && !r ? "Nothing waiting. New posts and comments show up here before anyone else sees them."
+    : [w ? w + " waiting" : "", r ? r + " reported" : ""].filter(Boolean).join(" and ") + ". Nothing new shows to others until you approve it.";
+  $("reviewList").replaceChildren(...q.waiting.map(x => reviewRow(x, false)), ...q.reported.map(x => reviewRow(x, true)));
+}
+function reviewRow(x, reported){
+  const d = el("div", "ritem"), acts = el("div", "racts"), w = x.writer || {}, before = (w.approved || 0) + (w.turned_down || 0);
+  d.append(el("div", "rmeta", [x.kind === "post" ? "Post" : "Comment",
+    reported ? x.reports + (x.reports === 1 ? " report" : " reports") + (x.hidden ? ", hidden until you decide" : "") : ago(x.t) + " ago",
+    before ? w.approved + " approved and " + w.turned_down + " turned down before" : "First one from this writer"].join(" · ")));
+  if (x.on) d.append(el("p", "ron", "On “" + x.on + "”"));
+  d.append(el("p", "", x.body));
+  const done = async fn => {
+    for (const k of acts.querySelectorAll("button")) k.disabled = true;
+    try{ await fn(); }catch(e){ toast(/already decided/.test((e && e.message) || "") ? "That one was already decided." : "Couldn't save that. Try again."); }
+    renderReview(await backend.account(true).catch(() => null)); if (ask.api && ask.api.refresh) ask.api.refresh();
+  };
+  const btn = (label, cls, fn) => { const b = el("button", cls, label); b.onclick = fn; acts.append(b); return b; };
+  const why = decision => {
+    acts.replaceChildren(el("span", "rmeta", "Why? The writer sees this."));
+    REASONS.forEach(r => btn(r, "b2 soft", () => done(() => backend.review.decide(x.kind, x.id, decision, r))));
+    btn("Cancel", "lnk", () => d.replaceWith(reviewRow(x, reported)));
+  };
+  if (reported){ btn("Keep", "b2", () => done(() => backend.review.decide(x.kind, x.id, "keep"))); btn("Remove", "b2 soft", () => why("remove")); }
+  else { btn("Approve", "b2", () => done(() => backend.review.decide(x.kind, x.id, "approve"))); btn("Reject", "b2 soft", () => why("reject")); }
+  const blk = btn("Block writer for 7 days", "b2 soft", () => {
+    if (!blk.dataset.armed){ blk.dataset.armed = "1"; blk.textContent = "Tap again to block for 7 days"; return; }
+    done(() => backend.review.block(x.kind, x.id, 7, "Blocked for 7 days by a moderator"));
+  });
+  d.append(acts); return d;
+}
 
 // ---------- Me ----------
 function profile(){
@@ -1578,7 +1870,7 @@ function renderMe(){
   if (r){ const row = (a, b) => { const d = el("div"); d.append(el("b", "", a), el("span", "", b)); rb.append(d); };
     row("Days answered", r.answered + " of 7"); if (r.known) row("With the majority", r.maj + " of " + r.known); row("Streak", r.s + (r.s === 1 ? " day" : " days"));
     if (r.rarest !== undefined){ const v = myVotes[dayKey(r.rarest)], [q, o] = qFor(r.rarest); row("Rarest take", o[v.choice] + ", " + v.share + "%"); } }
-  renderFriends();
+  renderFriends(); renderAccount();
 }
 // Your friend code. On the live site it exists once you've answered (that's when your account is made).
 function showCode(){
@@ -1646,6 +1938,19 @@ addEventListener("hashchange", takeInvite);
 $("fform").onsubmit = e => { e.preventDefault(); const c = $("fcode").value.trim().toUpperCase(), me = $("mycode").textContent;
   if (!/^[A-Z0-9]{6}$/.test(c)){ toast("Friend codes are 6 letters and numbers."); return; } if (c === me || ownCode(c)){ toast("That's your own code."); return; }
   addFriend(c); $("fcode").value = ""; toast("Friend added."); checkBadges(); renderMe(); order = []; renderFeed(); };
+function ageOptions(month, year){
+  const pick = (s, label) => { const o = new Option(label, "", true, true); o.disabled = true; s.add(o); };
+  pick(month, "Month"); pick(year, "Year");
+  ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+    .forEach((m, i) => month.add(new Option(m, String(i + 1).padStart(2, "0"))));
+  for (let y = new Date().getFullYear(); y >= 1920; y--) year.add(new Option(String(y), String(y)));
+}
+// The age answer on this phone. Under 13: state and city are cleared and no longer used.
+function saveBorn(v){
+  store.set("born", v);
+  if (!ageOk()){ store.set("state", ""); store.set("city", ""); $("mystate").value = $("mycity").value = ""; if (ask.scope === "state" || ask.scope === "city") ask.scope = "world"; }
+  drawPlace(); renderTop(); order = []; renderFeed();
+}
 function setupPlace(){
   const sel = $("country");
   Object.entries(COUNTRIES).sort((a, b) => a[0] === "XX" ? 1 : b[0] === "XX" ? -1 : a[1].localeCompare(b[1])).forEach(([cc, name]) => sel.add(new Option(flag(cc) + "  " + name, cc)));
@@ -1655,17 +1960,8 @@ function setupPlace(){
   $("mycity").onchange = () => { store.set("city", $("mycity").value.trim()); changed(); };
   $("mystate").onchange = () => { store.set("state", $("mystate").value.trim()); changed(); };
   // The age question: month and year, nothing chosen until you choose.
-  const pick = (s, label) => { const o = new Option(label, "", true, true); o.disabled = true; s.add(o); };
-  pick($("bmonth"), "Month"); pick($("byear"), "Year");
-  ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
-    .forEach((m, i) => $("bmonth").add(new Option(m, String(i + 1).padStart(2, "0"))));
-  for (let y = new Date().getFullYear(); y >= 1920; y--) $("byear").add(new Option(String(y), String(y)));
-  $("bmonth").onchange = $("byear").onchange = () => {
-    if (!$("bmonth").value || !$("byear").value) return;
-    store.set("born", $("byear").value + "-" + $("bmonth").value);
-    if (!ageOk()){ store.set("state", ""); store.set("city", ""); $("mystate").value = $("mycity").value = ""; if (ask.scope === "state" || ask.scope === "city") ask.scope = "world"; }
-    drawPlace(); renderTop(); changed();
-  };
+  ageOptions($("bmonth"), $("byear")); ageOptions($("amonth"), $("ayear"));
+  $("bmonth").onchange = $("byear").onchange = () => { if ($("bmonth").value && $("byear").value) saveBorn($("byear").value + "-" + $("bmonth").value); };
   drawPlace();
 }
 function drawPlace(){
@@ -1679,7 +1975,7 @@ function drawPlace(){
 const SEARCH_ICON = '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>';
 const CLOCK_ICON = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg>';
 const searchable = () => ask.api ? ask.posts.filter(p => visible(p, true)) : [];
-const heat = p => p.yes + p.no + 2 * liveComments(p).length;
+const heat = p => totalOf(p) + 2 * liveComments(p).length;
 function remember(q){ q = q.trim(); if (q.length < 2) return; store.set("recentQ", [q, ...store.get("recentQ", []).filter(x => norm(x) !== norm(q))].slice(0, 8)); }
 function highlight(text, words){
   const frag = document.createDocumentFragment(); if (!words.length){ frag.append(text); return frag; }
@@ -1698,10 +1994,10 @@ function resultRow(p, words, onTap){
   const t = el("div", "rt"); t.append(highlight(p.text, words));
   rb.append(t, el("div", "rm", p.meta)); b.append(mini, rb); b.onclick = onTap; return b;
 }
-const badgeOf = p => { const t = p.yes + p.no; return (ask.myVotes[p.id] || p.author === ask.api.me) && t ? pct(p.yes, t) + "%" : "?"; };
+const badgeOf = p => { const t = totalOf(p); return (ask.myVotes[p.id] || p.author === ask.api.me) && t && p.yes != null ? pct(p.yes, t) + "%" : "?"; };
 function postMeta(p){
-  const total = p.yes + p.no, nC = liveComments(p).length, seenIt = ask.myVotes[p.id] || p.author === ask.api.me, lab = sideLabels(p);
-  return [placeLabel(p), total + (total === 1 ? " vote" : " votes"), nC ? nC + (nC === 1 ? " comment" : " comments") : "", seenIt && total ? pct(p.yes, total) + "% " + lab[0] : "Tap to judge"].filter(Boolean).join(" · ");
+  const total = totalOf(p), nC = liveComments(p).length, seenIt = ask.myVotes[p.id] || p.author === ask.api.me, lab = sideLabels(p);
+  return [placeLabel(p), total + (total === 1 ? " vote" : " votes"), nC ? nC + (nC === 1 ? " comment" : " comments") : "", seenIt && total && p.yes != null ? pct(p.yes, total) + "% " + lab[0] : "Tap to judge"].filter(Boolean).join(" · ");
 }
 function section(title, action){ const sec = el("div"), h = el("div", "shd"); h.append(el("h3", "", title)); if (action) h.append(action); sec.append(h); return sec; }
 function renderSearch(){
@@ -1748,8 +2044,8 @@ function renderSearch(){
   if (soon) e.append(el("h2", "", (topic ? topic[1] + " questions are" : "Something on “" + raw.trim() + "” is") + " coming up."), el("p", "note", "The next one drops " + inDays(soon) + "."));
   else {
     e.append(el("h2", "", found ? "Got a take on " + raw.trim() + "?" : "Nothing on “" + raw.trim() + "” yet."));
-    // Posting is off on the public site, so there the next step is suggesting it as a question for everyone.
-    const act = ask.api ? ["Start a debate", found ? "Put it up and let people decide." : "Be the first. Ask it and let people decide.", () => { remember(raw); openCompose(topic ? "" : asQuestion(raw)); }]
+    // Where posting isn't open, the next step is suggesting it as a question for everyone.
+    const act = postingOpen() ? ["Start a debate", found ? "Put it up and let people decide." : "Be the first. Ask it and let people decide.", () => { remember(raw); openCompose(topic ? "" : asQuestion(raw)); }]
       : canSuggest() ? ["Suggest it as a daily question", "Good ones become the question for everyone.", () => { remember(raw); suggestFrom(topic ? "" : asQuestion(raw)); }] : null;
     if (act){ const go = el("button", "b2", act[0]); go.onclick = act[2]; e.append(el("p", "note", act[1]), go); }
   }
@@ -1834,13 +2130,13 @@ $("navPlus").onclick = openCompose;
 // Every 30 s the countdowns move on. When a new day starts while Verd is open it reloads for the new question,
 // unless you're in the middle of writing something (then on the next tick, or when you come back to it).
 function tick(){
-  if (dayNum() !== today){ const a = document.activeElement; if ($("compose").hidden && $("sheet").hidden && !(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))) location.reload(); return; }
+  if (dayNum() !== today){ const a = document.activeElement; if ($("compose").hidden && $("sheet").hidden && $("acct").hidden && !(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))) location.reload(); return; }
   setFoot($("feed").querySelector('.slide[data-id="daily"] .sinfo'), dailyFoot());
   for (const e of document.querySelectorAll("[data-tick=drop]")) e.textContent = dropLine();
 }
 setInterval(tick, 30000);
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") tick(); });
-document.addEventListener("keydown", e => { if (e.key !== "Escape") return; if (!$("dayview").hidden) closeDay(); else if (!$("sheet").hidden) closeSheet(); else if (!$("compose").hidden) closeCompose(); });
+document.addEventListener("keydown", e => { if (e.key !== "Escape") return; if (!$("acct").hidden) closeAcct(); else if (!$("dayview").hidden) closeDay(); else if (!$("sheet").hidden) closeSheet(); else if (!$("compose").hidden) closeCompose(); });
 
 (async function start(){
   setupPlace(); renderTop(); renderFeed(); takeInvite();
@@ -1848,13 +2144,30 @@ document.addEventListener("keydown", e => { if (e.key !== "Escape") return; if (
   const early = window.verdTap; window.verdTap = null;
   if (early && early.day === todayKey) vote(early.i, $("feed").querySelectorAll('.slide[data-id="daily"] .ans')[early.i], true);
   ready = pickBackend(); backend = await ready;
+  // Back from signing in with Google? Finish that before anything asks the database who you are.
+  const signedIn = backend.finishSignIn ? await backend.finishSignIn() : null;
+  if (signedIn === "away") return;
   $("mode").textContent = backend.label;
   showCode(); renderNet();
   if (friends().length && backend.setFriends) backend.setFriends();
-  if (backend.ask){
-    ask.api = backend.ask; $("navPlus").hidden = false;   // posting starts hidden: it's off on the public site
-    ask.api.watch((posts, mv, mr) => { ask.posts = posts; ask.myVotes = { ...mv, ...ask.myVotes }; ask.myReports = { ...mr, ...ask.myReports }; checkFlips(); renderTop(); renderFeed(); if (sheetPost) renderSheet(); if (!$("search").hidden) renderSearch(); });
-  }
+  // People's posts. The + button shows only where posting is open.
+  const watchPosts = () => { ask.api = backend.ask; $("navPlus").hidden = !postingOpen();
+    ask.api.watch((posts, mv, mr) => { ask.posts = posts; ask.myVotes = { ...mv, ...ask.myVotes }; ask.myReports = { ...mr, ...ask.myReports }; checkFlips(); renderTop(); renderFeed(); if (sheetPost) renderSheet(); if (!$("search").hidden) renderSearch(); $("navPlus").hidden = !postingOpen(); }); };
+  if (backend.ask && !backend.ask.live) watchPosts();
+  // On the live site, posts load only once Google sign-in is switched on. Until then the site is exactly the
+  // daily question; after that, posting itself opens when Verd has a moderator (the database decides).
+  if (backend.authSettings) (async () => {
+    const s = await backend.authSettings(); signInReady = !!(s && s.external && s.external.google);
+    if (signInReady) watchPosts();
+    renderEnd(); if (!$("me").hidden) renderAccount();
+    if (signedIn === "ok"){
+      toast("Signed in."); showCode();
+      const then = store.get("afterSignIn", "me"); store.set("afterSignIn", null);
+      if (ask.api) await ask.api.refresh();
+      const ok = await gate(then);
+      if (then === "me") showPage("me"); else if (ok) resume(then);
+    } else if (signedIn === "failed") toast("Signing in didn't finish. Try again.");
+  })();
   if (backend.suggest){
     $("suggest").hidden = !canSuggest();
     $("sform").onsubmit = async e => { e.preventDefault();

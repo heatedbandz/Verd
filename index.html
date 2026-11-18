@@ -271,6 +271,14 @@ button{border:0;background:none;padding:0;cursor:pointer}
 .chead .lnk{margin-left:auto}
 .chead i{font-style:normal;font-size:var(--t-xs);font-weight:700;padding:2px var(--s2);border-radius:var(--r1);background:var(--surface-2);color:var(--ink)}
 .chead i.a{background:var(--accent-tint);color:var(--accent-ink)}
+.rlist{display:flex;flex-direction:column}
+.ritem{display:flex;flex-direction:column;gap:var(--s2);padding:var(--s4) 0;border-top:1px solid var(--line)}
+.ritem:first-child{border-top:0;padding-top:0}
+.ritem p{margin:0;font-size:var(--t-base);overflow-wrap:anywhere}
+.ritem .ron{font-size:var(--t-sm);color:var(--muted)}
+.rmeta{font-size:var(--t-sm);color:var(--muted)}
+.racts{display:flex;flex-wrap:wrap;gap:var(--s2);align-items:center}
+.racts .lnk{margin:0}
 .lnk{font-size:var(--t-sm);color:var(--muted);text-decoration:underline;text-underline-offset:3px;flex:none;min-height:var(--tap);padding:0 var(--s2);margin:-12px calc(var(--s2) * -1)}
 #shareBox{width:100%;min-height:110px;background:var(--surface);border:0;border-radius:var(--r2);padding:var(--s3);font-size:var(--t-md)}
 .ssubt{font-size:var(--t-sm);color:var(--muted);font-weight:500;margin-top:2px}
@@ -437,11 +445,21 @@ html.vt .page{animation:none}
         <h3>Your place</h3>
         <select class="field" id="country" aria-label="Country"></select>
         <div id="ageAsk">
-          <p class="note">To add your state and city, pick the month and year you were born. It stays on this phone.</p>
+          <p class="note">To add your state and city, pick the month and year you were born. It stays on this phone unless you sign in to post.</p>
           <div class="grid2"><select class="field" id="bmonth" aria-label="Month you were born"></select><select class="field" id="byear" aria-label="Year you were born"></select></div>
         </div>
         <div class="grid2" id="placeFields" hidden><input class="field" id="mystate" maxlength="40" placeholder="State" aria-label="State or region"><input class="field" id="mycity" maxlength="40" placeholder="City" aria-label="City"></div>
         <p class="note" id="placeNote">Used to compare answers with people near you. Never your exact location.</p>
+      </div>
+      <div class="sec" id="account" hidden>
+        <h3>Account</h3>
+        <p class="note" id="acctNote"></p>
+        <div><button class="b2" id="acctBtn">Sign in with Google</button></div>
+      </div>
+      <div class="sec" id="review" hidden>
+        <h3>Review</h3>
+        <p class="note" id="reviewNote"></p>
+        <div class="rlist" id="reviewList"></div>
       </div>
       <div class="sec" id="suggest" hidden>
         <h3>Suggest tomorrow's question</h3>
@@ -470,7 +488,7 @@ html.vt .page{animation:none}
     <section class="page compose" id="compose" hidden>
       <div class="cbar"><button class="x" id="cclose" aria-label="Close">×</button><button class="post" id="psend">Post</button></div>
       <textarea id="ptext" maxlength="140" placeholder="What do you want a verdict on?" aria-label="Your post"></textarea>
-      <div><div class="clabel">Photos (optional, up to 2)</div><div class="thumbs" id="thumbs"></div><input type="file" id="pfile" accept="image/*" multiple hidden></div>
+      <div id="photoRow"><div class="clabel">Photos (optional, up to 2)</div><div class="thumbs" id="thumbs"></div><input type="file" id="pfile" accept="image/*" multiple hidden></div>
       <div id="colorRow"><div class="clabel">Color</div><div class="swatches" id="swatches"></div></div>
       <div><div class="clabel">Who decides</div><div class="aud" id="aud"></div></div>
       <p class="cnote" id="cnote"></p>
@@ -480,8 +498,16 @@ html.vt .page{animation:none}
       <div class="sheetin">
         <div class="shead"><div><div id="stitle">Comments</div><div class="ssubt" id="ssubt"></div></div><button id="sclose" aria-label="Close">×</button></div>
         <div id="clist"></div>
-        <form class="line" id="cform"><input class="field" id="cinput" maxlength="200" placeholder="Add a comment" aria-label="Add a comment"><button class="b2">Send</button></form>
+        <form class="line" id="cform"><input class="field" id="cinput" maxlength="200" placeholder="Add a comment" aria-label="Add a comment"><button class="b2" id="csend">Send</button></form>
         <textarea id="shareBox" readonly hidden></textarea>
+      </div>
+    </div>
+    <div class="sheet" id="acct" hidden>
+      <div class="sheetin" role="dialog" aria-modal="true" aria-labelledby="atitle">
+        <div class="shead"><div id="atitle">Sign in to post</div><button id="aclose" aria-label="Close">×</button></div>
+        <p class="note" id="anote"></p>
+        <div class="grid2" id="aage" hidden><select class="field" id="amonth" aria-label="Month you were born"></select><select class="field" id="ayear" aria-label="Year you were born"></select></div>
+        <div><button class="b2" id="ago">Continue with Google</button></div>
       </div>
     </div>
     <div class="toast" id="toast" hidden></div>

@@ -255,3 +255,258 @@ test('suggestions: signed in, blocklist, 3 a day, held for review', async () => 
   const st = (await admin('select distinct status from public.suggestions')).rows.map(r => r.status);
   assert.deepEqual(st, ['pending']);
 });
+
+// ---------- Posting ----------
+// Writing needs a real account (not anonymous), an age kept here, 13 or older, no block, and a moderator to
+// exist. Everything waits for review. Rate limits, blocked words, reports and blocks are all checked here.
+async function realUser(born = [2000, 1]) {
+  const id = randomUUID();
+  await admin('insert into auth.users (id, is_anonymous) values ($1, false)', [id]);
+  if (born) await as('authenticated', id, 'select public.set_birth($1, $2)', born);
+  return id;
+}
+const call = (uid, sql, params = []) => as(uid ? 'authenticated' : 'anon', uid, sql, params).then(r => r.rows[0].r);
+const feed = (uid, cc = 'US', st = null, ci = null) => call(uid, 'select public.get_posts($1, $2, $3) as r', [cc, st, ci]);
+const ids = f => f.posts.map(p => p.id);
+const post = (uid, body, scope = 'world', cc = 'US', st = null, ci = null) =>
+  call(uid, 'select public.create_post($1, 3::smallint, $2, $3, $4, $5) as r', [body, scope, cc, st, ci]);
+const judge = (uid, pid, yes, cc = 'US', st = null, ci = null) => call(uid, 'select public.judge_post($1, $2, $3, $4, $5) as r', [pid, yes, cc, st, ci]);
+const comment = (uid, pid, body) => call(uid, 'select public.create_comment($1, $2, $3) as r', [pid, body, 'US']);
+const reportIt = (uid, what, id) => call(uid, 'select public.report_item($1, $2, $3) as r', [what, id, 'US']);
+const review = (uid, what, id, decision, why = null) => call(uid, 'select public.review_item($1, $2, $3, $4) as r', [what, id, decision, why]);
+const queue = uid => call(uid, 'select public.review_queue() as r');
+let mod = null;
+const approved = async (writer, body, scope, cc, st, ci) => { const p = await post(writer, body, scope, cc, st, ci); await review(mod, 'post', p.id, 'approve'); return p.id; };
+
+test('posting tables are locked like the rest, and their functions are closed to anon', async () => {
+  const u = await realUser();
+  for (const t of ['posts', 'post_votes', 'comments', 'reports', 'moderators', 'bans']) {
+    await denied(as('anon', null, `select * from public.${t}`), `anon reads ${t}`);
+    await denied(as('authenticated', u, `select * from public.${t}`), `authenticated reads ${t}`);
+  }
+  await denied(as('authenticated', u, `insert into public.posts (user_id, body, scope, status) values ($1, 'Is this approved?', 'world', 'approved')`, [u]), 'insert an approved post');
+  await denied(as('authenticated', u, `insert into public.moderators (user_id) values ($1)`, [u]), 'make yourself a moderator');
+  await denied(as('authenticated', u, `delete from public.bans`), 'lift a block');
+  await denied(as('authenticated', u, `update public.posts set status = 'approved'`), 'approve posts');
+  for (const sql of [`select public.create_post('Is this allowed?', 0::smallint, 'world')`, `select public.judge_post(1, true)`,
+    `select public.create_comment(1, 'hi there')`, `select public.report_item('post', 1)`, `select public.set_birth(2000, 1)`,
+    `select public.review_queue()`, `select public.review_item('post', 1, 'approve')`, `select public.ban_author('post', 1)`, `select public.delete_mine('post', 1)`])
+    await denied(as('anon', null, sql), 'anon: ' + sql);
+  const f = await feed(null);
+  assert.deepEqual(f.posts, [], 'anon can read the feed, which is empty');
+});
+
+test('posting stays closed until a moderator exists, and pausing closes it again', async () => {
+  const u = await realUser();
+  assert.equal((await feed(u)).open, false);
+  await assert.rejects(post(u, 'Is pineapple on pizza good?'), /posting is closed/);
+  mod = await realUser();
+  await admin('insert into public.moderators (user_id) values ($1)', [mod]);
+  assert.equal((await feed(u)).open, true);
+  await admin(`update public.app_config set value = 1 where key = 'posting_paused'`);
+  assert.equal((await feed(u)).open, false);
+  await assert.rejects(post(u, 'Is pineapple on pizza good?'), /posting is closed/);
+  await admin(`update public.app_config set value = 0 where key = 'posting_paused'`);
+  assert.equal((await post(u, 'Is pineapple on pizza good?')).status, 'pending');
+});
+
+test('only a real account, 13 or older, with the age kept here and no block, can write', async () => {
+  const anon = await user();   // an anonymous session, like everyone who has only voted
+  await assert.rejects(post(anon, 'Should school start later?'), /sign in to post/);
+  const noAge = await realUser(null);
+  await assert.rejects(post(noAge, 'Should school start later?'), /age needed/);
+  const year = new Date().getUTCFullYear(), month = new Date().getUTCMonth() + 1;
+  const kid = await realUser([year - 12, 1]);
+  assert.equal((await call(kid, 'select public.my_profile() as r')).age_ok, false);
+  await assert.rejects(post(kid, 'Should school start later?'), /13 and older/);
+  // The age is given once: answering again can't change it.
+  assert.equal((await call(kid, 'select public.set_birth(1990, 1) as r')).age_ok, false);
+  await assert.rejects(post(kid, 'Should school start later?'), /13 and older/);
+  // Exactly 13 years to the month isn't enough (the month's day isn't known); a month later is.
+  const thirteen = await realUser([year - 13, month]);
+  await assert.rejects(post(thirteen, 'Should school start later?'), /13 and older/);
+  const teen = await realUser(month === 1 ? [year - 14, 12] : [year - 13, month - 1]);
+  assert.equal((await post(teen, 'Should school start later?')).status, 'pending');
+  await assert.rejects(call(teen, 'select public.set_birth($1, $2) as r', [year + 1, 1]), /bad date/);
+  const me = await call(teen, 'select public.my_profile() as r');
+  assert.deepEqual([me.real, me.age_given, me.age_ok, me.moderator, me.blocked, me.open], [true, true, true, false, false, true]);
+});
+
+test('every post waits for review: others see it only once approved, the writer sees where it stands', async () => {
+  const w = await realUser(), other = await realUser();
+  const p = await post(w, '  Is   cereal a soup?  ');
+  let mine = (await feed(w)).posts.find(x => x.id === p.id);
+  assert.deepEqual([mine.body, mine.status, mine.mine], ['Is cereal a soup?', 'pending', true]);
+  assert.ok(!ids(await feed(other)).includes(p.id), 'a pending post is invisible to others');
+  assert.ok(!ids(await feed(null)).includes(p.id), 'and to anon');
+  const q = await queue(mod);
+  const waiting = q.waiting.find(x => x.kind === 'post' && x.id === p.id);
+  assert.equal(waiting.body, 'Is cereal a soup?');
+  assert.deepEqual(waiting.writer, { approved: 0, turned_down: 0 }, 'moderators see a track record, never who it is');
+  assert.ok(!JSON.stringify(q).includes(w), 'no account ids in the queue');
+  await review(mod, 'post', p.id, 'approve');
+  assert.ok(ids(await feed(other)).includes(p.id));
+  await assert.rejects(review(mod, 'post', p.id, 'approve'), /already decided/);
+  const p2 = await post(other, 'Should homework be banned?');
+  await review(mod, 'post', p2.id, 'reject', 'Not a yes or no question');
+  mine = (await feed(other)).posts.find(x => x.id === p2.id);
+  assert.deepEqual([mine.status, mine.reason], ['rejected', 'Not a yes or no question']);
+  assert.ok(!ids(await feed(w)).includes(p2.id));
+});
+
+test('only moderators can review or block', async () => {
+  const u = await realUser(), w = await realUser();
+  const p = await post(w, 'Are cats better than dogs?');
+  await denied(queue(u), 'see the queue');
+  await denied(review(u, 'post', p.id, 'approve'), 'approve');
+  await denied(call(u, `select public.ban_author('post', $1) as r`, [p.id]), 'block a writer');
+  await denied(review(w, 'post', p.id, 'approve'), 'approve your own');
+});
+
+test('blocked words and rate limits are enforced by the database', async () => {
+  const u = await realUser();
+  for (const bad of ['Text me at 555 123 4567?', 'Add me on snap?', 'Is www.example.com good?', 'Should I send pics?', 'How old are you?', 'Follow @someone?'])
+    await assert.rejects(post(u, bad), /blocked words/, bad);
+  await assert.rejects(post(u, 'Hi?'), /4 to 200/);
+  await assert.rejects(post(u, 'x'.repeat(201)), /4 to 200/);
+  await assert.rejects(post(u, 'Is my city the best?', 'city', 'US', 'Texas', null), /set your place/);
+  await assert.rejects(post(u, 'Is this a real audience?', 'galaxy'), /bad audience/);
+  assert.equal((await post(u, 'Should I text my crush?')).status, 'pending', 'normal questions about texting are fine');
+  await assert.rejects(post(u, 'Is a second post too fast?'), /wait a moment/);
+  // Two more, as if made earlier today, then the fourth of the day is refused.
+  await admin(`update public.posts set created_at = now() - interval '3 hours' where user_id = $1`, [u]);
+  await admin(`insert into public.posts (user_id, body, scope, created_at) values ($1, 'Earlier post one?', 'world', now() - interval '2 hours'), ($1, 'Earlier post two?', 'world', now() - interval '1 hour')`, [u]);
+  await assert.rejects(post(u, 'Is a fourth post too many?'), /enough posts for today/);
+});
+
+test('judging: once, never your own, only posts you can see, and the split stays hidden until you judge', async () => {
+  const w = await realUser(), a = await user(), b = await user(), c = await user();
+  const pid = await approved(w, 'Is a hot dog a sandwich?');
+  const pending = await post(await realUser(), 'Is water wet?');
+  for (const [u, yes] of [[a, true], [b, true]]) await judge(u, pid, yes);
+  let seen = (await feed(c)).posts.find(x => x.id === pid);
+  assert.deepEqual([seen.total, seen.yes, seen.no, seen.my_vote], [2, null, null, null], 'before judging: only how many');
+  const r = await judge(c, pid, false);
+  assert.deepEqual([r.yes, r.no, r.my_vote], [2, 1, -1]);
+  assert.deepEqual((await judge(c, pid, true)), r, 'a second judgment changes nothing');
+  seen = (await feed(c)).posts.find(x => x.id === pid);
+  assert.deepEqual([seen.total, seen.yes, seen.no, seen.my_vote], [3, 2, 1, -1]);
+  const own = (await feed(w)).posts.find(x => x.id === pid);
+  assert.deepEqual([own.yes, own.no], [2, 1], 'the writer sees the split');
+  await assert.rejects(judge(w, pid, true), /your own/);
+  await assert.rejects(judge(a, pending.id, true), /no such post/);
+  await denied(as('anon', null, 'select public.judge_post($1, true)', [pid]), 'anon judges');
+});
+
+test('audiences: city posts reach that city only, friends posts reach mutual friends only', async () => {
+  const w = await realUser(), near = await user(), far = await user(), friend = await user(), fan = await user();
+  const city = await approved(w, 'Is our bus system good?', 'city', 'US', 'Texas', 'Austin');
+  assert.ok(ids(await feed(near, 'US', ' texas ', 'AUSTIN')).includes(city), 'same place, written differently');
+  assert.ok(!ids(await feed(far, 'US', 'Texas', 'Dallas')).includes(city));
+  assert.ok(!ids(await feed(far, 'US')).includes(city));
+  const code = async u => (await call(u, 'select public.my_profile() as r')).code;
+  const [wc, fc, fanc] = [await code(w), await code(friend), await code(fan)];
+  await as('authenticated', w, 'select public.set_friends($1)', [[fc]]);
+  await as('authenticated', friend, 'select public.set_friends($1)', [[wc]]);
+  await as('authenticated', fan, 'select public.set_friends($1)', [[wc]]);   // added the writer, but not added back
+  await admin(`update public.posts set created_at = now() - interval '1 hour' where user_id = $1`, [w]);
+  const fp = await approved(w, 'Should we get pizza Friday?', 'friends');
+  const theirs = (await feed(friend)).posts.find(x => x.id === fp);
+  assert.equal(theirs.code, wc, 'a mutual friend sees whose post it is');
+  assert.ok(!ids(await feed(fan)).includes(fp), 'knowing a code is not enough');
+  assert.ok(!ids(await feed(null)).includes(fp));
+  assert.ok(!JSON.stringify(await feed(fan)).includes(wc), 'and nothing else shows the code');
+  assert.ok(fanc);
+});
+
+test('comments: a real account aged 13+, judge first, and each one waits for review', async () => {
+  const w = await realUser(), c = await realUser(), viewer = await user(), anonymous = await user();
+  const pid = await approved(w, 'Is homework useful?');
+  await assert.rejects(comment(c, pid, 'It helps me remember'), /judge it first/);
+  await judge(c, pid, true);
+  await assert.rejects(comment(c, pid, 'Call 555 123 4567'), /blocked words/);
+  const cm = await comment(c, pid, 'It helps me remember');
+  assert.equal(cm.status, 'pending');
+  await judge(anonymous, pid, false);
+  await assert.rejects(comment(anonymous, pid, 'Nope'), /sign in to post/);
+  let list = (await feed(viewer)).posts.find(x => x.id === pid).comments;
+  assert.deepEqual(list, [], 'waiting comments are invisible to others');
+  const mine = (await feed(c)).posts.find(x => x.id === pid).comments;
+  assert.deepEqual([mine[0].status, mine[0].side, mine[0].mine], ['pending', 0, true]);
+  assert.ok((await queue(mod)).waiting.some(x => x.kind === 'comment' && x.id === cm.id && x.on === 'Is homework useful?'));
+  await review(mod, 'comment', cm.id, 'approve');
+  list = (await feed(viewer)).posts.find(x => x.id === pid).comments;
+  assert.deepEqual(list.map(x => [x.body, x.side, x.mine, x.code, x.status]), [['It helps me remember', 0, false, null, null]]);
+  await assert.rejects(comment(c, pid, 'And it is good practice'), /wait a moment/);
+  assert.equal((await comment(w, pid, 'Thanks for answering')).status, 'pending', 'the writer can answer on their own post');
+});
+
+test('reports: hidden for the reporter at once, for everyone at 3, until a moderator keeps it', async () => {
+  const w = await realUser(), r1 = await user(), r2 = await user(), r3 = await user(), viewer = await user();
+  const pid = await approved(w, 'Is summer the best season?');
+  await assert.rejects(reportIt(w, 'post', pid), /no such post/, 'not your own');
+  assert.equal(await reportIt(r1, 'post', pid), 'reported');
+  assert.ok(!ids(await feed(r1)).includes(pid), 'gone for the reporter');
+  assert.ok(ids(await feed(viewer)).includes(pid), 'still there for others');
+  await reportIt(r2, 'post', pid);
+  await assert.rejects(reportIt(r2, 'post', pid), /no such post/, 'once you report it, it is gone for you');
+  assert.ok(ids(await feed(viewer)).includes(pid), 'two reports: still there');
+  await reportIt(r3, 'post', pid);
+  assert.ok(!ids(await feed(viewer)).includes(pid), 'hidden for everyone at 3 reports');
+  assert.ok(ids(await feed(w)).includes(pid), 'the writer still sees their post');
+  const rep = (await queue(mod)).reported.find(x => x.kind === 'post' && x.id === pid);
+  assert.deepEqual([rep.reports, rep.hidden], [3, true]);
+  await review(mod, 'post', pid, 'keep');
+  assert.ok(ids(await feed(viewer)).includes(pid), 'kept: back for everyone');
+  assert.ok(!(await queue(mod)).reported.some(x => x.kind === 'post' && x.id === pid), 'and off the reported list');
+  await review(mod, 'post', pid, 'remove', 'Mean about a real person');
+  assert.ok(!ids(await feed(viewer)).includes(pid));
+  const mine = (await feed(w)).posts.find(x => x.id === pid);
+  assert.deepEqual([mine.status, mine.reason], ['removed', 'Mean about a real person']);
+  const spam = await user();
+  await admin(`insert into public.reports (kind, item_id, user_id) select 'post', g, $1 from generate_series(100000, 100029) g`, [spam]);
+  const another = await approved(await realUser(), 'Is spring better than fall?');
+  await assert.rejects(reportIt(spam, 'post', another), /enough reports/);
+});
+
+test('a block turns down what is waiting, hides what was shown, and stops new posts', async () => {
+  const w = await realUser(), viewer = await user();
+  const shown = await approved(w, 'Is chess a sport?');
+  await admin(`update public.posts set created_at = now() - interval '1 hour' where user_id = $1`, [w]);
+  const waiting = await post(w, 'Is golf a sport?');
+  await assert.rejects(call(mod, `select public.ban_author('post', $1, 0, 'Spam') as r`, [-1]), /no such item/);
+  assert.equal(await call(mod, `select public.ban_author('post', $1, 7, 'Spam') as r`, [shown]), 'blocked');
+  assert.ok(!ids(await feed(viewer)).includes(shown));
+  const mine = (await feed(w)).posts.find(x => x.id === waiting.id);
+  assert.deepEqual([mine.status, mine.reason], ['rejected', 'Spam']);
+  await admin(`update public.posts set created_at = now() - interval '1 hour' where user_id = $1`, [w]);
+  await assert.rejects(post(w, 'Is darts a sport?'), /blocked for you/);
+  assert.equal((await call(w, 'select public.my_profile() as r')).blocked, true);
+  const modPost = await approved(mod, 'Is this a moderator post?');
+  await assert.rejects(call(mod, `select public.ban_author('post', $1) as r`, [modPost]), /moderators cannot be blocked/);
+  await admin('delete from public.bans where user_id = $1', [w]);
+  assert.ok(ids(await feed(viewer)).includes(shown), 'lifting the block shows it again');
+});
+
+test('the feed never carries account ids, and codes only between mutual friends', async () => {
+  const w = await realUser(), viewer = await user();
+  const pid = await approved(w, 'Should phones be banned in class?');
+  await judge(viewer, pid, true);
+  const f = JSON.stringify(await feed(viewer));
+  const accounts = (await admin('select id::text from auth.users')).rows.map(r => r.id);
+  for (const id of accounts) assert.ok(!f.includes(id), 'an account id leaked into the feed');
+  const codes = (await admin('select code from public.profiles where id <> $1', [viewer])).rows.map(r => r.code);
+  for (const c of codes) assert.ok(!f.includes('"' + c + '"'), 'a code leaked into the feed');
+});
+
+test('you can delete your own post or comment, and nobody else can', async () => {
+  const w = await realUser(), c = await realUser();
+  const pid = await approved(w, 'Is breakfast the best meal?');
+  await judge(c, pid, true);
+  const cm = await comment(c, pid, 'Pancakes win');
+  await assert.rejects(call(w, `select public.delete_mine('comment', $1) as r`, [cm.id]), /no such item/);
+  await assert.rejects(call(c, `select public.delete_mine('post', $1) as r`, [pid]), /no such item/);
+  assert.equal(await call(c, `select public.delete_mine('comment', $1) as r`, [cm.id]), 'deleted');
+  assert.equal(await call(w, `select public.delete_mine('post', $1) as r`, [pid]), 'deleted');
+  assert.equal((await admin('select count(*)::int as n from public.post_votes where post_id = $1', [pid])).rows[0].n, 0, 'its judgments went with it');
+});

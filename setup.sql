@@ -7,6 +7,19 @@
 --      (sb_publishable_..., called the anon public key on older projects) into CONFIG in app.js.
 -- Running it again is safe: it keeps votes and replaces the functions.
 --
+-- Posting (people's own yes/no questions) stays closed until the account owner also does this:
+--   4. Google Cloud console > Google Auth Platform: audience External, then Publish app. Clients > Create
+--      client > Web application, with the authorized redirect URI
+--      https://<your project>.supabase.co/auth/v1/callback. Copy the client ID and secret.
+--   5. Authentication > Sign In / Providers > Google: turn it on, paste the ID and secret, Save.
+--      Same page: turn on "Allow manual linking" (an anonymous account becomes the Google one). Save.
+--   6. Authentication > URL Configuration: Site URL https://heatedbandz.github.io/Verd/ and the
+--      redirect URL https://heatedbandz.github.io/Verd/** . Save.
+--   7. The moderator signs in on the site (Me > Account), then runs this here with their email:
+--        insert into public.moderators (user_id) select id from auth.users where email = 'their@email.com';
+--   Posting opens the moment a moderator exists. To pause it straight away:
+--        update public.app_config set value = 1 where key = 'posting_paused';   (0 opens it again)
+--
 -- Why the publishable (anon) key can sit in a public web page:
 --   * Every table has row level security ON with no policies, and the browser roles (anon,
 --     authenticated) have no privileges on any table. A client cannot read, insert, update or
@@ -19,6 +32,9 @@
 --   * Location is stored as country, state and city only. Never coordinates.
 --   * A friend match compares two people only when both added each other, over past days, and
 --     never returns an answer. Friend lists are locked like votes: no browser role can read them.
+--   * Posts and comments: only a real (Google) account, 13 or older by the birth month kept with it,
+--     not blocked, can write. Everything waits for a moderator, words are filtered here, and the
+--     limits are counted here. Nobody's account id, email or name ever leaves the database.
 --   * tests/db.test.mjs and tests/live-rls.mjs try to break all of this and must fail to.
 
 -- Older test versions of this file used a different votes table (voter text). Replace it.
@@ -93,7 +109,12 @@ insert into public.blocked_terms (pattern) values
   ('@[a-z0-9_.]{2,}'),                                            -- @handles
   ('[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}'),                      -- emails
   ('\d[\d\s().-]{6,}\d'),                                         -- phone numbers
-  ('\m(kys|kill (yo)?urself|kill you)\M')                         -- threats
+  ('\m(kys|kill (yo)?urself|kill you)\M'),                        -- threats
+  ('\m(dm|snap|add|text|hmu)\s+me\M'), ('\mhmu\M'),                   -- asking strangers for contact
+  ('\mmy\s+(snap|snapchat|insta|ig|discord|number|addy|address)\M'),
+  ('\m(send|show)\s+(me\s+)?(a\s+)?(pics?|nudes?|photos?)\M'),          -- asking for pictures
+  ('\mhow old (are|r) (you|u)\M'), ('\mwhere do (you|u) live\M'),      -- asking a stranger's age or home
+  ('\m(nudes?|sext(ing)?|porn|onlyfans|horny)\M')                    -- sexual
 on conflict (pattern) do nothing;
 
 -- The friends each person added, by code. A friend match needs both people to have added each
@@ -268,7 +289,8 @@ begin
   return public.get_results(d, n, cc, st, ci);
 end $$;
 
--- Your friend code (made on first use).
+-- Your friend code (made on first use), and what your account may do: real = signed in with a real
+-- account, not anonymous; age_given / age_ok = month and year given, 13 or older; open = posting is open.
 create or replace function public.my_profile()
 returns jsonb
 language plpgsql security definer set search_path = public as $$
@@ -277,7 +299,14 @@ begin
   if uid is null then
     raise exception 'sign in first' using errcode = '28000';
   end if;
-  return jsonb_build_object('code', verd_private.ensure_profile(uid));
+  return jsonb_build_object(
+    'code', verd_private.ensure_profile(uid),
+    'real', verd_private.real(uid),
+    'age_given', (select p.born is not null from public.profiles p where p.id = uid),
+    'age_ok', verd_private.age_ok(uid),
+    'moderator', verd_private.is_mod(uid),
+    'blocked', verd_private.banned(uid),
+    'open', verd_private.posting_open());
 end $$;
 
 -- One-time copy of answers this phone saved before the database existed.
@@ -450,6 +479,590 @@ begin
   return 'pending';
 end $$;
 
+-- ---------- Posting ----------
+-- People's own yes/no questions, judged by everyone else.
+--   * Every post and comment waits for a moderator before anyone else sees it. So posting stays closed
+--     until the owner adds a moderator, and app_config posting_paused = 1 stops it at once.
+--   * Writing needs a real sign-in (not an anonymous session), an age given once and kept here (13 or
+--     older), and no block. Judging and reporting only need a session, like voting.
+--   * Rate limits and the blocked_terms list are checked here, so no app can skip them.
+--   * Nobody's name or code is shown. A post or comment is "Someone" to everyone but mutual friends.
+--   * Enough reports hide a post or comment for everyone until a moderator looks at it.
+
+insert into public.app_config (key, value) values
+  ('posts_per_day', 3),          -- posts per person per day
+  ('post_gap_seconds', 120),     -- and at least 2 minutes apart
+  ('comments_per_day', 20),
+  ('comment_gap_seconds', 20),
+  ('reports_per_day', 30),
+  ('hide_at_reports', 3),        -- hidden for everyone at 3 reports, until a moderator looks
+  ('posting_paused', 0)          -- set to 1 to stop new posts and comments straight away
+on conflict (key) do nothing;
+
+-- The month someone was born, given once (year * 12 + month - 1). The app can't change it.
+alter table public.profiles add column if not exists born int check (born between 1900 * 12 and 2200 * 12);
+
+-- Who reviews posts. Add someone after they've signed in on the site:
+--   insert into public.moderators (user_id) select id from auth.users where email = 'their@email.com';
+create table if not exists public.moderators (
+  user_id  uuid primary key references auth.users (id) on delete cascade,
+  added_at timestamptz not null default now()
+);
+
+-- People who can't post or comment. until = null means until a moderator deletes the row.
+create table if not exists public.bans (
+  user_id    uuid primary key references auth.users (id) on delete cascade,
+  until      timestamptz,
+  reason     text,
+  by_user    uuid references auth.users (id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.posts (
+  id          bigint generated always as identity primary key,
+  user_id     uuid not null references auth.users (id) on delete cascade,
+  body        text not null check (char_length(body) between 4 and 200),
+  color       smallint not null default 0 check (color between 0 and 31),
+  scope       text not null check (scope in ('world', 'country', 'state', 'city', 'friends')),
+  country     text not null default 'XX' check (country ~ '^[A-Z]{2}$'),
+  state       text check (state is null or char_length(state) between 1 and 40),
+  city        text check (city is null or char_length(city) between 1 and 40),
+  status      text not null default 'pending' check (status in ('pending', 'approved', 'rejected', 'removed')),
+  reason      text,                    -- why a moderator turned it down, shown to the author
+  created_at  timestamptz not null default now(),
+  reviewed_at timestamptz,
+  reviewed_by uuid references auth.users (id) on delete set null,
+  kept_at     timestamptz              -- a moderator read its reports and kept it
+);
+create index if not exists posts_by_status on public.posts (status, created_at);
+create index if not exists posts_by_user   on public.posts (user_id, created_at);
+
+-- One judgment per person per post: 1 = yes (or "this one"), -1 = no.
+create table if not exists public.post_votes (
+  post_id    bigint   not null references public.posts (id) on delete cascade,
+  user_id    uuid     not null references auth.users (id) on delete cascade,
+  v          smallint not null check (v in (-1, 1)),
+  created_at timestamptz not null default now(),
+  primary key (post_id, user_id)
+);
+
+create table if not exists public.comments (
+  id          bigint generated always as identity primary key,
+  post_id     bigint not null references public.posts (id) on delete cascade,
+  user_id     uuid   not null references auth.users (id) on delete cascade,
+  body        text   not null check (char_length(body) between 2 and 200),
+  side        smallint check (side in (0, 1)),   -- the side the writer judged: 0 yes, 1 no
+  status      text not null default 'pending' check (status in ('pending', 'approved', 'rejected', 'removed')),
+  reason      text,
+  created_at  timestamptz not null default now(),
+  reviewed_at timestamptz,
+  reviewed_by uuid references auth.users (id) on delete set null,
+  kept_at     timestamptz
+);
+create index if not exists comments_by_post   on public.comments (post_id, created_at);
+create index if not exists comments_by_status on public.comments (status, created_at);
+create index if not exists comments_by_user   on public.comments (user_id, created_at);
+
+create table if not exists public.reports (
+  kind       text   not null check (kind in ('post', 'comment')),
+  item_id    bigint not null,
+  user_id    uuid   not null references auth.users (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (kind, item_id, user_id)
+);
+create index if not exists reports_by_user on public.reports (user_id, created_at);
+
+-- Locked like the rest: RLS on, no policies, no privileges for the browser roles.
+alter table public.moderators enable row level security;
+alter table public.bans       enable row level security;
+alter table public.posts      enable row level security;
+alter table public.post_votes enable row level security;
+alter table public.comments   enable row level security;
+alter table public.reports    enable row level security;
+revoke all on public.moderators, public.bans, public.posts, public.post_votes, public.comments, public.reports
+  from public, anon, authenticated;
+revoke all on sequence public.posts_id_seq, public.comments_id_seq from public, anon, authenticated;
+
+-- ---------- Posting: private helpers ----------
+
+create or replace function verd_private.is_mod(uid uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.moderators m where m.user_id = uid)
+$$;
+
+create or replace function verd_private.banned(uid uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.bans b where b.user_id = uid and (b.until is null or b.until > now()))
+$$;
+
+-- Signed in with a real account, not an anonymous session.
+create or replace function verd_private.real(uid uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from auth.users u where u.id = uid and u.is_anonymous is false)
+$$;
+
+-- 13 or older: more than 156 whole months since the month given, the same rule as the app.
+create or replace function verd_private.age_ok(uid uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce((select (extract(year from now() at time zone 'utc') * 12
+                           + extract(month from now() at time zone 'utc') - 1)::int - p.born > 13 * 12
+                     from public.profiles p where p.id = uid), false)
+$$;
+
+-- Open once someone can review, and not paused.
+create or replace function verd_private.posting_open() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce(verd_private.cfg('posting_paused'), 1) = 0 and exists (select 1 from public.moderators)
+$$;
+
+-- Why this person can't post or comment right now, or null when they can.
+create or replace function verd_private.cannot_write(uid uuid) returns text
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if uid is null then return 'sign in first'; end if;
+  if not verd_private.posting_open() then return 'posting is closed'; end if;
+  if not verd_private.real(uid) then return 'sign in to post'; end if;
+  if (select p.born from public.profiles p where p.id = uid) is null then return 'age needed'; end if;
+  if not verd_private.age_ok(uid) then return 'posting is for 13 and older'; end if;
+  if verd_private.banned(uid) then return 'posting is blocked for you'; end if;
+  return null;
+end $$;
+
+-- Mutual friends: each added the other's code.
+create or replace function verd_private.mutual(a uuid, b uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select a is not null and b is not null and exists (
+    select 1 from public.profiles pa, public.profiles pb
+     where pa.id = a and pb.id = b
+       and exists (select 1 from public.friend_adds f where f.user_id = a and f.code = pb.code)
+       and exists (select 1 from public.friend_adds f where f.user_id = b and f.code = pa.code))
+$$;
+
+-- Hidden for everyone: enough reports since a moderator last kept it.
+create or replace function verd_private.hidden(k text, item bigint, kept timestamptz) returns boolean
+language sql stable security definer set search_path = public as $$
+  select (select count(*) from public.reports r
+           where r.kind = k and r.item_id = item and (kept is null or r.created_at > kept))
+         >= verd_private.cfg('hide_at_reports')
+$$;
+
+-- May this viewer see this post in their feed? Approved, for their place or a mutual friend, not hidden,
+-- not reported by them, and its writer isn't blocked.
+create or replace function verd_private.sees(p public.posts, uid uuid, k_cc text, k_st text, k_ci text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select p.status = 'approved'
+     and not verd_private.hidden('post', p.id, p.kept_at)
+     and not verd_private.banned(p.user_id)
+     and not exists (select 1 from public.reports r where r.kind = 'post' and r.item_id = p.id and r.user_id = uid)
+     and case p.scope
+           when 'world'   then true
+           when 'country' then p.country = k_cc
+           when 'state'   then p.country = k_cc and p.state = k_st
+           when 'city'    then p.country = k_cc and p.state = k_st and p.city = k_ci
+           when 'friends' then verd_private.mutual(p.user_id, uid)
+           else false
+         end
+$$;
+
+-- What moderators see about a writer: how much of theirs was approved and turned down. Never who they are.
+create or replace function verd_private.track(u uuid) returns jsonb
+language sql stable security definer set search_path = public as $$
+  select jsonb_build_object(
+    'approved', (select count(*) from public.posts p where p.user_id = u and p.status = 'approved')
+              + (select count(*) from public.comments c where c.user_id = u and c.status = 'approved'),
+    'turned_down', (select count(*) from public.posts p where p.user_id = u and p.status in ('rejected', 'removed'))
+                 + (select count(*) from public.comments c where c.user_id = u and c.status in ('rejected', 'removed')))
+$$;
+
+create or replace function verd_private.ms(t timestamptz) returns bigint
+language sql stable as $$ select (extract(epoch from t) * 1000)::bigint $$;
+
+revoke all on all functions in schema verd_private from public, anon, authenticated;
+
+-- ---------- Posting: the API ----------
+
+-- Your month and year of birth, once. It can't be changed from the app afterwards.
+create or replace function public.set_birth(y int, m int)
+returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  uid   uuid := auth.uid();
+  b     int := y * 12 + m - 1;
+  now_m int := (extract(year from now() at time zone 'utc') * 12 + extract(month from now() at time zone 'utc') - 1)::int;
+begin
+  if uid is null then
+    raise exception 'sign in first' using errcode = '28000';
+  end if;
+  if y is null or m is null or m < 1 or m > 12 or y < 1900 or b > now_m then
+    raise exception 'bad date' using errcode = '22023';
+  end if;
+  perform verd_private.ensure_profile(uid);
+  update public.profiles set born = b where id = uid and born is null;
+  return jsonb_build_object('age_ok', verd_private.age_ok(uid));
+end $$;
+
+-- The feed's posts for this viewer and place: approved ones they may see, plus their own, from the last
+-- 14 days, newest first. The split comes back only for your own posts and ones you've judged; before that,
+-- only how many judged and whether it's close. Comments: approved ones, plus your own.
+create or replace function public.get_posts(cc text default null, st text default null, ci text default null)
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  uid  uuid := auth.uid();
+  k_cc text := verd_private.country(cc);
+  k_st text := verd_private.place(st);
+  k_ci text := verd_private.place(ci);
+  list jsonb;
+begin
+  with shown as (
+    select p.* from public.posts p
+     where p.created_at > now() - interval '14 days'
+       and (p.user_id = uid or verd_private.sees(p, uid, k_cc, k_st, k_ci))
+     order by p.created_at desc
+     limit 60
+  ), tally as (
+    select s.id,
+           count(pv.v) filter (where pv.v = 1)::int  as yes,
+           count(pv.v) filter (where pv.v = -1)::int as no,
+           (select x.v from public.post_votes x where x.post_id = s.id and x.user_id = uid) as mine
+      from shown s left join public.post_votes pv on pv.post_id = s.id
+     group by s.id
+  )
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'id', s.id, 'body', s.body, 'color', s.color, 'scope', s.scope, 'country', s.country,
+           't', verd_private.ms(s.created_at),
+           'mine', s.user_id is not distinct from uid,
+           'status', case when s.user_id = uid then s.status end,
+           'reason', case when s.user_id = uid then s.reason end,
+           'code', case when s.scope = 'friends' and s.user_id is distinct from uid
+                        then (select pr.code from public.profiles pr where pr.id = s.user_id) end,
+           'my_vote', t.mine,
+           'total', t.yes + t.no,
+           'yes', case when s.user_id = uid or t.mine is not null then t.yes end,
+           'no',  case when s.user_id = uid or t.mine is not null then t.no end,
+           'close', t.yes + t.no >= 4 and abs(t.yes * 100.0 / nullif(t.yes + t.no, 0) - 50) <= 10,
+           'comments', (
+             select coalesce(jsonb_agg(jsonb_build_object(
+                      'id', c.id, 'body', c.body, 'side', c.side, 't', verd_private.ms(c.created_at),
+                      'mine', c.user_id is not distinct from uid,
+                      'status', case when c.user_id = uid then c.status end,
+                      'code', case when c.user_id is distinct from uid and verd_private.mutual(c.user_id, uid)
+                                   then (select pr.code from public.profiles pr where pr.id = c.user_id) end)
+                    order by c.created_at), '[]'::jsonb)
+               from public.comments c
+              where c.post_id = s.id
+                and (c.user_id = uid
+                     or (c.status = 'approved'
+                         and not verd_private.hidden('comment', c.id, c.kept_at)
+                         and not verd_private.banned(c.user_id)
+                         and not exists (select 1 from public.reports r
+                                          where r.kind = 'comment' and r.item_id = c.id and r.user_id = uid))))
+         ) order by s.created_at desc), '[]'::jsonb)
+    into list
+    from shown s join tally t on t.id = s.id;
+  return jsonb_build_object('open', verd_private.posting_open(), 'posts', list);
+end $$;
+
+-- Judge a post: yes = true or false. Once per post, never your own, only posts you can see.
+create or replace function public.judge_post(pid bigint, yes boolean, cc text default null, st text default null, ci text default null)
+returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  uid  uuid := auth.uid();
+  p    public.posts;
+  n_yes int;
+  n_no  int;
+begin
+  if uid is null then
+    raise exception 'sign in first' using errcode = '28000';
+  end if;
+  if yes is null then
+    raise exception 'bad answer' using errcode = '22023';
+  end if;
+  select * into p from public.posts x where x.id = pid;
+  if not found or not verd_private.sees(p, uid, verd_private.country(cc), verd_private.place(st), verd_private.place(ci)) then
+    raise exception 'no such post' using errcode = '22023';
+  end if;
+  if p.user_id = uid then
+    raise exception 'not on your own post' using errcode = '22023';
+  end if;
+  insert into public.post_votes (post_id, user_id, v) values (pid, uid, case when yes then 1 else -1 end)
+  on conflict (post_id, user_id) do nothing;
+  select count(*) filter (where x.v = 1)::int, count(*) filter (where x.v = -1)::int
+    into n_yes, n_no from public.post_votes x where x.post_id = pid;
+  return jsonb_build_object('yes', n_yes, 'no', n_no,
+    'my_vote', (select x.v from public.post_votes x where x.post_id = pid and x.user_id = uid));
+end $$;
+
+-- Write a post. It waits for a moderator. A few a day, a couple of minutes apart, blocked words refused.
+create or replace function public.create_post(body text, color smallint, scope text, cc text default 'XX', st text default null, ci text default null)
+returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  uid    uuid := auth.uid();
+  why    text := verd_private.cannot_write(auth.uid());
+  clean  text := btrim(regexp_replace(coalesce(body, ''), '\s+', ' ', 'g'));
+  k_cc   text := verd_private.country(cc);
+  k_st   text := verd_private.place(st);
+  k_ci   text := verd_private.place(ci);
+  n      int;
+  prev   timestamptz;
+  new_id bigint;
+begin
+  if why is not null then
+    raise exception '%', why using errcode = '42501';
+  end if;
+  if char_length(clean) < 4 or char_length(clean) > 200 then
+    raise exception 'posts are 4 to 200 characters' using errcode = '22023';
+  end if;
+  if scope is null or scope not in ('world', 'country', 'state', 'city', 'friends') then
+    raise exception 'bad audience' using errcode = '22023';
+  end if;
+  if (scope in ('country', 'state', 'city') and k_cc = 'XX') or (scope in ('state', 'city') and k_st is null)
+     or (scope = 'city' and k_ci is null) then
+    raise exception 'set your place first' using errcode = '22023';
+  end if;
+  if verd_private.blocked(clean) then
+    raise exception 'blocked words' using errcode = '22023';
+  end if;
+  select count(*), max(x.created_at) into n, prev
+    from public.posts x where x.user_id = uid and x.created_at > now() - interval '1 day';
+  if n >= verd_private.cfg('posts_per_day') then
+    raise exception 'that is enough posts for today' using errcode = '22023';
+  end if;
+  if prev > now() - make_interval(secs => verd_private.cfg('post_gap_seconds')) then
+    raise exception 'wait a moment' using errcode = '22023';
+  end if;
+  insert into public.posts (user_id, body, color, scope, country, state, city)
+  values (uid, clean, greatest(0, least(31, coalesce(color, 0))), scope, k_cc,
+          case when scope in ('state', 'city') then k_st end, case when scope = 'city' then k_ci end)
+  returning id into new_id;
+  return jsonb_build_object('id', new_id, 'status', 'pending');
+end $$;
+
+-- Comment on a post you've judged (or your own). It waits for a moderator too.
+create or replace function public.create_comment(pid bigint, body text, cc text default null, st text default null, ci text default null)
+returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  uid    uuid := auth.uid();
+  why    text := verd_private.cannot_write(auth.uid());
+  clean  text := btrim(regexp_replace(coalesce(body, ''), '\s+', ' ', 'g'));
+  p      public.posts;
+  mine   smallint;
+  n      int;
+  prev   timestamptz;
+  new_id bigint;
+begin
+  if why is not null then
+    raise exception '%', why using errcode = '42501';
+  end if;
+  select * into p from public.posts x where x.id = pid;
+  if not found or p.status <> 'approved'
+     or (p.user_id <> uid and not verd_private.sees(p, uid, verd_private.country(cc), verd_private.place(st), verd_private.place(ci))) then
+    raise exception 'no such post' using errcode = '22023';
+  end if;
+  select x.v into mine from public.post_votes x where x.post_id = pid and x.user_id = uid;
+  if mine is null and p.user_id <> uid then
+    raise exception 'judge it first' using errcode = '22023';
+  end if;
+  if char_length(clean) < 2 or char_length(clean) > 200 then
+    raise exception 'comments are 2 to 200 characters' using errcode = '22023';
+  end if;
+  if verd_private.blocked(clean) then
+    raise exception 'blocked words' using errcode = '22023';
+  end if;
+  select count(*), max(x.created_at) into n, prev
+    from public.comments x where x.user_id = uid and x.created_at > now() - interval '1 day';
+  if n >= verd_private.cfg('comments_per_day') then
+    raise exception 'that is enough comments for today' using errcode = '22023';
+  end if;
+  if prev > now() - make_interval(secs => verd_private.cfg('comment_gap_seconds')) then
+    raise exception 'wait a moment' using errcode = '22023';
+  end if;
+  insert into public.comments (post_id, user_id, body, side)
+  values (pid, uid, clean, case mine when 1 then 0 when -1 then 1 end)
+  returning id into new_id;
+  return jsonb_build_object('id', new_id, 'status', 'pending');
+end $$;
+
+-- Report a post or comment you can see. Anyone with a session; enough reports hide it for everyone.
+create or replace function public.report_item(what text, iid bigint, cc text default null, st text default null, ci text default null)
+returns text
+language plpgsql security definer set search_path = public as $$
+declare
+  uid  uuid := auth.uid();
+  p    public.posts;
+  cm   public.comments;
+  n    int;
+begin
+  if uid is null then
+    raise exception 'sign in first' using errcode = '28000';
+  end if;
+  if what = 'comment' then
+    select * into cm from public.comments x where x.id = iid;
+    if not found or cm.user_id = uid or cm.status <> 'approved' then
+      raise exception 'no such comment' using errcode = '22023';
+    end if;
+    select * into p from public.posts x where x.id = cm.post_id;
+    if not found or (p.user_id <> uid and not verd_private.sees(p, uid, verd_private.country(cc), verd_private.place(st), verd_private.place(ci))) then
+      raise exception 'no such comment' using errcode = '22023';
+    end if;
+  elsif what = 'post' then
+    select * into p from public.posts x where x.id = iid;
+    if not found or p.user_id = uid or not verd_private.sees(p, uid, verd_private.country(cc), verd_private.place(st), verd_private.place(ci)) then
+      raise exception 'no such post' using errcode = '22023';
+    end if;
+  else
+    raise exception 'bad kind' using errcode = '22023';
+  end if;
+  select count(*) into n from public.reports x where x.user_id = uid and x.created_at > now() - interval '1 day';
+  if n >= verd_private.cfg('reports_per_day') then
+    raise exception 'that is enough reports for today' using errcode = '22023';
+  end if;
+  insert into public.reports (kind, item_id, user_id) values (what, iid, uid) on conflict do nothing;
+  return 'reported';
+end $$;
+
+-- Delete your own post (with its judgments and comments) or comment.
+create or replace function public.delete_mine(what text, iid bigint)
+returns text
+language plpgsql security definer set search_path = public as $$
+declare
+  uid uuid := auth.uid();
+  k   int;
+begin
+  if uid is null then
+    raise exception 'sign in first' using errcode = '28000';
+  end if;
+  if what = 'post' then
+    delete from public.posts x where x.id = iid and x.user_id = uid;
+  elsif what = 'comment' then
+    delete from public.comments x where x.id = iid and x.user_id = uid;
+  else
+    raise exception 'bad kind' using errcode = '22023';
+  end if;
+  get diagnostics k = row_count;
+  if k = 0 then
+    raise exception 'no such item' using errcode = '22023';
+  end if;
+  delete from public.reports r where r.kind = what and r.item_id = iid;
+  delete from public.reports r where r.kind = 'comment' and not exists (select 1 from public.comments x where x.id = r.item_id);
+  return 'deleted';
+end $$;
+
+-- Moderators only: what waits for review (oldest first), and approved things that were reported.
+create or replace function public.review_queue()
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  uid uuid := auth.uid();
+begin
+  if not verd_private.is_mod(uid) then
+    raise exception 'moderators only' using errcode = '42501';
+  end if;
+  return jsonb_build_object(
+    'waiting', (select coalesce(jsonb_agg(jsonb_build_object('kind', q.kind, 'id', q.id, 'body', q.body, 'on', q.on_post,
+                                          'scope', q.scope, 't', verd_private.ms(q.t), 'writer', verd_private.track(q.user_id))
+                                        order by q.t), '[]'::jsonb)
+                  from (select 'post' as kind, p.id, p.body, null::text as on_post, p.scope, p.created_at as t, p.user_id
+                          from public.posts p where p.status = 'pending' and not verd_private.banned(p.user_id)
+                        union all
+                        select 'comment', c.id, c.body, p.body, p.scope, c.created_at, c.user_id
+                          from public.comments c join public.posts p on p.id = c.post_id
+                         where c.status = 'pending' and not verd_private.banned(c.user_id)) q),
+    'reported', (select coalesce(jsonb_agg(jsonb_build_object('kind', q.kind, 'id', q.id, 'body', q.body, 'on', q.on_post,
+                                           'reports', q.n, 'hidden', q.n >= verd_private.cfg('hide_at_reports'),
+                                           'writer', verd_private.track(q.user_id))
+                                         order by q.n desc, q.id), '[]'::jsonb)
+                   from (select 'post' as kind, p.id, p.body, null::text as on_post, p.user_id,
+                                (select count(*) from public.reports r where r.kind = 'post' and r.item_id = p.id
+                                    and (p.kept_at is null or r.created_at > p.kept_at))::int as n
+                           from public.posts p where p.status = 'approved'
+                         union all
+                         select 'comment', c.id, c.body, p.body, c.user_id,
+                                (select count(*) from public.reports r where r.kind = 'comment' and r.item_id = c.id
+                                    and (c.kept_at is null or r.created_at > c.kept_at))::int
+                           from public.comments c join public.posts p on p.id = c.post_id where c.status = 'approved') q
+                  where q.n > 0));
+end $$;
+
+-- Moderators only: approve or reject what's waiting, keep or remove what was reported.
+-- why is shown to the writer when something is turned down.
+create or replace function public.review_item(what text, iid bigint, decision text, why text default null)
+returns text
+language plpgsql security definer set search_path = public as $$
+declare
+  uid uuid := auth.uid();
+  k   int;
+  r   text := nullif(left(btrim(coalesce(why, '')), 80), '');
+begin
+  if not verd_private.is_mod(uid) then
+    raise exception 'moderators only' using errcode = '42501';
+  end if;
+  if decision is null or decision not in ('approve', 'reject', 'keep', 'remove') then
+    raise exception 'bad decision' using errcode = '22023';
+  end if;
+  if what = 'post' then
+    update public.posts x set
+      status = case decision when 'approve' then 'approved' when 'reject' then 'rejected' when 'remove' then 'removed' else x.status end,
+      reason = case when decision in ('reject', 'remove') then r else x.reason end,
+      kept_at = case when decision = 'keep' then now() else x.kept_at end,
+      reviewed_at = now(), reviewed_by = uid
+     where x.id = iid
+       and ((decision in ('approve', 'reject') and x.status = 'pending') or (decision in ('keep', 'remove') and x.status = 'approved'));
+  elsif what = 'comment' then
+    update public.comments x set
+      status = case decision when 'approve' then 'approved' when 'reject' then 'rejected' when 'remove' then 'removed' else x.status end,
+      reason = case when decision in ('reject', 'remove') then r else x.reason end,
+      kept_at = case when decision = 'keep' then now() else x.kept_at end,
+      reviewed_at = now(), reviewed_by = uid
+     where x.id = iid
+       and ((decision in ('approve', 'reject') and x.status = 'pending') or (decision in ('keep', 'remove') and x.status = 'approved'));
+  else
+    raise exception 'bad kind' using errcode = '22023';
+  end if;
+  get diagnostics k = row_count;
+  if k = 0 then
+    raise exception 'already decided' using errcode = '22023';
+  end if;
+  return decision;
+end $$;
+
+-- Moderators only: stop the writer of a post or comment from posting, for some days or until lifted.
+-- Everything of theirs still waiting is turned down, and their posts and comments stop showing.
+create or replace function public.ban_author(what text, iid bigint, for_days int default null, why text default null)
+returns text
+language plpgsql security definer set search_path = public as $$
+declare
+  uid    uuid := auth.uid();
+  writer uuid;
+  r      text := nullif(left(btrim(coalesce(why, '')), 80), '');
+begin
+  if not verd_private.is_mod(uid) then
+    raise exception 'moderators only' using errcode = '42501';
+  end if;
+  if what = 'post' then
+    select x.user_id into writer from public.posts x where x.id = iid;
+  elsif what = 'comment' then
+    select x.user_id into writer from public.comments x where x.id = iid;
+  end if;
+  if writer is null then
+    raise exception 'no such item' using errcode = '22023';
+  end if;
+  if verd_private.is_mod(writer) then
+    raise exception 'moderators cannot be blocked here' using errcode = '22023';
+  end if;
+  insert into public.bans (user_id, until, reason, by_user)
+  values (writer, case when for_days > 0 then now() + make_interval(days => for_days) end, r, uid)
+  on conflict (user_id) do update set until = excluded.until, reason = excluded.reason, by_user = excluded.by_user, created_at = now();
+  update public.posts x set status = 'rejected', reason = coalesce(r, 'Blocked by a moderator'), reviewed_at = now(), reviewed_by = uid
+   where x.user_id = writer and x.status = 'pending';
+  update public.comments x set status = 'rejected', reason = coalesce(r, 'Blocked by a moderator'), reviewed_at = now(), reviewed_by = uid
+   where x.user_id = writer and x.status = 'pending';
+  return 'blocked';
+end $$;
+
 -- Who may call what. Results and boards are open (they are totals with minimums);
 -- everything that writes or is about you needs a session (anonymous counts).
 revoke all on function public.get_results(date, smallint, text, text, text) from public;
@@ -474,3 +1087,26 @@ grant execute on function public.import_votes(jsonb) to authenticated;
 grant execute on function public.friend_match(text[]) to authenticated;
 grant execute on function public.set_friends(text[]) to authenticated;
 grant execute on function public.suggest_question(text, text[]) to authenticated;
+
+-- Posting: the feed is open (approved posts only). Everything else needs a session, and each function
+-- checks the rest itself: a real account, age, blocks, moderators.
+revoke all on function public.get_posts(text, text, text) from public;
+revoke all on function public.set_birth(int, int) from public, anon;
+revoke all on function public.judge_post(bigint, boolean, text, text, text) from public, anon;
+revoke all on function public.create_post(text, smallint, text, text, text, text) from public, anon;
+revoke all on function public.create_comment(bigint, text, text, text, text) from public, anon;
+revoke all on function public.report_item(text, bigint, text, text, text) from public, anon;
+revoke all on function public.delete_mine(text, bigint) from public, anon;
+revoke all on function public.review_queue() from public, anon;
+revoke all on function public.review_item(text, bigint, text, text) from public, anon;
+revoke all on function public.ban_author(text, bigint, int, text) from public, anon;
+grant execute on function public.get_posts(text, text, text) to anon, authenticated;
+grant execute on function public.set_birth(int, int) to authenticated;
+grant execute on function public.judge_post(bigint, boolean, text, text, text) to authenticated;
+grant execute on function public.create_post(text, smallint, text, text, text, text) to authenticated;
+grant execute on function public.create_comment(bigint, text, text, text, text) to authenticated;
+grant execute on function public.report_item(text, bigint, text, text, text) to authenticated;
+grant execute on function public.delete_mine(text, bigint) to authenticated;
+grant execute on function public.review_queue() to authenticated;
+grant execute on function public.review_item(text, bigint, text, text) to authenticated;
+grant execute on function public.ban_author(text, bigint, int, text) to authenticated;

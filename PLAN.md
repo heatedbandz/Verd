@@ -312,7 +312,7 @@ How these were measured: Lighthouse 13.6, median of 3 runs, in two profiles. "De
   - **13 and older:** State and City show as before.
   - **Saved before this change:** a state or city isn't sent until the question is answered. Nobody loses anything today: the public site isn't live yet, so no one has seen state or city results.
 - **Suggestions were already moderated:** signed in only, 3 a day, a blocklist on the server, and every one held for review (`suggest_question`, tested in `db`).
-- **Still needed before posting can open.** All of these need accounts, which need a parent-owned sign-in setup, or someone to review posts:
+- **Still needed before posting can open** (all built since: see **Posting** below). All of these need accounts, which need a parent-owned sign-in setup, or someone to review posts:
   - reports, a blocklist and rate limits on the server;
   - every first post held for review;
   - friends-only by default for minors;
@@ -350,16 +350,57 @@ How these were measured: Lighthouse 13.6, median of 3 runs, in two profiles. "De
 - **What changed for people on the site:**
   - Votes and results are shared. The first vote signs in anonymously, and just looking makes no account.
   - Answers a phone saved on earlier days, from 2026-11-17 on, are copied to the database once, at that first vote. They are real answers to those days' questions.
-  - Posting from the phone is off on the public site, as section 10 says, until accounts, reports and moderation exist.
+  - Posting from the phone is off on the public site, as section 10 says, until accounts, reports and moderation exist. They're built now and wait for the setup in **Next single step**.
   - Friends added before launch are asked for a new invite link, because their old codes only existed on the phone.
   - **Returning visitors:** the first visit after the update still shows the old version while the new one downloads, so reload once.
 
+## Posting: built, waiting for setup
+
+**Everything section 10 said posting needs is built.** It stays off on the public site until a parent sets up Google sign-in and becomes the moderator (the steps are in **Next single step**). Until then the site works exactly as it does today: it doesn't even fetch posts.
+
+- **Accounts:** posting and commenting need a Google account. Answering, judging posts and reporting never do.
+  - Someone who already answered on that phone keeps the same account: Google is linked to it, so answers, streak and friend code stay.
+  - Sign-in uses PKCE: Google sends back a one-time code, never a token in the address, and the app removes the code straight away.
+- **Age, kept with the account:** the month and year you were born is asked before signing in, so nobody under 13 is sent to Google or hands over an email.
+  - It's kept with the account once and the app can't change it. The question doesn't hint at the cut-off.
+  - Under 13: no posting and no comments. Answering, judging and reporting still work.
+- **Every post and comment is checked first.** Until a moderator approves it, only the writer sees it, marked "Waiting for review".
+  - The moderator reviews in **Me → Review**: Approve, or Reject with a reason the writer sees (Personal info, Mean or unsafe, Not a yes or no question, Spam).
+  - **Block writer for 7 days** takes two taps. It turns down everything of theirs still waiting and hides what's up.
+  - The moderator sees how many of the writer's posts were approved or turned down before, never who they are.
+- **Reports:** anyone can report a post or comment. It's hidden for them at once, and for everyone at 3 reports until the moderator keeps or removes it. 30 reports a day per person.
+- **Word filter, in the database and in the app:** phone numbers, @handles, links, threats, asking for contact info ("add me on snap", "my insta"), asking for pictures, asking someone's age or where they live, and sexual words. The app catches them before sending, and the database refuses them anyway.
+- **Rate limits:** 3 posts a day, 2 minutes apart. 20 comments a day, 20 seconds apart.
+- **No names anywhere.** Posts and comments show "Someone". Only mutual friends see each other's friend code. No DMs, no profiles, no follower counts.
+- **Left off on purpose:**
+  - **Photos on the live site.** Words can be checked before anyone sees them, but photos can't, and reviewing strangers' photos would put the moderator in front of whatever gets uploaded. Photo posts stay in the preview and in phone-only mode.
+  - **Friends-only by default for minors.** Every post is already reviewed before anyone sees it and no names are shown, so a friends-only default would mostly mean an empty feed. Friends is one tap in the composer.
+  - **Sign out.** It would either count today's answer twice or leave today's result stuck on "Counting the votes" until tomorrow. Clearing Verd's website data in Safari does the same job.
+- **Two phones, one Google account:** if that Google account already has Verd on another phone, this phone signs in to it instead. Answers sent from this phone stay counted once, with the account that sent them. If this phone answered today and that account didn't, today's result on this phone says "Counting the votes" until tomorrow.
+- **Off switches:** posting closes the moment `posting_paused` is set to 1, or if there's no moderator.
+- **Tests:** 21 new, and all 89 pass.
+  - `db`: 28. New: the tables are locked and anonymous accounts can't write; posting is closed until there's a moderator; a real account, 13 or older, with the age kept on the account; review; blocked words; rate limits; judging; audiences; comments; reports; blocks; no ids leak; deleting your own.
+  - `live`: 22. New: the stand-in Supabase now has Google sign-in with PKCE. The tests cover closed until there's a moderator; under 13 is never sent to sign in; age first, then Google, then a post that waits for review; the moderator approves from Me; others judge, see the split and report; comments wait too; a Google account that already has Verd; manual linking off; Google off means no posts are even fetched.
+  - `live-rls`: 30 new checks on the real database. They're skipped until the new `setup.sql` is installed, and none of them writes anything.
+
 ## Next single step
 
-**Answer today's question on your iPhone, then send your invite link to three friends.** It takes about two minutes, and it's the first real test of Verd with other people.
+**A parent sets up sign-in and becomes the moderator.** It takes about 20 minutes on a computer. Posting opens the moment it's done, and nothing changes on the site before that.
 
-1. Open [heatedbandz.github.io/Verd](https://heatedbandz.github.io/Verd/). If it still looks like before, reload once.
-2. Answer today's question.
-3. Tap **Me**. Under **Friends**, press **Invite** and send the link to three friends.
+1. **Run the new `setup.sql`.** Open [setup.sql on GitHub](https://github.com/heatedbandz/Verd/blob/main/setup.sql) and press the copy button. Then in Supabase go to **SQL Editor → New query**, paste, and press **Run**. It keeps every vote.
+2. **Make a Google sign-in client.** Open the [Google Cloud console](https://console.cloud.google.com/auth/overview), signed in as the parent.
+   - Create a project called Verd if asked.
+   - **Branding:** app name Verd and a support email.
+   - **Audience:** External, then **Publish app**.
+   - **Clients → Create client → Web application.** Under **Authorized redirect URIs** add `https://zfphqlavepncdoihiugu.supabase.co/auth/v1/callback`. Create it, then copy the Client ID and the Client secret.
+3. **Turn on Google in Supabase.** Go to **Authentication → Sign In / Providers → Google**. Turn it on, paste the ID and secret, and Save. On the same page, turn on **Allow manual linking** and Save.
+4. **Tell Supabase where Verd lives.** Go to **Authentication → URL Configuration**.
+   - Set the Site URL to `https://heatedbandz.github.io/Verd/`.
+   - Under Redirect URLs, add `https://heatedbandz.github.io/Verd/**`.
+   - Save.
+5. **The parent signs in on their own phone or computer:** open Verd, then **Me → Account → Sign in with Google**. Google's screen names the supabase.co address: that's Verd's database.
+6. **Make them the moderator.** In the SQL Editor, run this with the email they signed in with:
+   `insert into public.moderators (user_id) select id from auth.users where email = 'their@email.com';`
+7. **Reload Verd.** The + button appears, and **Me → Review** shows what's waiting. Check it once or twice a day: nothing anyone posts shows to others until it's approved there.
 
-The verdict needs 10 answers before it shows percentages. Until then Verd shows the true count.
+To pause posting at any time, run `update public.app_config set value = 1 where key = 'posting_paused';`. Use 0 to open it again.
