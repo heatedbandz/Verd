@@ -16,15 +16,22 @@ const check = (ok, what, detail = '') => { console.log((ok ? 'PASS ' : 'FAIL ') 
 const h = token => ({ apikey: key, ...(token ? { Authorization: 'Bearer ' + token } : {}), 'Content-Type': 'application/json' });
 const today = new Date().toISOString().slice(0, 10);
 
+let signInError = '';
 async function signIn() {
   const r = await fetch(url + '/auth/v1/signup', { method: 'POST', headers: h(), body: JSON.stringify({ data: {} }) });
-  const b = await r.json(); if (!r.ok) throw new Error('anonymous sign-in failed (is it switched on?): ' + JSON.stringify(b));
+  const b = await r.json().catch(() => ({}));
+  if (!r.ok) { signInError = r.status + ' ' + JSON.stringify(b).slice(0, 160); return null; }
   return b.access_token;
 }
 const denied = r => r.status === 401 || r.status === 403 || r.status === 404;
 
+// Set up as PLAN.md says: setup.sql run, and anonymous sign-ins switched on. If either is missing the rest
+// still runs, so one run shows everything that needs doing.
+const probe = await fetch(`${url}/rest/v1/rpc/get_results`, { method: 'POST', headers: h(), body: JSON.stringify({ d: today, n: 2, cc: 'US' }) });
+check(probe.ok, 'setup.sql is installed (the results function answers)', `${probe.status} ${(await probe.text()).slice(0, 160)}`);
 const user = await signIn();
-for (const [who, token] of [['anon', null], ['signed-in user', user]]) {
+check(!!user, 'anonymous sign-ins are switched on (Authentication > Sign In / Providers)', signInError);
+for (const [who, token] of user ? [['anon', null], ['signed-in user', user]] : [['anon', null]]) {
   for (const t of ['votes', 'profiles', 'suggestions', 'app_config', 'blocked_terms', 'friend_adds']) {
     const r = await fetch(`${url}/rest/v1/${t}?select=*`, { headers: h(token) });
     const body = await r.text();
@@ -41,7 +48,7 @@ for (const [who, token] of [['anon', null], ['signed-in user', user]]) {
 }
 
 // The vote function is installed, and refuses an answer that doesn't exist before it writes anything.
-{
+if (user) {
   const r = await fetch(`${url}/rest/v1/rpc/cast_vote`, { method: 'POST', headers: h(user), body: JSON.stringify({ d: today, c: 9, n: 2 }) });
   const text = await r.text();
   check(r.status === 400 && /bad answer/.test(text), 'a signed-in user cannot vote for an answer that does not exist', `${r.status} ${text.slice(0, 120)}`);
@@ -54,10 +61,11 @@ for (const [fn, args] of [['cast_vote', { d: today, c: 0, n: 2 }], ['my_profile'
 }
 
 // No peeking: someone who hasn't voted today sees no counts, signed in or not.
-for (const [who, token] of [['anon', null], ['fresh user', await signIn()]]) {
+const fresh = user && await signIn();
+for (const [who, token] of fresh ? [['anon', null], ['fresh user', fresh]] : [['anon', null]]) {
   const r = await fetch(`${url}/rest/v1/rpc/get_results`, { method: 'POST', headers: h(token), body: JSON.stringify({ d: today, n: 2, cc: 'US' }) });
-  const b = await r.json();
-  check(r.ok && b.visible === false && b.world.counts === null, `${who} cannot peek at today's results`, JSON.stringify(b).slice(0, 160));
+  const b = await r.json().catch(() => null);
+  check(r.ok && b && b.visible === false && b.world.counts === null, `${who} cannot peek at today's results`, `${r.status} ${JSON.stringify(b).slice(0, 160)}`);
 }
 
 console.log(failed ? `\n${failed} check(s) FAILED` : '\nAll checks passed: the public key can only do what setup.sql allows.');
