@@ -143,6 +143,7 @@ How these were measured: Lighthouse 13.6, median of 3 runs, in two profiles. "De
 | Baseline | 99 / 100 | 1.57 s / 0.64 s | 96 | 80–120 ms | 33 ms | 18.8 + 5.0 KB (+30 KB font) | blank | no |
 | 1. Real backend | 100 / 100 | 1.40 s / 0.59 s | 96 | 56–72 ms | 17–33 ms | 21.0 + 7.2 KB (+30 KB font) | blank | no |
 | 2. Honest numbers | 100 / 100 | 1.40 s / 0.59 s | 96 | 56 ms | 33–50 ms | 23.3 + 7.2 KB (+30 KB font) | blank | no |
+| 3. Feel system | 100 / 100 | **0.62 s / 0.24 s** (LCP 1.12 / 0.43) | **100** | 64 ms | 33 ms | 23.6 + 8.1 KB, no font | blank | no |
 
 ### 1. Real backend
 
@@ -160,6 +161,16 @@ How these were measured: Lighthouse 13.6, median of 3 runs, in two profiles. "De
 - **Small fixes found on the way:** percentages always add up to exactly 100; "with the majority" in Your week only counts days whose real count is known (it used to count unknown days as misses); the share text says "I'm with 64% of the 212 people who answered" instead of "of Earth"; posts made with no database say "Only you can see your posts until Verd goes live."
 - **Tests:** `tests/core.test.mjs`, **11 of 11 pass**, including a check that feeds 3,000 random results and confirms every percentage in a teaser comes from a level over its minimum. `tests/e2e-device.mjs`, **2 of 2 pass**: with no database, no `%` appears anywhere after voting, and the answer can't be changed. The live app tests (now 5 of 5 with checks for the locked and offline copy) still pass.
 - **Numbers:** unchanged within noise. `core.js` adds 2.0 KB gz and is preloaded, so it doesn't add a round trip.
+
+### 3. Feel system: tokens, contrast, iPhone fit
+
+- **Tokens first.** The stylesheet was rewritten on one set of custom properties: colour (light and dark), a 4 pt spacing scale, radius, shadow, blur, a 9-step type scale and motion. Every remaining raw number is a component size (an icon, a tile) or a hairline.
+- **Type:** the system font stack, so iPhones get SF Pro, with tabular numerals on every number. The 30 KB Google font and its render-blocking request are gone.
+- **Contrast:** the slide palette is deeper (crimson, green, rust, teal and pink all failed with white text before) and the white sheen went from 20% to 10%. Text on slides no longer uses opacity for hierarchy. `tests/contrast.mjs` reads the real palette and tokens and checks 5 groups: white text on both ends of every gradient under the sheen, labels and percentages on the glass and result bars, page text in light and dark, the floating bar over a white photo, and the bar on pages. **5 of 5 pass.** Lighthouse Accessibility went from 96 to **100** in both profiles, with no contrast failures (the top bar used to fail).
+- **iPhone fit:** safe areas are applied per element (top bar, slides, pages, compose, sheet, toast and the capsule), so colour runs edge to edge while text clears the notch and home indicator. Every tap target is at least 44 × 44 pt (checked with a script on every screen). No 300 ms delay, no text selection or callouts on controls, no rubber-band on the page, and `:active` works on Safari.
+- **Motion:** one shared spring (stiffness 380, damping 26, 6% overshoot, settles in about 500 ms) written as a CSS `linear()` curve. Buttons squish to 0.96 on press and spring back on release. Result bars now animate `transform` instead of `height`/`width`, and nothing animates colour, shadow or size any more.
+- **Haptics:** one helper with four named moments: vote, reveal, streak milestone and new badge. The haptic on every button tap is gone.
+- **Numbers:** FCP fell from 1.40 s to **0.62 s** on the harsh profile and from 0.59 s to **0.24 s** on the iPhone profile, almost all from dropping the font. Page weight fell from 60 KB to 32 KB.
 
 ## Next single step
 

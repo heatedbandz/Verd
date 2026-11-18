@@ -242,14 +242,16 @@ const iosTick = (() => {
     l.appendChild(i); document.body.appendChild(l); return () => l.click();
   }catch{ return () => {}; }
 })();
-function haptic(pattern){
-  try{
-    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    if (navigator.vibrate) { navigator.vibrate(pattern); return; }
-    iosTick();
-    if (Array.isArray(pattern) && pattern.length > 2) setTimeout(iosTick, 90);
-  }catch{}
-}
+// The only haptics in the app: four meaningful moments. Never on scroll, never on ordinary taps.
+const haptics = (() => {
+  const play = (pattern, ticks) => { try{ if (navigator.vibrate) navigator.vibrate(pattern); else ticks.forEach(ms => ms ? setTimeout(iosTick, ms) : iosTick()); }catch{} };
+  return {
+    vote: () => play(12, [0]),                           // your answer is in
+    reveal: () => play([10, 60, 18], [0, 90]),           // the verdict lands
+    streak: () => play([8, 40, 8, 40, 16], [0, 80, 160]), // a streak milestone
+    badge: () => play([16, 50, 16], [0, 110])            // a new badge
+  };
+})();
 function countUp(el, to, suffix){
   if (matchMedia("(prefers-reduced-motion: reduce)").matches){ el.textContent = to + suffix; return; }
   const t0 = performance.now(), dur = 750;
@@ -273,7 +275,7 @@ function bumpStreak(){
   s.last = today; s.best = Math.max(s.best, s.streak);
   store.set("streakState", { last:s.last, streak:s.streak, freezes:s.freezes, best:s.best });
   if (used) toast("Streak freeze used. Your " + s.streak + "-day streak is safe.");
-  else if (s.streak % 7 === 0) toast(s.streak + " days! You earned a streak freeze.");
+  else if (s.streak % 7 === 0){ toast(s.streak + " days! You earned a streak freeze."); haptics.streak(); }
 }
 
 function recapData(){
@@ -379,7 +381,10 @@ function guessCountry(){
 const myPlace = () => ({ city: store.get("city", ""), state: store.get("state", ""), country: guessCountry() });
 const friends = () => store.get("friends", []);
 const SCOPES = [["world","World"],["country","Country"],["state","State"],["city","City"],["friends","Friends"]];
-const COLORS = [["#5b3df5","#3d22c7"],["#ff4d4d","#d62a41"],["#0fa968","#07784a"],["#17181a","#000000"],["#2563ff","#1240c4"],["#e0338a","#ad1966"],["#f2730a","#cc4e00"],["#0e8fa3","#066a7c"]];
+// Slide colours: violet, crimson, green, ink, blue, pink, rust, teal. Each is dark enough that white text passes
+// WCAG AA (4.5:1) on both ends of its gradient, under the sheen. tests/contrast.mjs checks every pair.
+const COLORS = [["#5b3df5","#3d22c7"],["#c81e3a","#8f1230"],["#04724c","#055c3a"],["#17181a","#000000"],["#1d4ed8","#1e3a8a"],["#be185d","#9d174d"],["#b93d0a","#8a3006"],["#0c6f80","#0b5566"]];
+const hue = (e, c) => { e.style.setProperty("--c0", c[0]); e.style.setProperty("--c1", c[1]); return e; };
 const hash = s => { let h = 0; for (const c of String(s)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h; };
 const ask = { api: null, posts: [], myVotes: {}, myReports: {}, flipped: {}, scope: store.get("askScope", "world") };
 if (!SCOPES.some(([k]) => k === ask.scope)) ask.scope = "world";
@@ -394,7 +399,8 @@ function el(tag, cls, text){ const e = document.createElement(tag); if (cls) e.c
 function iact(icon, label, text, fn){ const b = el("button", "iact"); b.innerHTML = ICON[icon]; b.setAttribute("aria-label", label); if (text) b.append(el("span", "", text)); b.onclick = fn; return b; }
 function ago(t){ const m = Math.max(1, Math.round((Date.now() - t) / 60000)); return m < 60 ? m + "m" : m < 1440 ? Math.round(m / 60) + "h" : Math.round(m / 1440) + "d"; }
 function sizeClass(text){ return text.length > 105 ? " s" : text.length > 55 ? " m" : ""; }
-document.addEventListener("click", e => { if (e.isTrusted && e.target.closest("button")) haptic(8); }, true);
+// Safari only shows :active (the press squish) if a touchstart listener exists.
+document.addEventListener("touchstart", () => {}, { passive: true });
 
 // ---------- Feed ----------
 function visible(p, anyScope){
@@ -420,7 +426,7 @@ function syncOrder(){
 }
 function currentId(){ const f = $("feed"); if (!f.children.length || !f.clientHeight) return null; const s = f.children[Math.round(f.scrollTop / f.clientHeight)]; return s ? s.dataset.id : null; }
 
-function shell(id, color){ const s = el("section", "slide"); s.dataset.id = id; s.style.background = "radial-gradient(120% 70% at 0% 0%,rgba(255,255,255,.2),rgba(255,255,255,0) 60%),radial-gradient(90% 60% at 100% 100%,rgba(0,0,0,.28),rgba(0,0,0,0) 70%),linear-gradient(165deg," + color[0] + "," + color[1] + ")"; return s; }
+function shell(id, color){ const s = hue(el("section", "slide"), color); s.dataset.id = id; return s; }
 function answers(id, labels, results, mineIdx, onTap){
   const box = el("div", "answers" + (labels.length > 2 ? " stack" : ""));
   labels.forEach((label, i) => {
@@ -429,7 +435,7 @@ function answers(id, labels, results, mineIdx, onTap){
     if (animate === id && mineIdx === i) b.classList.add("pop");
     if (results){
       const p = el("span", "apct"); b.append(p); b.disabled = true;
-      const set = () => { fill.style.width = results[i] + "%"; fill.style.height = labels.length > 2 ? "100%" : results[i] + "%"; };
+      const set = () => { fill.style.transform = (labels.length > 2 ? "scaleX(" : "scaleY(") + results[i] / 100 + ")"; };   // transform only: no layout per frame
       if (animate === id){ countUp(p, results[i], "%"); requestAnimationFrame(() => requestAnimationFrame(set)); }
       else { p.textContent = results[i] + "%"; set(); }
     } else if (mineIdx >= 0) b.disabled = true;   // answered: locked in while the count comes
@@ -550,7 +556,7 @@ function renderTop(){
 async function vote(i){
   const place = myPlace(); myVotes[todayKey] = { choice: i, country: place.country }; store.set("myVotes", myVotes); bumpStreak();
   if (res) res = { ...res, mine: i };
-  haptic([14, 30, 20]); animate = "daily"; revealPending = true; renderFeed(); checkBadges();
+  haptics.vote(); animate = "daily"; revealPending = true; renderFeed(); checkBadges();
   let ok = false;
   try{ ok = await backend.vote(todayKey, i, options.length, place); }catch{}
   if (ok){ store.set("sent", todayKey); showCode(); }
@@ -559,7 +565,7 @@ async function vote(i){
 async function votePost(id, v){
   ask.myVotes = { ...ask.myVotes, [id]: v }; const p = ask.posts.find(x => x.id === id);
   if (p){ v > 0 ? p.yes++ : p.no++; const signs = store.get("askSigns", {}); signs[id] = signOf(p) || v; store.set("askSigns", signs); }
-  haptic([14, 30, 20]); animate = id; renderFeed();
+  haptics.vote(); animate = id; renderFeed();
   try{ await ask.api.vote(id, v); }catch{ toast("Couldn't save your vote. Try again."); }
 }
 async function report(id){ ask.myReports = { ...ask.myReports, [id]: 1 }; toast("Reported. It's hidden for you."); renderFeed(); if (sheetPost) renderSheet(); try{ await ask.api.report(id); }catch{} }
@@ -629,13 +635,13 @@ function openCompose(prefill){
   if (typeof prefill === "string") $("ptext").value = prefill; $("ptext").focus();
 }
 function drawCompose(){
-  $("compose").style.background = "radial-gradient(120% 70% at 0% 0%,rgba(255,255,255,.2),rgba(255,255,255,0) 60%),linear-gradient(165deg," + COLORS[cColor][0] + "," + COLORS[cColor][1] + ")";
+  hue($("compose"), COLORS[cColor]);
   const sw = $("swatches"); sw.innerHTML = "";
   COLORS.forEach((c, i) => { const b = el("button", "sw" + (i === cColor ? " on" : "")); b.style.background = c[0]; b.setAttribute("aria-label", "Color " + (i + 1)); b.onclick = () => { cColor = i; drawCompose(); }; sw.append(b); });
   const au = $("aud"); au.innerHTML = "";
   SCOPES.forEach(([k, l]) => { const b = el("button", k === cScope ? "on" : "", l); b.disabled = cPhotos.length > 0 && k !== "friends"; b.onclick = () => { cScope = k; drawCompose(); }; au.append(b); });
   const th = $("thumbs"); th.innerHTML = "";
-  cPhotos.forEach((src, i) => { const t = el("div", "thumb"), im = el("img"); im.src = src; im.alt = "Photo " + (i + 1); const x = el("button", "", "×"); x.setAttribute("aria-label", "Remove photo"); x.onclick = () => { cPhotos.splice(i, 1); drawCompose(); }; t.append(im, x); th.append(t); });
+  cPhotos.forEach((src, i) => { const t = el("div", "thumb"), im = el("img"); im.src = src; im.alt = "Photo " + (i + 1); const x = el("button"); x.append(el("span", "", "×")); x.setAttribute("aria-label", "Remove photo"); x.onclick = () => { cPhotos.splice(i, 1); drawCompose(); }; t.append(im, x); th.append(t); });
   if (cPhotos.length < 2){ const a = el("button", "addp"); a.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>'; a.setAttribute("aria-label", "Add a photo"); a.onclick = () => $("pfile").click(); th.append(a); }
   $("compose").classList.toggle("haspic", cPhotos.length > 0); $("colorRow").hidden = cPhotos.length > 0;
   $("ptext").placeholder = cPhotos.length === 2 ? "Which one?" : cPhotos.length === 1 ? "Yes or no?" : "What do you want a verdict on?";
@@ -677,7 +683,7 @@ const BADGES = [
 function checkBadges(){
   const had = store.get("badges", []), p = profile(); let fresh = null;
   for (const [id, label, test] of BADGES) if (test(p) && !had.includes(id)){ had.push(id); fresh = label; }
-  if (fresh){ store.set("badges", had); if (had.length > 1){ setTimeout(() => toast("New badge: " + fresh), 1400); } }
+  if (fresh){ store.set("badges", had); if (had.length > 1){ setTimeout(() => { toast("New badge: " + fresh); haptics.badge(); }, 1400); } }
 }
 function renderMe(){
   const s = streakNow(), p = profile();
@@ -729,7 +735,6 @@ function setupPlace(){
 // ---------- Search ----------
 const SEARCH_ICON = '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>';
 const CLOCK_ICON = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg>';
-const grad = c => "radial-gradient(120% 80% at 0% 0%,rgba(255,255,255,.22),rgba(255,255,255,0) 60%),linear-gradient(160deg," + c[0] + "," + c[1] + ")";
 const searchable = () => ask.api ? ask.posts.filter(p => visible(p, true)) : [];
 const heat = p => p.yes + p.no + 2 * liveComments(p).length;
 function remember(q){ q = q.trim(); if (q.length < 2) return; store.set("recentQ", [q, ...store.get("recentQ", []).filter(x => norm(x) !== norm(q))].slice(0, 8)); }
@@ -745,7 +750,7 @@ function openPost(id){
 }
 function resultRow(p, words, onTap){
   const b = el("button", "res"), mini = el("div", "mini"), rb = el("div", "rb");
-  mini.style.background = grad(p.colorPair || COLORS[(typeof p.color === "number" ? p.color : hash(p.id)) % COLORS.length]);
+  hue(mini, p.colorPair || COLORS[(typeof p.color === "number" ? p.color : hash(p.id)) % COLORS.length]);
   if (p.imgs && p.imgs.length){ const im = el("img"); im.src = p.imgs[0]; im.alt = ""; mini.append(im); } else mini.append(el("span", "", p.badge || "?"));
   const t = el("div", "rt"); t.append(highlight(p.text, words));
   rb.append(t, el("div", "rm", p.meta)); b.append(mini, rb); b.onclick = onTap; return b;
@@ -771,8 +776,8 @@ function renderSearch(){
     const stats = TOPICS.map(([id, name, , ci], i) => { const ps = posts.filter(p => p.cat === id); return { id, name, ci, i, n: ps.length, heat: ps.reduce((a, p) => a + heat(p), 0) }; })
       .sort((a, b) => b.heat - a.heat || b.n - a.n || a.i - b.i).slice(0, 6);
     const sec = section("Trending topics"), grid = el("div", "topics");
-    stats.forEach((t, i) => { const b = el("button", "topic"); b.style.background = grad(COLORS[t.ci]);
-      b.append(el("span", "rk", String(i + 1)), el("b", "", t.name), el("small", "", t.n ? t.n + (t.n === 1 ? " debate" : " debates") : "Be the first"));
+    stats.forEach((t, i) => { const b = hue(el("button", "topic"), COLORS[t.ci]), rk = el("span", "rk", String(i + 1)); rk.setAttribute("aria-hidden", "true");
+      b.append(rk, el("b", "", t.name), el("small", "", t.n ? t.n + (t.n === 1 ? " debate" : " debates") : "Be the first"));
       b.onclick = () => { $("q").value = t.name; remember(t.name); renderSearch(); }; grid.append(b); });
     sec.append(grid); box.append(sec);
     const hot = posts.filter(p => heat(p) > 0).sort((a, b) => heat(b) - heat(a)).slice(0, 5);
@@ -832,7 +837,7 @@ setInterval(() => { const n = $("nextIn"); if (n) n.textContent = dailyFoot(); }
       $("ssend").disabled = false; };
   }
   backend.watch(todayKey, options.length, myPlace(), r => {
-    if (r){ res = r; noteShare(todayKey, r); if (revealPending && todayState() === "revealed"){ revealPending = false; animate = "daily"; } }
+    if (r){ res = r; noteShare(todayKey, r); if (revealPending && todayState() === "revealed"){ revealPending = false; animate = "daily"; haptics.reveal(); } }
     renderFeed();
   });
   if (today > 0){
