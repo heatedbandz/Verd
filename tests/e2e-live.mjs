@@ -7,27 +7,15 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import http from 'node:http';
-import path from 'node:path';
 import pg from 'pg';
 import { startFakeSupabase } from './fake-supabase.mjs';
+import { serveSite } from './serve.mjs';
 
 const require = createRequire(import.meta.url);
 const { chromium } = require('playwright');
 const ADMIN_URL = process.env.DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/postgres';
-const DB = 'verd_e2e', ROOT = path.resolve(new URL('..', import.meta.url).pathname);
+const DB = 'verd_e2e';
 let fake, site, siteServer, browser, today, yesterday;
-
-function serveSite(port) {
-  const types = { '.html': 'text/html', '.js': 'text/javascript', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.svg': 'image/svg+xml' };
-  const s = http.createServer((req, res) => {
-    let p = decodeURIComponent(req.url.split('?')[0]).replace(/^\/verd\/?/, '/');
-    if (p.endsWith('/')) p += 'index.html';
-    try { const body = readFileSync(path.join(ROOT, p)); res.writeHead(200, { 'Content-Type': types[path.extname(p)] || 'application/octet-stream' }); res.end(body); }
-    catch { res.writeHead(404); res.end(); }
-  });
-  return new Promise(r => s.listen(port, () => r(s)));
-}
 
 async function page(init = {}) {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
@@ -77,6 +65,10 @@ test('a vote signs in anonymously, is stored once, and the app token cannot read
   assert.ok(fake.calls.includes('POST /auth/v1/signup'));
   assert.ok(fake.calls.includes('POST /rest/v1/rpc/cast_vote'));
   const votes = await dbVotes(today); assert.equal(votes.length, 1); assert.equal(votes[0].choice, 0);
+  // one vote is under the minimum of 10: the slide says how far along the count is, with no percentage
+  const text = await p.evaluate(() => document.querySelector('.slide[data-id=daily]').innerText);
+  assert.match(text, /You're the first voter today\./); assert.match(text, /9 more votes until the verdict unlocks\./);
+  assert.doesNotMatch(text, /\d\s*%/);
   assert.deepEqual(await p.evaluate(() => JSON.parse(localStorage.getItem('es_outbox'))), []);
   // Use the app's own session token to try the table directly, like an attacker in devtools would.
   const raw = await p.evaluate(async ({ url, key }) => {
@@ -107,6 +99,7 @@ test('a vote with no signal waits in the outbox and syncs when back online', asy
   await tap(p, 1); await p.waitForTimeout(800);
   assert.equal(await p.evaluate(() => JSON.parse(localStorage.getItem('es_outbox')).length), 1);
   assert.equal((await dbVotes(today)).length, before);
+  assert.match(await p.evaluate(() => document.querySelector('.slide[data-id=daily]').innerText), /It counts as soon as you're back online\./);
   fake.setOffline(false);
   await p.evaluate(() => dispatchEvent(new Event('online'))); await p.waitForTimeout(1200);
   assert.equal(await p.evaluate(() => JSON.parse(localStorage.getItem('es_outbox')).length), 0);

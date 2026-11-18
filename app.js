@@ -1,3 +1,5 @@
+import { sum, pct, num, countsOf, shares, dayState, promptLine, verdictMain, lockedLines, pickTeaser } from "./core.js";
+
 // ---------- Settings ----------
 // To go live: paste the Supabase Project URL and anon public key (Project Settings > API).
 // The anon key is meant to be public; setup.sql locks the database so it can only call safe functions.
@@ -81,7 +83,7 @@ const backends = {
   supabase(){
     const base = CONFIG.supabaseUrl.replace(/\/+$/, ""), key = CONFIG.supabaseKey;
     const now = () => Math.floor(Date.now() / 1000);
-    let session = store.get("sb", null), pending = null, flushing = null;
+    let session = store.get("sb", null), pending = null, flushing = null, stuck = false;
     const subs = new Map();   // dayKey -> { n, place, cbs: Set }
     function keep(s){ session = { at: s.access_token, rt: s.refresh_token, exp: s.expires_at || now() + (s.expires_in || 3600) }; store.set("sb", session); }
     async function auth(path, body){
@@ -122,8 +124,8 @@ const backends = {
         try{
           for (let q = store.get("outbox", []); q.length; q = store.get("outbox", [])){
             const v = q[0];
-            try{ emit(v.d, shape(await rpc("cast_vote", { d: v.d, c: v.c, n: v.n, ...placeArgs(v.place) }, true))); }
-            catch(e){ if (!(e.status >= 400 && e.status < 500 && e.status !== 401 && e.status !== 408 && e.status !== 429)) return false; }   // keep it and retry later; a 4xx means rejected for good
+            try{ emit(v.d, shape(await rpc("cast_vote", { d: v.d, c: v.c, n: v.n, ...placeArgs(v.place) }, true))); stuck = false; }
+            catch(e){ if (!(e.status >= 400 && e.status < 500 && e.status !== 401 && e.status !== 408 && e.status !== 429)){ stuck = true; return false; } }   // keep it and retry later; a 4xx means rejected for good
             store.set("outbox", store.get("outbox", []).filter(x => !(x.d === v.d)));
           }
           return true;
@@ -154,7 +156,7 @@ const backends = {
       async friendMatch(codes){ return codes.length ? rpc("friend_match", { codes }, true) : []; },
       async board(dayKey, n, place, level){ return rpc("get_board", { d: dayKey, n, cc: level === "country" ? null : place.country, st: level === "city" ? place.state : null }); },
       async suggest(q, answers){ return rpc("suggest_question", { q, answers }, true); },
-      pending: () => store.get("outbox", []).length
+      waiting: d => stuck && store.get("outbox", []).some(x => x.d === d)   // saved, but no connection to send it
     };
   },
 
@@ -278,9 +280,9 @@ function recapData(){
   const days = []; for (let n = today; n > today-7; n--) if (myVotes[dayKey(n)]) days.push(n);
   if (!days.length) return null;
   const withShare = days.filter(n => typeof myVotes[dayKey(n)].share === "number");
-  const rarest = withShare.sort((a,b)=>myVotes[dayKey(a)].share - myVotes[dayKey(b)].share)[0];
-  const maj = days.filter(n => (myVotes[dayKey(n)].share ?? 0) >= 50).length;
-  return { answered: days.length, maj, rarest, s: streakNow().current };
+  const maj = withShare.filter(n => myVotes[dayKey(n)].majority).length;
+  const rarest = [...withShare].sort((a,b)=>myVotes[dayKey(a)].share - myVotes[dayKey(b)].share)[0];
+  return { answered: days.length, known: withShare.length, maj, rarest, s: streakNow().current };
 }
 
 const HIDE_AT = 3; // reports needed to hide a post for everyone
@@ -367,10 +369,7 @@ const today = dayNum(), todayKey = dayKey(today);
 const [question, options] = qFor(today);
 let myVotes = store.get("myVotes", {});
 let res = null, yres = null;   // today's and yesterday's results (see Backends for the shape)
-const countsOf = level => level && level.counts ? level.counts : null;
-const sum = a => a.reduce((x, y) => x + y, 0);
-let backend = null, order = [], animate = null, jumpTo = null, sheetPost = null;
-const pct = (n, t) => t ? Math.round(n * 100 / t) : 0;
+let backend = null, order = [], animate = null, jumpTo = null, sheetPost = null, revealPending = false;
 function guessCountry(){
   const saved = store.get("country"); if (saved) return saved;
   const langs = navigator.languages || [navigator.language || ""];
@@ -425,46 +424,61 @@ function shell(id, color){ const s = el("section", "slide"); s.dataset.id = id; 
 function answers(id, labels, results, mineIdx, onTap){
   const box = el("div", "answers" + (labels.length > 2 ? " stack" : ""));
   labels.forEach((label, i) => {
-    const done = results !== null, b = el("button", "ans" + (mineIdx === i ? " mine" : ""));
+    const b = el("button", "ans" + (mineIdx === i ? " mine" : ""));
     const fill = el("i", "fill"); b.append(fill, el("span", "alabel", label));
-    if (done){
+    if (animate === id && mineIdx === i) b.classList.add("pop");
+    if (results){
       const p = el("span", "apct"); b.append(p); b.disabled = true;
       const set = () => { fill.style.width = results[i] + "%"; fill.style.height = labels.length > 2 ? "100%" : results[i] + "%"; };
-      if (animate === id){ countUp(p, results[i], "%"); requestAnimationFrame(() => requestAnimationFrame(set)); if (mineIdx === i) b.classList.add("pop"); }
+      if (animate === id){ countUp(p, results[i], "%"); requestAnimationFrame(() => requestAnimationFrame(set)); }
       else { p.textContent = results[i] + "%"; set(); }
-    } else b.onclick = () => onTap(i);
+    } else if (mineIdx >= 0) b.disabled = true;   // answered: locked in while the count comes
+    else b.onclick = () => onTap(i);
     box.append(b);
   });
   return box;
 }
 
-function verdict(mine){
-  const counts = countsOf(res && res.world); if (!counts) return ["Your answer is in.", ""];
-  const total = sum(counts), share = pct(counts[mine.choice], total);
-  const top = counts.indexOf(Math.max(...counts)), second = [...counts].sort((a, b) => b - a)[1] || 0;
-  const close = Math.abs(pct(counts[top], total) - pct(second, total)) <= 8;
-  const main = close ? "Earth is almost perfectly split on this."
-    : share < 35 ? "Only " + share + "% of Earth is with you. Rare club." : share >= 75 ? share + "% of Earth agrees with you." : share + "% of Earth is on your side.";
-  let sub = ""; const local = countsOf(res.country);
-  if (local){ const lt = sum(local); sub = local.indexOf(Math.max(...local)) !== top ? "Plot twist: " + COUNTRIES[mine.country] + " went the other way." : COUNTRIES[mine.country] + " is " + pct(local[mine.choice], lt) + "% with you."; }
-  mine.share = share; mine.majority = counts[mine.choice] === Math.max(...counts); store.set("myVotes", myVotes);
-  return [main, sub];
+// Where today's question stands (see dayState in core.js). Every line below only says what is known.
+function todayState(){
+  const mine = myVotes[todayKey];
+  if (mine && !backend) return "loading";
+  return dayState({ mine: mine ? mine.choice : null, mode: backend && backend.mode, res, waiting: !!(backend && backend.waiting && backend.waiting(todayKey)) });
+}
+const placeNames = () => { const p = myPlace(); return { city: p.city, state: p.state, country: COUNTRIES[p.country] }; };
+function verdict(state, mine){
+  if (state === "device") return ["Your answer is saved.", "Live results aren't switched on yet, so there's no verdict to show."];
+  if (state === "offline") return ["Your answer is saved.", "It counts as soon as you're back online."];
+  if (state === "loading" || state === "counting") return ["Your answer is in.", "Counting the votes…"];
+  if (state === "locked") return lockedLines(res);
+  return [verdictMain(countsOf(res.world), mine.choice), pickTeaser(res, mine.choice, placeNames())];
+}
+// Remember how your answer did once the real count is in (for badges, your week and your opinion type).
+function noteShare(key, r){
+  const mine = myVotes[key], c = countsOf(r && r.world); if (!mine || !c || !r.visible) return;
+  const share = shares(c)[mine.choice], majority = c[mine.choice] === Math.max(...c);
+  if (mine.share === share && mine.majority === majority) return;
+  mine.share = share; mine.majority = majority; store.set("myVotes", myVotes); checkBadges();
 }
 function nextIn(){ const left = START + (today + 1) * DAY_MS - Date.now(); return Math.floor(left / 3600000) + "h " + Math.floor(left % 3600000 / 60000) + "m"; }
 
-function dailySlide(){
-  const s = shell("daily", COLORS[today % COLORS.length]), mine = myVotes[todayKey], body = el("div", "sbody");
-  body.append(el("div", "kicker", "Today's question · No. " + (today + 1)), el("h2", "stext" + sizeClass(question), question));
-  if (mine){ const [main, sub] = verdict(mine); body.append(el("p", "sverdict", main)); if (sub) body.append(el("p", "ssub", sub)); }
-  const counts = mine ? countsOf(res && res.world) : null, shown = counts ? options.map((_, i) => pct(counts[i], sum(counts))) : null;
+function dailyFoot(){
   const n = res && res.world ? res.world.n : 0;
+  if (!myVotes[todayKey]) return promptLine(res, backend && backend.mode);
+  return (todayState() === "revealed" ? num(n) + (n === 1 ? " answer" : " answers") + " · " : "") + "Next question in " + nextIn();
+}
+function dailySlide(){
+  const s = shell("daily", COLORS[today % COLORS.length]), mine = myVotes[todayKey], body = el("div", "sbody"), state = todayState();
+  body.append(el("div", "kicker", "Today's question · No. " + (today + 1)), el("h2", "stext" + sizeClass(question), question));
+  if (mine){ const [main, sub] = verdict(state, mine); body.append(el("p", "sverdict", main)); if (sub) body.append(el("p", "ssub", sub)); }
+  const counts = state === "revealed" ? countsOf(res.world) : null;
   const foot = el("div", "sfoot");
-  const info = el("span", "", mine ? "Next question in " + nextIn() : n ? n.toLocaleString() + (n === 1 ? " person" : " people") + " answered. Tap to see the verdict." : "Tap your answer.");
+  const info = el("span", "", dailyFoot());
   if (mine) info.id = "nextIn";
   foot.append(info); const acts = el("div", "sacts");
   if (mine) acts.append(iact("share", "Share", "Share", shareDaily));
   foot.append(acts);
-  s.append(body, answers("daily", options, shown, mine ? mine.choice : -1, vote), foot);
+  s.append(body, answers("daily", options, counts ? shares(counts) : null, mine ? mine.choice : -1, vote), foot);
   if (mine && animate === "daily"){ const h = el("div", "hint", "Swipe up for more"); s.append(h); }
   return s;
 }
@@ -472,8 +486,8 @@ function yesterdaySlide(){
   const [yq, yo] = qFor(today - 1), s = shell("yday", COLORS[(today + 7) % COLORS.length]), body = el("div", "sbody"), mine = myVotes[dayKey(today - 1)];
   body.append(el("div", "kicker", "Yesterday's final verdict"), el("h2", "stext" + sizeClass(yq), yq));
   const yc = countsOf(yres.world), yt = sum(yc);
-  const foot = el("div", "sfoot"); foot.append(el("span", "", yt.toLocaleString() + " answers")); foot.append(el("div", "sacts"));
-  s.append(body, answers("yday", yo, yo.map((_, i) => pct(yc[i], yt)), mine ? mine.choice : -1, () => {}), foot);
+  const foot = el("div", "sfoot"); foot.append(el("span", "", num(yt) + (yt === 1 ? " answer" : " answers"))); foot.append(el("div", "sacts"));
+  s.append(body, answers("yday", yo, shares(yc), mine ? mine.choice : -1, () => {}), foot);
   return s;
 }
 function postSlide(p){
@@ -536,9 +550,11 @@ function renderTop(){
 async function vote(i){
   const place = myPlace(); myVotes[todayKey] = { choice: i, country: place.country }; store.set("myVotes", myVotes); bumpStreak();
   if (res) res = { ...res, mine: i };
-  haptic([14, 30, 20]); animate = "daily"; renderFeed(); checkBadges();
-  try{ if (await backend.vote(todayKey, i, options.length, place)){ store.set("sent", todayKey); showCode(); } else toast("Saved. It will sync when you're back online."); }
-  catch{ toast("Saved. It will sync when you're back online."); }
+  haptic([14, 30, 20]); animate = "daily"; revealPending = true; renderFeed(); checkBadges();
+  let ok = false;
+  try{ ok = await backend.vote(todayKey, i, options.length, place); }catch{}
+  if (ok){ store.set("sent", todayKey); showCode(); }
+  else { toast("Saved. It will count when you're back online."); renderFeed(); }
 }
 async function votePost(id, v){
   ask.myVotes = { ...ask.myVotes, [id]: v }; const p = ask.posts.find(x => x.id === id);
@@ -555,7 +571,8 @@ async function copyOrShow(text, okMsg){
 function shareDaily(){
   const mine = myVotes[todayKey]; if (!mine) return;
   const url = CONFIG.siteUrl || location.href.split("#")[0];
-  const counts = countsOf(res && res.world), line = counts ? "I'm with " + pct(counts[mine.choice], sum(counts)) + "% of Earth." : "I answered. The verdict isn't in yet.";
+  const counts = todayState() === "revealed" ? countsOf(res.world) : null;
+  const line = counts ? "I'm with " + shares(counts)[mine.choice] + "% of the " + num(sum(counts)) + " people who answered." : "I answered. The verdict isn't in yet.";
   copyOrShow("Verd #" + (today + 1) + "\n" + question + "\n" + line + " What's your Verd? (No peeking before you answer.)\n" + streakNow().current + " day streak\n" + url, "Copied. Paste it in your group chat.");
 }
 
@@ -625,6 +642,7 @@ function drawCompose(){
   $("cnote").textContent = cPhotos.length === 2 ? "Friends pick This one or That one. Photo posts go to friends only for now."
     : cPhotos.length === 1 ? "Friends answer Yes or No. Photo posts go to friends only for now."
     : "People answer Yes or No. No names, phone numbers or anything mean about a real person.";
+  if (backend && backend.mode === "device") $("cnote").textContent = "Only you can see your posts until Verd goes live. " + $("cnote").textContent;
 }
 $("cclose").onclick = () => { $("compose").hidden = true; };
 $("psend").onclick = async () => {
@@ -675,7 +693,7 @@ function renderMe(){
   for (const [, label, test] of BADGES) box.append(el("span", test(p) ? "" : "off", label));
   const r = recapData(), rb = $("recapBody"); $("recap").hidden = !r || r.answered < 2; rb.innerHTML = "";
   if (r){ const row = (a, b) => { const d = el("div"); d.append(el("b", "", a), el("span", "", b)); rb.append(d); };
-    row("Days answered", r.answered + " of 7"); row("With the majority", r.maj + " of " + r.answered); row("Streak", r.s + (r.s === 1 ? " day" : " days"));
+    row("Days answered", r.answered + " of 7"); if (r.known) row("With the majority", r.maj + " of " + r.known); row("Streak", r.s + (r.s === 1 ? " day" : " days"));
     if (r.rarest !== undefined){ const v = myVotes[dayKey(r.rarest)], [q, o] = qFor(r.rarest); row("Rarest take", o[v.choice] + ", " + v.share + "%"); } }
   renderFriends();
 }
@@ -693,7 +711,7 @@ async function renderFriends(){
     .forEach(r => { const d = el("div"); d.append(el("b", "", r.c), el("span", "", r.m === null ? (r.shared ? r.shared + " shared answers so far" : "No shared answers yet") : (r.m >= 80 ? "Same brain, " : r.m <= 30 ? "Opposites, " : "") + r.m + "% match")); box.append(d); });
 }
 $("recapShare").onclick = () => { const r = recapData(), p = profile(); if (!r) return;
-  copyOrShow("My week on Verd\n" + r.answered + "/7 days answered, with the majority " + r.maj + " times\n" + (p.type ? "I'm a " + p.type + ". " : "") + r.s + " day streak\nWhat are you? " + (CONFIG.siteUrl || location.href.split("#")[0]), "Copied. Post it anywhere."); };
+  copyOrShow("My week on Verd\n" + r.answered + "/7 days answered" + (r.known ? ", with the majority " + r.maj + " of " + r.known + " times" : "") + "\n" + (p.type ? "I'm a " + p.type + ". " : "") + r.s + " day streak\nWhat are you? " + (CONFIG.siteUrl || location.href.split("#")[0]), "Copied. Post it anywhere."); };
 $("copycode").onclick = () => copyOrShow($("mycode").textContent, "Code copied. Send it to a friend.");
 $("fform").onsubmit = e => { e.preventDefault(); const c = $("fcode").value.trim().toUpperCase(), me = $("mycode").textContent;
   if (!/^[A-Z0-9]{6}$/.test(c)){ toast("Friend codes are 6 letters and numbers."); return; } if (c === me){ toast("That's your own code."); return; }
@@ -793,7 +811,7 @@ $("navSearch").onclick = () => showPage("search");
 $("navHome").onclick = () => { if ($("me").hidden && $("search").hidden) $("feed").scrollTo({ top: 0, behavior: "smooth" }); showPage("feed"); };
 $("navMe").onclick = () => showPage("me");
 $("navPlus").onclick = openCompose;
-setInterval(() => { const n = $("nextIn"); if (n) n.textContent = "Next question in " + nextIn(); }, 30000);
+setInterval(() => { const n = $("nextIn"); if (n) n.textContent = dailyFoot(); }, 30000);
 
 (async function start(){
   setupPlace(); renderTop(); renderFeed();
@@ -813,12 +831,13 @@ setInterval(() => { const n = $("nextIn"); if (n) n.textContent = "Next question
       try{ await backend.suggest(q, a); $("sform").reset(); toast("Sent. Watch for it."); }catch{ toast("Couldn't send it. Try again."); }
       $("ssend").disabled = false; };
   }
-  backend.watch(todayKey, options.length, myPlace(), r => { if (r) res = r; renderFeed(); });
+  backend.watch(todayKey, options.length, myPlace(), r => {
+    if (r){ res = r; noteShare(todayKey, r); if (revealPending && todayState() === "revealed"){ revealPending = false; animate = "daily"; } }
+    renderFeed();
+  });
   if (today > 0){
     const yKey = dayKey(today - 1), yo = qFor(today - 1)[1];
-    backend.watch(yKey, yo.length, myPlace(), r => { if (!r) return; yres = r; const mine = myVotes[yKey], c = countsOf(r.world);
-      if (mine && c){ mine.majority = c[mine.choice] === Math.max(...c); mine.share = pct(c[mine.choice], sum(c)); store.set("myVotes", myVotes); }
-      renderFeed(); });
+    backend.watch(yKey, yo.length, myPlace(), r => { if (!r) return; yres = r; noteShare(yKey, r); renderFeed(); });
   }
   // Answered today before the database was switched on? Send it now (the database keeps only one).
   if (backend.mode === "live" && myVotes[todayKey] && store.get("sent") !== todayKey)

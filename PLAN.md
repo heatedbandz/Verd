@@ -142,6 +142,7 @@ How these were measured: Lighthouse 13.6, median of 3 runs, in two profiles. "De
 |---|---|---|---|---|---|---|---|---|
 | Baseline | 99 / 100 | 1.57 s / 0.64 s | 96 | 80–120 ms | 33 ms | 18.8 + 5.0 KB (+30 KB font) | blank | no |
 | 1. Real backend | 100 / 100 | 1.40 s / 0.59 s | 96 | 56–72 ms | 17–33 ms | 21.0 + 7.2 KB (+30 KB font) | blank | no |
+| 2. Honest numbers | 100 / 100 | 1.40 s / 0.59 s | 96 | 56 ms | 33–50 ms | 23.3 + 7.2 KB (+30 KB font) | blank | no |
 
 ### 1. Real backend
 
@@ -149,6 +150,16 @@ How these were measured: Lighthouse 13.6, median of 3 runs, in two profiles. "De
 - **App tests** (`tests/e2e-live.mjs`, the real `index.html` + `app.js` in Chromium against a stand-in for Supabase's HTTP API): **5 of 5 pass.** Looking creates no account; the first vote signs in anonymously and stores exactly one row; the app's own token is refused on every raw table; an offline vote waits in the outbox and syncs when the signal returns; old answers on the phone are copied once; percentages appear only after 10 votes; the friend code comes from the server.
 - **The public-key attack** (`tests/live-rls.mjs`, the test you asked for): it signs in with only the public anon key and tries to read, insert, change and delete raw votes, read every other table, call private helpers, call personal functions without a session, and peek at today's results. Against the stand-in API it makes **35 of 35 checks pass**. It is ready to run against the real project the moment keys exist.
 - **Lighthouse and size:** unchanged in practice. `app.js` grew 2.2 KB gz for the database client, outbox and import. The default profile's FCP improved because the code now loads as a deferred module.
+
+### 2. Honest numbers and cold start
+
+- **The rules now live in `core.js`**, a small module with no screen code, so they can be tested on their own. Today's question is always in one of seven states: open, loading, device (no database), offline (saved, not sent), counting, locked (under the minimum) and revealed. Each state has its own true copy.
+- **No database (the public site today):** "Your answer is saved. Live results aren't switched on yet, so there's no verdict to show." No percentage, count or verdict appears anywhere on the page. Your answer also locks in: before, the buttons stayed tappable when there were no numbers, so you could change your answer.
+- **Under the minimum:** "You're one of the first 7 voters. 3 more votes until the verdict unlocks." Before you answer: "7 people so far. Be one of the first 50 to vote."
+- **Local splits roll up** from city to state to country. "Plot twist" needs both sides over their minimum. When nothing local is big enough yet: "Austin doesn't have enough votes yet. You're early."
+- **Small fixes found on the way:** percentages always add up to exactly 100; "with the majority" in Your week only counts days whose real count is known (it used to count unknown days as misses); the share text says "I'm with 64% of the 212 people who answered" instead of "of Earth"; posts made with no database say "Only you can see your posts until Verd goes live."
+- **Tests:** `tests/core.test.mjs`, **11 of 11 pass**, including a check that feeds 3,000 random results and confirms every percentage in a teaser comes from a level over its minimum. `tests/e2e-device.mjs`, **2 of 2 pass**: with no database, no `%` appears anywhere after voting, and the answer can't be changed. The live app tests (now 5 of 5 with checks for the locked and offline copy) still pass.
+- **Numbers:** unchanged within noise. `core.js` adds 2.0 KB gz and is preloaded, so it doesn't add a round trip.
 
 ## Next single step
 
