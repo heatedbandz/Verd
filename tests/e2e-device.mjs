@@ -137,3 +137,30 @@ test('an invite link adds the friend by name and clears itself; your own link do
   await ctx.close();
 });
 
+test('state and city wait for one neutral age question, and under 13 they are never kept', async () => {
+  for (const [year, ok] of [[new Date().getFullYear() - 10, false], [2000, true]]){
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
+    await ctx.addInitScript(() => { if (!sessionStorage.getItem('seeded')){ localStorage.setItem('es_state', '"Texas"'); localStorage.setItem('es_city', '"Austin"'); sessionStorage.setItem('seeded', '1'); } });
+    const p = await ctx.newPage(), errors = [];
+    p.on('pageerror', e => errors.push(e.message)); p.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+    await p.goto(base); await p.waitForSelector('.slide[data-id=end]');
+    await p.click('#navMe'); await p.waitForTimeout(400);
+    assert.equal(await p.$eval('#placeFields', e => e.hidden), true, 'no state or city before the question');
+    assert.deepEqual([await p.inputValue('#bmonth'), await p.inputValue('#byear')], ['', ''], 'nothing is chosen for you');
+    assert.doesNotMatch(await p.innerText('#ageAsk .note'), /13|old|age/i, 'the question does not hint at the cut-off');
+    await p.selectOption('#bmonth', '06'); await p.selectOption('#byear', String(year)); await p.waitForTimeout(200);
+    assert.equal(await p.$eval('#ageAsk', e => e.hidden), true, 'asked once');
+    assert.equal(await p.$eval('#placeFields', e => e.hidden), !ok);
+    const kept = await p.evaluate(() => [localStorage.getItem('es_state'), localStorage.getItem('es_city')]);
+    if (ok) assert.deepEqual(kept, ['"Texas"', '"Austin"']);
+    else { assert.deepEqual(kept, ['""', '""'], 'a child\'s state and city are removed'); assert.match(await p.innerText('#placeNote'), /13 and older/); }
+    await p.click('#navPlus'); await p.waitForTimeout(300);
+    assert.deepEqual(await p.$$eval('#aud button', b => b.map(x => x.textContent)), ok ? ['World', 'Country', 'State', 'City', 'Friends'] : ['World', 'Country', 'Friends']);
+    await p.click('#cclose'); await p.waitForTimeout(200);
+    await p.reload(); await p.waitForSelector('.slide[data-id=end]'); await p.click('#navMe'); await p.waitForTimeout(300);
+    assert.equal(await p.$eval('#ageAsk', e => e.hidden), true, 'the answer is kept on the phone and not asked again');
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  }
+});
+

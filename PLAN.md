@@ -150,6 +150,7 @@ How these were measured: Lighthouse 13.6, median of 3 runs, in two profiles. "De
 | 7. Installable, works offline | 100 / 100 | 0.62 s / 0.25 s (LCP 0.62 / 0.25) | 100, and 0 axe issues on all 6 screens | 32 ms | 1–2 frames over 20 ms, only the tap's own frame | 30.6 + 11.6 KB (+1.2 KB `sw.js`, after load) | **works** | **yes** |
 | 8. Return loop | 100 / 100 | 0.62 s / 0.25 s (LCP 0.62 / 0.25) | 100 | 32–40 ms | 0–1 frames over 20 ms | 31.4 + 11.7 KB | works | yes |
 | 9. Friends and rivalries | 100 / 100 | 0.67 s / 0.25 s (LCP 0.67 / 0.25) | 100, and 0 axe issues on the board and Me | 40–48 ms | 0–2 frames over 20 ms | 33.5 + 11.9 KB | works | yes |
+| 10. Teen safety and the posting gate | 100 / 100 | 0.63 s / 0.25 s (LCP 0.63 / 0.25) | 100, and 0 axe issues on all 3 states of the age question, in both themes | 40–48 ms | 1–2 frames over 20 ms | 34.5 + 12.0 KB | works | yes |
 
 ### 1. Real backend
 
@@ -280,6 +281,41 @@ How these were measured: Lighthouse 13.6, median of 3 runs, in two profiles. "De
   - `live`: 11. Opening an invite makes no account. The match goes from "after your first answer" to "once they add you too" to "67% match". The board shows its empty state, then France and the US once they reach 30 answers, with yours marked.
   - `live-rls.mjs`, the check you run on the real project, now covers `friend_adds` too.
 - **Numbers:** Lighthouse 100 / 100 / 100. The code grew 2.1 KB gzipped.
+
+### 10. Teen safety and the posting gate
+
+- **Posting stays off on the public site, and a test proves it.** With the database connected there's no post button, no feed tabs, no "Post something" at the end of the feed, no "Start a debate" in search, and nothing opens the composer.
+  - Until the database is switched on, the site keeps its old post-on-your-phone feature. Those posts never leave the phone, and the composer says so: "Only you can see your posts until Verd goes live."
+- **One neutral age question before state and city.** Under COPPA, the US children's privacy law, a child's city counts as personal information. So Me → Your place now asks for the month and year you were born before it shows State and City.
+  - Nothing is picked for you, the years go back to 1920, and the question doesn't say where the line is.
+  - The answer stays on the phone. Once given it isn't asked again, so it can't be changed to get past it.
+  - **Under 13:**
+    - State and City are hidden, and anything already saved there is deleted.
+    - Votes and results send only the country.
+    - The State and City tabs and audiences go away.
+    - The box for suggesting a question goes too. It's the one place where words someone writes reach Verd's server.
+  - **13 and older:** State and City show as before.
+  - **Saved before this change:** a state or city isn't sent until the question is answered. Nobody loses anything today: the public site isn't live yet, so no one has seen state or city results.
+- **Suggestions were already moderated:** signed in only, 3 a day, a blocklist on the server, and every one held for review (`suggest_question`, tested in `db`).
+- **Still needed before posting can open.** All of these need accounts, which need a parent-owned sign-in setup, or someone to review posts:
+  - reports, a blocklist and rate limits on the server;
+  - every first post held for review;
+  - friends-only by default for minors;
+  - no DMs and no public profiles;
+  - an age kept with the account, not only on the phone.
+- **Hardening for later.** Neither of these exposes raw votes today.
+  - **Exact counts at city size.** Someone who refreshes just before and just after a friend answers could see which way the count moved. That tells nothing at world scale, but a city with 30 to 100 answers is small enough to matter. The fix: move city and state counts only in steps of 10 answers. Every number stays true, just a little less fresh.
+  - **The age answer lives on the phone,** so clearing the app's data asks again. That's as far as a neutral age question can go. Real protection for posting needs the age kept on the server with the account.
+- **Tests:** 3 new, and all 66 pass.
+  - `device`: 7.
+    - The age question starts empty and doesn't hint at the line.
+    - Under 13 deletes a saved state and city and drops the State and City audiences.
+    - 13 and older keeps them.
+    - The question isn't asked again.
+  - `live`: 13.
+    - Posting stays off with the database connected.
+    - A vote from someone under 13 stores no state or city, and they get no suggestion box. Someone older stores both.
+- **Numbers:** Lighthouse 100 / 100 / 100. The code grew 1.1 KB gzipped.
 
 ## Next single step
 

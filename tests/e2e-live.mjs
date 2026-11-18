@@ -247,6 +247,32 @@ test("today's board: a place shows at 30 answers, and until then it says how to 
   await ctx.close();
 });
 
+test('posting stays off on the live site: no post button, no tabs, nothing opens the composer', async () => {
+  const { p, ctx, errors } = await page();
+  assert.equal(await p.$eval('#navPlus', e => e.hidden), true);
+  assert.equal(await p.$eval('#scopes', e => e.hidden), true);
+  await tap(p, 0); await p.waitForTimeout(900);
+  assert.doesNotMatch(await p.innerText('.slide[data-id=end]'), /Post something/);
+  await p.click('#navSearch'); await p.fill('#q', 'skateboard'); await p.waitForTimeout(400);
+  assert.doesNotMatch(await p.innerText('#search'), /Start a debate/);
+  assert.equal(await p.$eval('#compose', e => e.hidden), true);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test('a vote sends state and city only for someone 13 or older, and only they can suggest a question', async () => {
+  const placed = async () => (await fake.pool.query("select count(*)::int as n from public.votes where day = $1 and state = 'ohio' and city = 'akron'", [today])).rows[0].n;
+  const before = await placed(), year = new Date().getUTCFullYear();
+  for (const [born, adds] of [[(year - 11) + '-01', 0], ['2001-04', 1]]){
+    const { p, ctx, errors } = await page({ es_state: JSON.stringify('Ohio'), es_city: JSON.stringify('Akron'), es_born: JSON.stringify(born) });
+    await tap(p, 1); await p.waitForTimeout(1200);
+    assert.equal(await p.$eval('#suggest', e => e.hidden), !adds, 'suggestion box for ' + born);
+    assert.deepEqual(errors, []);
+    await ctx.close();
+    assert.equal(await placed(), before + (adds ? 1 : 0), born);
+  }
+});
+
 test("a past question in search opens with the database's final verdict", async () => {
   const counts = (await fake.pool.query('select choice, count(*)::int as k from public.votes where day = $1 group by choice order by choice', [yesterday])).rows;
   const n = counts.reduce((a, r) => a + r.k, 0);

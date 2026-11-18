@@ -367,7 +367,17 @@ function guessCountry(){
   for (const l of langs){ const m = /-([A-Z]{2})$/i.exec(l); if (m && COUNTRIES[m[1].toUpperCase()]) return m[1].toUpperCase(); }
   return "XX";
 }
-const myPlace = () => ({ city: store.get("city", ""), state: store.get("state", ""), country: guessCountry() });
+// Your place: country for everyone; state and city only once you're known to be 13 or older (see ageOk).
+const myPlace = () => { const ok = ageOk(); return { city: ok ? store.get("city", "") : "", state: ok ? store.get("state", "") : "", country: guessCountry() }; };
+// ---------- Age: one neutral question before state and city ----------
+// A child's city counts as personal information, so state and city are only kept and sent for people 13 and older.
+// The question doesn't hint at the cut-off, the answer stays on this phone, and once given it can't be changed here.
+const bornAt = () => { const m = /^(\d{4})-(\d{2})$/.exec(store.get("born", "")); return m ? +m[1] * 12 + (+m[2] - 1) : null; };
+// The day isn't asked, so the month of the 13th birthday still counts as 12.
+function ageOk(){ const b = bornAt(), now = new Date(); return b != null && now.getFullYear() * 12 + now.getMonth() - b > 13 * 12; }
+// Someone who said they're under 13: country only, and no suggestions, the one place where words someone writes reach the server.
+const under13 = () => bornAt() != null && !ageOk();
+const canSuggest = () => !!(backend && backend.suggest) && !under13();
 const friends = () => store.get("friends", []);
 // First names from invite links. They're kept on this phone only.
 const nick = c => store.get("nicks", {})[c] || "";
@@ -377,6 +387,8 @@ function saveFriends(list){ store.set("friends", list); if (backend && backend.s
 const myCode = () => store.get("myCode:" + (backend ? backend.mode : ""), "");
 const ownCode = c => c === codeFrom(voterId()) || ["live", "preview"].some(m => store.get("myCode:" + m, "") === c);
 const SCOPES = [["world","World"],["country","Country"],["state","State"],["city","City"],["friends","Friends"]];
+// Under 13 there's no state or city, so those tabs and audiences aren't offered.
+const scopes = () => under13() ? SCOPES.filter(([k]) => k !== "state" && k !== "city") : SCOPES;
 // Slide colours: violet, crimson, green, ink, blue, pink, rust, teal. Each is dark enough that white text passes
 // WCAG AA (4.5:1) on both ends of its gradient, under the sheen. tests/contrast.mjs checks every pair (#verd-data).
 const COLORS = DATA.colors;
@@ -676,7 +688,7 @@ function renderTop(){
   const box = $("scopes"), show = !!ask.api && ask.posts.some(p => visible(p, true));
   if (!show) ask.scope = "world";
   box.hidden = !show; box.innerHTML = ""; if (!show) return;
-  SCOPES.forEach(([k, l]) => { const b = el("button", "scope" + (k === ask.scope ? " on" : ""), l); b.setAttribute("role", "tab"); b.setAttribute("aria-selected", k === ask.scope);
+  scopes().forEach(([k, l]) => { const b = el("button", "scope" + (k === ask.scope ? " on" : ""), l); b.setAttribute("role", "tab"); b.setAttribute("aria-selected", k === ask.scope);
     b.onclick = () => { ask.scope = k; order = []; renderTop(); renderFeed(); $("feed").scrollTop = 0; }; box.append(b); });
 }
 
@@ -862,7 +874,7 @@ function drawCompose(){
   const sw = $("swatches"); sw.innerHTML = "";
   COLORS.forEach((c, i) => { const b = el("button", "sw" + (i === cColor ? " on" : "")); b.style.background = c[0]; b.setAttribute("aria-label", "Color " + (i + 1)); b.onclick = () => { cColor = i; drawCompose(); }; sw.append(b); });
   const au = $("aud"); au.innerHTML = "";
-  SCOPES.forEach(([k, l]) => { const b = el("button", k === cScope ? "on" : "", l); b.disabled = cPhotos.length > 0 && k !== "friends"; b.onclick = () => { cScope = k; drawCompose(); }; au.append(b); });
+  scopes().forEach(([k, l]) => { const b = el("button", k === cScope ? "on" : "", l); b.disabled = cPhotos.length > 0 && k !== "friends"; b.onclick = () => { cScope = k; drawCompose(); }; au.append(b); });
   const th = $("thumbs"); th.innerHTML = "";
   cPhotos.forEach((src, i) => { const t = el("div", "thumb"), im = el("img"); im.src = src; im.alt = "Photo " + (i + 1); const x = el("button"); x.append(el("span", "", "×")); x.setAttribute("aria-label", "Remove photo"); x.onclick = () => { cPhotos.splice(i, 1); drawCompose(); }; t.append(im, x); th.append(t); });
   if (cPhotos.length < 2){ const a = el("button", "addp"); a.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>'; a.setAttribute("aria-label", "Add a photo"); a.onclick = () => $("pfile").click(); th.append(a); }
@@ -999,6 +1011,25 @@ function setupPlace(){
   sel.onchange = () => { store.set("country", sel.value); changed(); };
   $("mycity").onchange = () => { store.set("city", $("mycity").value.trim()); changed(); };
   $("mystate").onchange = () => { store.set("state", $("mystate").value.trim()); changed(); };
+  // The age question: month and year, nothing chosen until you choose.
+  const pick = (s, label) => { const o = new Option(label, "", true, true); o.disabled = true; s.add(o); };
+  pick($("bmonth"), "Month"); pick($("byear"), "Year");
+  ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+    .forEach((m, i) => $("bmonth").add(new Option(m, String(i + 1).padStart(2, "0"))));
+  for (let y = new Date().getFullYear(); y >= 1920; y--) $("byear").add(new Option(String(y), String(y)));
+  $("bmonth").onchange = $("byear").onchange = () => {
+    if (!$("bmonth").value || !$("byear").value) return;
+    store.set("born", $("byear").value + "-" + $("bmonth").value);
+    if (!ageOk()){ store.set("state", ""); store.set("city", ""); $("mystate").value = $("mycity").value = ""; if (ask.scope === "state" || ask.scope === "city") ask.scope = "world"; }
+    drawPlace(); renderTop(); changed();
+  };
+  drawPlace();
+}
+function drawPlace(){
+  const asked = bornAt() != null, ok = ageOk();
+  $("ageAsk").hidden = asked; $("placeFields").hidden = !ok; if (under13()) $("suggest").hidden = true;
+  $("placeNote").textContent = asked && !ok ? "State and city are for people 13 and older, so Verd only uses your country."
+    : "Used to compare answers with people near you. Never your exact location.";
 }
 
 // ---------- Search ----------
@@ -1076,7 +1107,7 @@ function renderSearch(){
     e.append(el("h2", "", found ? "Got a take on " + raw.trim() + "?" : "Nothing on “" + raw.trim() + "” yet."));
     // Posting is off on the public site, so there the next step is suggesting it as a question for everyone.
     const act = ask.api ? ["Start a debate", found ? "Put it up and let people decide." : "Be the first. Ask it and let people decide.", () => { remember(raw); openCompose(topic ? "" : asQuestion(raw)); }]
-      : backend && backend.suggest ? ["Suggest it as a daily question", "Good ones become the question for everyone.", () => { remember(raw); suggestFrom(topic ? "" : asQuestion(raw)); }] : null;
+      : canSuggest() ? ["Suggest it as a daily question", "Good ones become the question for everyone.", () => { remember(raw); suggestFrom(topic ? "" : asQuestion(raw)); }] : null;
     if (act){ const go = el("button", "b2", act[0]); go.onclick = act[2]; e.append(el("p", "note", act[1]), go); }
   }
   box.append(e);
@@ -1182,7 +1213,7 @@ document.addEventListener("keydown", e => { if (e.key !== "Escape") return; if (
     ask.api.watch((posts, mv, mr) => { ask.posts = posts; ask.myVotes = { ...mv, ...ask.myVotes }; ask.myReports = { ...mr, ...ask.myReports }; checkFlips(); renderTop(); renderFeed(); if (sheetPost) renderSheet(); if (!$("search").hidden) renderSearch(); });
   }
   if (backend.suggest){
-    $("suggest").hidden = false;
+    $("suggest").hidden = !canSuggest();
     $("sform").onsubmit = async e => { e.preventDefault();
       const q = $("sq").value.trim(), a = $("sa").value.split(",").map(s => s.trim()).filter(Boolean);
       if (a.length < 2 || a.length > 4){ toast("Give 2 to 4 answers, separated by commas."); return; }
