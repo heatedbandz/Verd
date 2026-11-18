@@ -312,6 +312,75 @@ html.vt .page{animation:none}
     <main class="feed" id="feed" aria-label="Feed">
       <section class="slide skel" aria-hidden="true"><div class="sbody"><i class="bar kick"></i><i class="bar big"></i><i class="bar big short"></i></div><div class="answers"><i class="ans"></i><i class="ans"></i></div><div class="sfoot"><i class="bar foot"></i></div></section>
     </main>
+    <script type="application/json" id="verd-data">
+{"start":"2026-11-17",
+"colors":[["#5b3df5","#3d22c7"],["#c81e3a","#8f1230"],["#04724c","#055c3a"],["#17181a","#000000"],["#1d4ed8","#1e3a8a"],["#be185d","#9d174d"],["#b93d0a","#8a3006"],["#0c6f80","#0b5566"]],
+"questions":[
+["Would you rather be able to fly or be invisible?",["Fly","Be invisible"],"rather"],
+["Cats or dogs?",["Cats","Dogs"],"takes"],
+["Is a hot dog a sandwich?",["Yes","No"],"food"],
+["Would you go to Mars if you could never come back?",["Yes, I'd go","No way"],"future"],
+["Which is better: morning or night?",["Morning","Night"],"life"],
+["Would you rather know the future or change the past?",["Know the future","Change the past"],"rather"],
+["Do you put pineapple on pizza?",["Yes","Never"],"food"],
+["Should school start later in the day?",["Yes","No"],"school"],
+["Would you rather live by the beach or in the mountains?",["Beach","Mountains"],"rather"],
+["Will humans live on another planet within 50 years?",["Yes","No"],"future"],
+["Would you take $1 million now or $5,000 a month for life?",["$1 million now","$5,000 a month"],"money"],
+["Sweet or salty snacks?",["Sweet","Salty"],"food"],
+["Would you rather speak every language or play every instrument?",["Every language","Every instrument"],"rather"],
+["Is it okay to text while someone is talking to you?",["Sometimes","Never"],"tech"],
+["Summer or winter?",["Summer","Winter"],"takes"],
+["Would you trust a self-driving car with your life?",["Yes","Not yet"],"tech"],
+["Do you believe in aliens?",["Yes","No","Not sure"],"future"],
+["Would you give up your phone for a month for $10,000?",["Easily","No chance"],"money"],
+["Books or movies?",["Books","Movies"],"takes"],
+["Should everyone learn to code at school?",["Yes","No"],"school"],
+["Would you rather be famous or rich?",["Famous","Rich"],"rather"],
+["Do you shower in the morning or at night?",["Morning","Night"],"life"],
+["Would you rather explore space or the deep ocean?",["Space","Deep ocean"],"rather"],
+["Is cereal a soup?",["Yes","No"],"food"],
+["Would you rather never use social media again or never watch TV again?",["No social media","No TV"],"rather"],
+["Do you think AI will make life better overall?",["Better","Worse","Not sure"],"tech"],
+["Would you rather have no homework or no exams?",["No homework","No exams"],"school"],
+["Tea or coffee?",["Tea","Coffee","Neither"],"food"],
+["Would you live 200 years if you could?",["Yes","No"],"future"],
+["Would you rather be the funniest or the smartest person in the room?",["Funniest","Smartest"],"rather"],
+["Should the minimum age for social media be 16?",["Yes","No"],"tech"],
+["Do you make your bed every morning?",["Yes","No"],"life"],
+["Would you rather time travel to the past or the future?",["Past","Future"],"rather"],
+["Is it better to rent or to own a home?",["Rent","Own"],"money"],
+["Would you eat bugs to save the planet?",["Yes","No"],"food"],
+["Do you sleep with socks on?",["Yes","No"],"life"],
+["Would you rather work from home or in an office?",["Home","Office"],"rather"],
+["Should we bring back extinct animals like the mammoth?",["Yes","No"],"future"],
+["Would you rather have a rewind button or a pause button for your life?",["Rewind","Pause"],"rather"],
+["Are you happier today than a year ago?",["Happier","Same","Less happy"],"life"]
+]}
+    </script>
+    <script>
+/* Paints today's question from #verd-data as the HTML arrives, so it's on screen before app.js loads.
+   It builds the same slide app.js would; app.js then takes over. An answer tapped before that is kept. */
+(function(){ try{
+  var D = JSON.parse(document.getElementById("verd-data").textContent), DAY = 864e5, start = Date.parse(D.start + "T00:00:00Z");
+  var n = Math.floor((Date.now() - start) / DAY), pick = function(a){ return a[((n % a.length) + a.length) % a.length]; };
+  var q = pick(D.questions), c = pick(D.colors), key = new Date(start + n * DAY).toISOString().slice(0, 10), mine = null;
+  try{ var v = JSON.parse(localStorage.getItem("es_myVotes") || "{}")[key]; if (v) mine = v.choice; }catch(e){}
+  var E = function(t, k, x){ var e = document.createElement(t); if (k) e.className = k; if (x != null) e.textContent = x; return e; };
+  var s = E("section", "slide"), b = E("div", "sbody"), a = E("div", "answers" + (q[1].length > 2 ? " stack" : "") + (mine != null ? " wait" : "")), f = E("div", "sfoot");
+  s.setAttribute("data-id", "daily"); s.style.setProperty("--c0", c[0]); s.style.setProperty("--c1", c[1]);
+  b.append(E("div", "kicker", "Today's question · No. " + (n + 1)), E("h2", "stext" + (q[0].length > 105 ? " s" : q[0].length > 55 ? " m" : ""), q[0]));
+  if (mine != null) b.append(E("p", "sverdict", "Your answer is in."), E("p", "ssub", "Counting the votes…"));
+  q[1].forEach(function(label, i){
+    var k = E("button", "ans" + (mine === i ? " mine" : "")); k.append(E("i", "fill"), E("span", "alabel", label));
+    if (mine != null) k.disabled = true;
+    else k.onclick = function(){ window.verdTap = { day: key, i: i }; k.className += " mine pop"; for (var j = 0; j < a.children.length; j++) a.children[j].disabled = true; };
+    a.append(k);
+  });
+  f.append(E("span", "sinfo sk", "Loading"), E("div", "sacts")); s.append(b, a, f);
+  document.querySelector("#feed .skel").replaceWith(s);
+}catch(e){} })();
+</script>
     <div class="top" id="top">
       <div class="brand">verd.</div>
       <button class="net" id="net" hidden><span id="netText"></span></button>

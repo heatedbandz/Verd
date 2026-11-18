@@ -1,12 +1,12 @@
 // WCAG AA contrast for every colour pair Verd draws text or icons with, in light and dark.
-// Reads the real values: the slide palette from app.js and the tokens from index.html.
+// Reads the real values: the slide palette and the tokens, both from index.html.
 //   node tests/contrast.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const root = new URL('..', import.meta.url);
-const html = readFileSync(new URL('index.html', root), 'utf8'), app = readFileSync(new URL('app.js', root), 'utf8');
+const html = readFileSync(new URL('index.html', root), 'utf8');
 
 const rgb = c => {
   const m = c.trim().match(/^#([0-9a-f]{6})$/i);
@@ -21,7 +21,7 @@ const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) +
 function tokens(block){ const t = {}; for (const m of block.matchAll(/--([\w-]+):\s*([^;]+);/g)) t[m[1]] = m[2].trim(); return t; }
 const light = tokens(html.match(/:root\{([\s\S]*?)\n\}/)[1]);
 const dark = { ...light, ...tokens(html.match(/:root\[data-theme="dark"\]\{([\s\S]*?)\}/)[1]) };
-const COLORS = JSON.parse(app.match(/const COLORS = (\[\[.*?\]\]);/)[1]);
+const COLORS = JSON.parse(html.match(/<script type="application\/json" id="verd-data">([\s\S]*?)<\/script>/)[1]).colors;
 const WHITE = rgb('#ffffff');
 const AA = 4.5, LARGE = 3, UI = 3;   // normal text, large text (≥ 24px or ≥ 18.7px bold), icons and controls
 

@@ -146,6 +146,7 @@ How these were measured: Lighthouse 13.6, median of 3 runs, in two profiles. "De
 | 3. Feel system | 100 / 100 | **0.62 s / 0.24 s** (LCP 1.12 / 0.43) | **100** | 64 ms | 33 ms | 23.6 + 8.1 KB, no font | blank | no |
 | 4. The reveal | 100 / 100 | 0.61 s / 0.25 s (LCP 1.09 / 0.43) | 100 | **40–56 ms** (live reveal: 16 ms vote, 32–40 ms guess) | **0–1 frames over 20 ms**, only the tap's own frame | 27.1 + 8.4 KB | blank | no |
 | 5. Calm first 30 seconds | 100 / 100 | 0.61 s / 0.25 s (LCP 1.10 / 0.43) | 100, and 0 axe issues on all 6 screens | 32 ms | 1–2 frames over 20 ms, only the tap's own frame | 30.8 + 9.0 KB | blank | no |
+| 6. Instant first paint | 100 / 100 | 0.63 s / 0.25 s (**LCP 0.63 / 0.25**, the same as first paint) | 100 | 32–40 ms | 0–1 frames over 20 ms | 30.1 + 11.2 KB | blank | no |
 
 ### 1. Real backend
 
@@ -193,6 +194,16 @@ How these were measured: Lighthouse 13.6, median of 3 runs, in two profiles. "De
 - **Me.** "Answer today's question to start your streak." on day one. Copy no longer copies "······" before your code exists: it says the code shows up after your first answer. Opening Me no longer creates an account just to look up friend matches.
 - **Tests:** 2 new device-mode tests (no tabs, the end state and its button, search finds today's question, a past question shows no verdict and no `%`) and 2 new live tests (a cached count shows offline, the error state, Try again recovers; a past question shows the database's own numbers). `tests/e2e-device.mjs` **4 of 4**, `tests/e2e-live.mjs` **7 of 7**, `tests/core.test.mjs` **14 of 14** (new: the error state and the countdown wording), and `reveal.mjs`, `db.test.mjs` and `contrast.mjs` all still pass. axe-core finds **0 WCAG A/AA issues** on the first screen, the end of the feed, search, an empty search, a past question and Me, in light and dark, and every tap target there is at least 44 × 44.
 - **Numbers:** unchanged within noise. CLS is 0.003 in this no-database copy, because the post button appears once the code runs; with the database switched on it stays hidden and CLS is 0. `app.js` grew 3.2 KB gz.
+
+### 6. Instant first paint
+
+- **The question is the first paint.** The 40 questions, their topics and the 8 colours moved from `app.js` into one small JSON block in `index.html` (`#verd-data`). A 2 KB inline script reads it and paints today's slide, in today's colour, as the HTML arrives. `app.js` reads the same block, so the questions still live in one place.
+- **No redraw.** When `app.js` arrives it fills in the slide around the question instead of rebuilding it, so the words you're reading never leave the screen. This matters for the numbers too: Chrome only keeps a paint as the largest one if its element stays on the page. Before this, the app redrew the question about 10 ms after the first paint, so the measured LCP waited for the code.
+- **An early tap counts.** If you tap an answer before the code has arrived (slow 4G), the button rings at once and the app counts that answer as soon as it loads. That one gets no haptic, because a late tick would feel wrong.
+- **Returning voters** see their ringed answer and "Your answer is in. Counting the votes…" straight from the HTML, which is what the app shows first anyway, so nothing jumps.
+- **Numbers:** LCP now equals first paint: **0.63 s** on the harsh profile and **0.25 s** on the iPhone profile, down from 1.09 s and 0.43 s. Lighthouse normally simulates throttling; with real ("applied") throttling instead, first paint and largest paint are both 0.69 s and the code finishes loading at 1.44 s, so the question is on screen about 0.75 s before the app is ready. If the inline script ever fails, the skeleton from change 5 shows and the app draws as before.
+- **Tests:** every suite passes unchanged (`core` 14, `contrast` 5, now reading the palette from `index.html`, device 4, live 7, reveal 3). Also checked by script: posting, tabs and voting with no database; the claude.ai preview build; and an answer tapped while `app.js` was held back is saved once it arrives.
+- `app.js` stays a separate file, so the service worker in change 7 can cache it.
 
 ## Next single step
 
