@@ -141,3 +141,39 @@ test('results appear once enough people voted, and the friend code comes from th
   assert.deepEqual(errors, []);
   await ctx.close();
 });
+
+test('with no connection a cached count still shows; with none cached there is an error and Try again works', async () => {
+  const { p, ctx, errors } = await page();
+  await tap(p, 1); await p.waitForTimeout(1200);
+  assert.match(await p.innerText('.slide[data-id=daily]'), /\d+%/);
+  await ctx.route('**/rpc/get_results', r => r.abort());
+  await p.reload(); await p.waitForTimeout(900);
+  assert.match(await p.innerText('.slide[data-id=daily]'), /\d+%/, 'the cached count is gone');
+  assert.equal(await p.$eval('#net', e => e.hidden), false); assert.match(await p.innerText('#net'), /Can't connect/);
+  await p.evaluate(d => localStorage.removeItem('es_res:' + d), today);
+  await p.reload(); await p.waitForTimeout(900);
+  assert.match(await p.innerText('.slide[data-id=daily]'), /Couldn't load the count right now\./);
+  await ctx.unroute('**/rpc/get_results');
+  await p.click('.slide[data-id=daily] .cta'); await p.waitForTimeout(1200);
+  const text = await p.innerText('.slide[data-id=daily]');
+  assert.doesNotMatch(text, /Couldn't load/); assert.match(text, /\d+%/);
+  assert.equal(await p.$eval('#net', e => e.hidden), true);
+  assert.deepEqual(errors.filter(e => !/Failed to fetch/.test(e)), []);
+  await ctx.close();
+});
+
+test("a past question in search opens with the database's final verdict", async () => {
+  const counts = (await fake.pool.query('select choice, count(*)::int as k from public.votes where day = $1 group by choice order by choice', [yesterday])).rows;
+  const n = counts.reduce((a, r) => a + r.k, 0);
+  const { p, ctx, errors } = await page();
+  await p.click('#navSearch'); await p.waitForTimeout(400);
+  assert.match(await p.innerText('#sres'), /See the verdict/);
+  const rows = await p.$$('#sres .res'); await rows[rows.length - 1].click(); await p.waitForTimeout(900);
+  const text = await p.innerText('#dayview');
+  if (n >= 10) assert.match(text, /\d+%/);
+  else if (n) { assert.match(text, /Not enough answers for a verdict\./); assert.ok(text.includes(n + (n === 1 ? ' person' : ' people') + ' answered. A verdict needs 10.'), text); }
+  else assert.match(text, /Nobody answered this one on Verd\./);
+  assert.doesNotMatch(n >= 10 ? '' : text, /\d\s*%/);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});

@@ -34,11 +34,12 @@ export function localLevel(res){
 //   open: you haven't answered · loading: no results yet · device: no database, nothing to count
 //   offline: your answer is waiting to be sent · counting: sent, the count is on its way
 //   locked: counted, but fewer votes than the minimum · revealed: the verdict can be shown
-export function dayState({ mine, mode, res, waiting }){
+//   error: sent, but the count couldn't be loaded (failed: the last try to load it failed)
+export function dayState({ mine, mode, res, waiting, failed }){
   if (mine == null) return "open";
   if (mode === "device") return "device";
   if (waiting) return "offline";
-  if (!res) return "loading";
+  if (!res) return failed ? "error" : "loading";
   if (!res.visible) return "counting";
   return countsOf(res.world) ? "revealed" : "locked";
 }
@@ -105,3 +106,10 @@ export function pickTeaser(res, mine, names){
   const who = names[early] || (early === "city" ? "Your city" : early === "state" ? "Your state" : "Your country");
   return who + " doesn't have enough votes yet. You're early.";
 }
+
+// Time left until the next question, as people say it: "6h 12m", "12m", "1m".
+export function countdown(ms){
+  const mins = Math.max(1, Math.ceil(ms / 60000)), h = Math.floor(mins / 60), m = mins % 60;
+  return h ? h + "h " + m + "m" : m + "m";
+}
+export const inDays = k => k === 1 ? "tomorrow" : "in " + k + " days";

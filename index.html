@@ -19,7 +19,7 @@
   --accent:#10a966; --accent-ink:#087443; --accent-tint:#dcf1e7;
   --on-color:#ffffff; --feed-bg:#0b0b0b; --scrim:rgba(0,0,0,.45);
   --sheen:rgba(255,255,255,.1); --glass:rgba(255,255,255,.14); --fill:rgba(255,255,255,.18); --fill-mine:rgba(255,255,255,.26);
-  --nav-glass:rgba(14,14,14,.72); --nav-icon:rgba(255,255,255,.72); --paged-glass:rgba(255,255,255,.8);
+  --nav-glass:rgba(14,14,14,.72); --nav-icon:rgba(255,255,255,.72); --paged-glass:rgba(255,255,255,.8); --skeleton:var(--surface-2);
   --font:-apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --t-xs:.75rem; --t-sm:.8125rem; --t-md:.875rem; --t-base:1rem; --t-lg:1.125rem; --t-xl:1.25rem; --t-2xl:1.5rem; --t-3xl:1.75rem; --t-4xl:2rem;
   --t-display:clamp(2.2rem,10.5vw,3.1rem); --t-display-m:clamp(1.8rem,8.2vw,2.4rem); --t-display-s:clamp(1.4rem,6.2vw,1.8rem); --t-hero:5.25rem;
@@ -64,7 +64,7 @@ button{border:0;background:none;padding:0;cursor:pointer}
 /* ---------- Feed: one full-screen question per slide ---------- */
 .feed{position:absolute;inset:0;overflow-y:auto;scroll-snap-type:y mandatory;overscroll-behavior:contain;scrollbar-width:none;background:var(--feed-bg)}
 .feed::-webkit-scrollbar{display:none}
-.slide{--c0:#17181a;--c1:#000;contain:layout style paint;height:100%;scroll-snap-align:start;scroll-snap-stop:always;position:relative;display:flex;flex-direction:column;color:var(--on-color);
+.slide{--c0:#17181a;--c1:#000;--skeleton:var(--fill);contain:layout style paint;height:100%;scroll-snap-align:start;scroll-snap-stop:always;position:relative;display:flex;flex-direction:column;color:var(--on-color);
   padding:calc(var(--safe-t) + var(--s16)) var(--gut-r) calc(var(--navh) + var(--s3)) var(--gut-l);
   background:radial-gradient(120% 70% at 0% 0%,var(--sheen),transparent 60%),radial-gradient(90% 60% at 100% 100%,rgba(0,0,0,.28),transparent 70%),linear-gradient(165deg,var(--c0),var(--c1));background-color:var(--c1)}
 .slide::before{content:"";position:absolute;inset:0 0 auto 0;height:calc(var(--safe-t) + 110px);background:linear-gradient(180deg,rgba(0,0,0,.22),transparent);pointer-events:none}
@@ -110,6 +110,31 @@ button{border:0;background:none;padding:0;cursor:pointer}
 .slide.end{background:radial-gradient(90% 60% at 0% 0%,#242424,#0c0c0c 70%);justify-content:center}
 .slide.end .sbody{flex:none}
 .cta{align-self:flex-start;margin-top:var(--s2);min-height:var(--tap);background:var(--on-color);color:#111;font-weight:700;border-radius:var(--r2);padding:var(--s3) var(--s5)}
+
+/* ---------- Loading, offline and caught-up states ---------- */
+/* Placeholders breathe on opacity only. Reduced motion leaves them still. */
+@keyframes pulse{from{opacity:.5}to{opacity:1}}
+@keyframes breathe{from{opacity:0}to{opacity:1}}
+.sk,.skel .bar,.skel .ans{color:transparent!important;text-shadow:none!important;background:var(--skeleton);border-radius:var(--r1);animation:pulse var(--dur-3) var(--ease-out) infinite alternate}
+.sfoot .sk{display:inline-block;min-width:13em;line-height:1.15}
+.rowlist span.sk{min-width:8em}
+.skel .bar{display:block;height:var(--t-sm)}
+.skel .bar.kick{width:38%}
+.skel .bar.big{height:var(--t-4xl);width:92%;border-radius:var(--r2)}
+.skel .bar.short{width:58%}
+.skel .bar.foot{width:52%}
+.skel .ans{border-radius:var(--r4);box-shadow:none}
+/* The count is on its way: your answer stays ringed and the buttons breathe. */
+.answers.wait .ans::after{content:"";position:absolute;inset:0;background:var(--sheen);animation:breathe var(--dur-3) var(--ease-out) infinite alternate}
+.cta.ghost{background:var(--glass);color:var(--on-color)}
+.peekline{margin:var(--s1) 0 0;display:flex;flex-wrap:wrap;align-items:center;gap:var(--s2);font-size:var(--t-md);font-weight:600}
+.peekline b{font-weight:800;padding:var(--s1) var(--s3);border-radius:var(--r-pill);background:var(--glass)}
+.net{display:grid;place-items:center;min-height:var(--tap);margin-right:auto}
+.net span{font-size:var(--t-xs);font-weight:700;padding:var(--s1) var(--s3);border-radius:var(--r-pill);background:var(--scrim);color:var(--on-color);backdrop-filter:var(--blur1);-webkit-backdrop-filter:var(--blur1)}
+.page.dayview{z-index:8;background:var(--feed-bg);overflow:hidden}
+#dayslot,#dayslot .slide{height:100%}
+#dayslot .slide{padding-bottom:calc(var(--safe-b) + var(--s6))}
+.dclose{position:absolute;z-index:2;top:calc(var(--safe-t) + var(--s2));left:var(--gut-l);min-width:var(--tap);min-height:var(--tap);color:var(--on-color);font-size:var(--t-4xl);line-height:1;text-align:left;text-shadow:0 1px 8px rgba(0,0,0,.18)}
 
 /* ---------- Top bar over the feed ---------- */
 .top{position:absolute;inset:0 0 auto 0;z-index:3;display:flex;align-items:center;justify-content:space-between;gap:var(--s3);padding:calc(var(--safe-t) + var(--s2)) var(--gut-r) 0 var(--gut-l);color:var(--on-color);pointer-events:none}
@@ -236,7 +261,7 @@ button{border:0;background:none;padding:0;cursor:pointer}
 .sfield{flex:1;min-width:0;display:flex;align-items:center;gap:var(--s2);height:46px;padding:0 var(--s1) 0 var(--s4);border-radius:var(--r3);background:var(--surface);color:var(--muted)}
 .sfield input:focus-visible{outline:none}
 .sfield svg,.rrow svg{flex:none;width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-.sfield input{flex:1;min-width:0;border:0;background:none;outline:none;color:var(--ink);font-size:var(--t-base);-webkit-appearance:none;appearance:none}
+.sfield input{flex:1;min-width:0;height:100%;border:0;background:none;outline:none;color:var(--ink);font-size:var(--t-base);-webkit-appearance:none;appearance:none}
 .sfield input::-webkit-search-cancel-button{display:none}
 .qx{position:relative;flex:none;width:var(--tap);height:var(--tap);display:grid;place-items:center;color:var(--bg);font-size:var(--t-md);line-height:1}
 .qx::before{content:"";position:absolute;width:20px;height:20px;border-radius:50%;background:var(--muted)}
@@ -284,10 +309,13 @@ html.vt .page{animation:none}
 <body>
 <div class="app">
   <div class="stage">
-    <main class="feed" id="feed" aria-label="Feed"></main>
+    <main class="feed" id="feed" aria-label="Feed">
+      <section class="slide skel" aria-hidden="true"><div class="sbody"><i class="bar kick"></i><i class="bar big"></i><i class="bar big short"></i></div><div class="answers"><i class="ans"></i><i class="ans"></i></div><div class="sfoot"><i class="bar foot"></i></div></section>
+    </main>
     <div class="top" id="top">
       <div class="brand">verd.</div>
-      <div class="scopes" id="scopes" role="tablist" aria-label="Who is answering"></div>
+      <button class="net" id="net" hidden><span id="netText"></span></button>
+      <div class="scopes" id="scopes" role="tablist" aria-label="Who is answering" hidden></div>
     </div>
 
     <section class="page me" id="me" hidden>
@@ -335,6 +363,11 @@ html.vt .page{animation:none}
       <div id="sres" style="display:flex;flex-direction:column;gap:28px"></div>
     </section>
 
+    <section class="page dayview" id="dayview" aria-label="Past question" hidden>
+      <div id="dayslot"></div>
+      <button class="dclose" id="dclose" aria-label="Close">×</button>
+    </section>
+
     <section class="page compose" id="compose" hidden>
       <div class="cbar"><button class="x" id="cclose" aria-label="Close">×</button><button class="post" id="psend">Post</button></div>
       <textarea id="ptext" maxlength="140" placeholder="What do you want a verdict on?" aria-label="Your post"></textarea>
@@ -358,7 +391,7 @@ html.vt .page{animation:none}
   <nav class="nav" aria-label="Main">
     <button id="navHome" class="on" aria-label="Feed"><svg viewBox="0 0 24 24"><path d="M4 11l8-7 8 7v8a1 1 0 0 1-1 1h-4v-6h-6v6H5a1 1 0 0 1-1-1z"/></svg></button>
     <button id="navSearch" aria-label="Search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button>
-    <button id="navPlus" aria-label="New post"><span class="plus"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span></button>
+    <button id="navPlus" aria-label="New post" hidden><span class="plus"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span></button>
     <button id="navMe" aria-label="Me"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c1.5-4 4.5-6 8-6s6.500 2 8 6"/></svg></button>
   </nav>
 </div>

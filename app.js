@@ -1,4 +1,4 @@
-import { sum, pct, num, countsOf, shares, dayState, promptLine, verdictMain, lockedLines, pickTeaser, flavor, GUESSES, guessLine } from "./core.js";
+import { sum, pct, num, countsOf, shares, leader, dayState, promptLine, verdictMain, lockedLines, pickTeaser, flavor, GUESSES, guessLine, countdown, inDays } from "./core.js";
 
 // ---------- Settings ----------
 // To go live: paste the Supabase Project URL and anon public key (Project Settings > API).
@@ -11,49 +11,51 @@ const CONFIG = {
   // these are only used by the claude.ai preview, which has no database to ask.
   min: { world: 10, country: 30, state: 30, city: 30, friends: 3 }
 };
+const LIVE = !!(CONFIG.supabaseUrl && CONFIG.supabaseKey);
 
-// ---------- Questions: one per day, in order, then it loops. Two to four answers each. ----------
+// ---------- Questions: one per day, in order, then it loops. Two to four answers each, and a topic
+// (for search and tomorrow's sneak peek; ids are in TOPICS below). ----------
 const QUESTIONS = [
-  ["Would you rather be able to fly or be invisible?", ["Fly","Be invisible"]],
-  ["Cats or dogs?", ["Cats","Dogs"]],
-  ["Is a hot dog a sandwich?", ["Yes","No"]],
-  ["Would you go to Mars if you could never come back?", ["Yes, I'd go","No way"]],
-  ["Which is better: morning or night?", ["Morning","Night"]],
-  ["Would you rather know the future or change the past?", ["Know the future","Change the past"]],
-  ["Do you put pineapple on pizza?", ["Yes","Never"]],
-  ["Should school start later in the day?", ["Yes","No"]],
-  ["Would you rather live by the beach or in the mountains?", ["Beach","Mountains"]],
-  ["Will humans live on another planet within 50 years?", ["Yes","No"]],
-  ["Would you take $1 million now or $5,000 a month for life?", ["$1 million now","$5,000 a month"]],
-  ["Sweet or salty snacks?", ["Sweet","Salty"]],
-  ["Would you rather speak every language or play every instrument?", ["Every language","Every instrument"]],
-  ["Is it okay to text while someone is talking to you?", ["Sometimes","Never"]],
-  ["Summer or winter?", ["Summer","Winter"]],
-  ["Would you trust a self-driving car with your life?", ["Yes","Not yet"]],
-  ["Do you believe in aliens?", ["Yes","No","Not sure"]],
-  ["Would you give up your phone for a month for $10,000?", ["Easily","No chance"]],
-  ["Books or movies?", ["Books","Movies"]],
-  ["Should everyone learn to code at school?", ["Yes","No"]],
-  ["Would you rather be famous or rich?", ["Famous","Rich"]],
-  ["Do you shower in the morning or at night?", ["Morning","Night"]],
-  ["Would you rather explore space or the deep ocean?", ["Space","Deep ocean"]],
-  ["Is cereal a soup?", ["Yes","No"]],
-  ["Would you rather never use social media again or never watch TV again?", ["No social media","No TV"]],
-  ["Do you think AI will make life better overall?", ["Better","Worse","Not sure"]],
-  ["Would you rather have no homework or no exams?", ["No homework","No exams"]],
-  ["Tea or coffee?", ["Tea","Coffee","Neither"]],
-  ["Would you live 200 years if you could?", ["Yes","No"]],
-  ["Would you rather be the funniest or the smartest person in the room?", ["Funniest","Smartest"]],
-  ["Should the minimum age for social media be 16?", ["Yes","No"]],
-  ["Do you make your bed every morning?", ["Yes","No"]],
-  ["Would you rather time travel to the past or the future?", ["Past","Future"]],
-  ["Is it better to rent or to own a home?", ["Rent","Own"]],
-  ["Would you eat bugs to save the planet?", ["Yes","No"]],
-  ["Do you sleep with socks on?", ["Yes","No"]],
-  ["Would you rather work from home or in an office?", ["Home","Office"]],
-  ["Should we bring back extinct animals like the mammoth?", ["Yes","No"]],
-  ["Would you rather have a rewind button or a pause button for your life?", ["Rewind","Pause"]],
-  ["Are you happier today than a year ago?", ["Happier","Same","Less happy"]]
+  ["Would you rather be able to fly or be invisible?", ["Fly","Be invisible"], "rather"],
+  ["Cats or dogs?", ["Cats","Dogs"], "takes"],
+  ["Is a hot dog a sandwich?", ["Yes","No"], "food"],
+  ["Would you go to Mars if you could never come back?", ["Yes, I'd go","No way"], "future"],
+  ["Which is better: morning or night?", ["Morning","Night"], "life"],
+  ["Would you rather know the future or change the past?", ["Know the future","Change the past"], "rather"],
+  ["Do you put pineapple on pizza?", ["Yes","Never"], "food"],
+  ["Should school start later in the day?", ["Yes","No"], "school"],
+  ["Would you rather live by the beach or in the mountains?", ["Beach","Mountains"], "rather"],
+  ["Will humans live on another planet within 50 years?", ["Yes","No"], "future"],
+  ["Would you take $1 million now or $5,000 a month for life?", ["$1 million now","$5,000 a month"], "money"],
+  ["Sweet or salty snacks?", ["Sweet","Salty"], "food"],
+  ["Would you rather speak every language or play every instrument?", ["Every language","Every instrument"], "rather"],
+  ["Is it okay to text while someone is talking to you?", ["Sometimes","Never"], "tech"],
+  ["Summer or winter?", ["Summer","Winter"], "takes"],
+  ["Would you trust a self-driving car with your life?", ["Yes","Not yet"], "tech"],
+  ["Do you believe in aliens?", ["Yes","No","Not sure"], "future"],
+  ["Would you give up your phone for a month for $10,000?", ["Easily","No chance"], "money"],
+  ["Books or movies?", ["Books","Movies"], "takes"],
+  ["Should everyone learn to code at school?", ["Yes","No"], "school"],
+  ["Would you rather be famous or rich?", ["Famous","Rich"], "rather"],
+  ["Do you shower in the morning or at night?", ["Morning","Night"], "life"],
+  ["Would you rather explore space or the deep ocean?", ["Space","Deep ocean"], "rather"],
+  ["Is cereal a soup?", ["Yes","No"], "food"],
+  ["Would you rather never use social media again or never watch TV again?", ["No social media","No TV"], "rather"],
+  ["Do you think AI will make life better overall?", ["Better","Worse","Not sure"], "tech"],
+  ["Would you rather have no homework or no exams?", ["No homework","No exams"], "school"],
+  ["Tea or coffee?", ["Tea","Coffee","Neither"], "food"],
+  ["Would you live 200 years if you could?", ["Yes","No"], "future"],
+  ["Would you rather be the funniest or the smartest person in the room?", ["Funniest","Smartest"], "rather"],
+  ["Should the minimum age for social media be 16?", ["Yes","No"], "tech"],
+  ["Do you make your bed every morning?", ["Yes","No"], "life"],
+  ["Would you rather time travel to the past or the future?", ["Past","Future"], "rather"],
+  ["Is it better to rent or to own a home?", ["Rent","Own"], "money"],
+  ["Would you eat bugs to save the planet?", ["Yes","No"], "food"],
+  ["Do you sleep with socks on?", ["Yes","No"], "life"],
+  ["Would you rather work from home or in an office?", ["Home","Office"], "rather"],
+  ["Should we bring back extinct animals like the mammoth?", ["Yes","No"], "future"],
+  ["Would you rather have a rewind button or a pause button for your life?", ["Rewind","Pause"], "rather"],
+  ["Are you happier today than a year ago?", ["Happier","Same","Less happy"], "life"]
 ];
 
 const COUNTRIES = {US:"United States",IN:"India",BR:"Brazil",ID:"Indonesia",NG:"Nigeria",PK:"Pakistan",MX:"Mexico",PH:"Philippines",GB:"United Kingdom",DE:"Germany",FR:"France",ES:"Spain",IT:"Italy",CA:"Canada",AU:"Australia",JP:"Japan",KR:"South Korea",CN:"China",RU:"Russia",TR:"Turkey",EG:"Egypt",ZA:"South Africa",KE:"Kenya",GH:"Ghana",AR:"Argentina",CO:"Colombia",PE:"Peru",CL:"Chile",VN:"Vietnam",TH:"Thailand",MY:"Malaysia",BD:"Bangladesh",SA:"Saudi Arabia",AE:"UAE",PL:"Poland",NL:"Netherlands",SE:"Sweden",UA:"Ukraine",NZ:"New Zealand",IE:"Ireland",JM:"Jamaica",XX:"Somewhere else"};
@@ -152,8 +154,10 @@ const backends = {
         store.set("outbox", [...store.get("outbox", []).filter(x => x.d !== dayKey), { d: dayKey, c, n, place }]);
         return flush();
       },
+      async results(dayKey, n, place){ const r = shape(await rpc("get_results", { d: dayKey, n, ...placeArgs(place) })); store.set("res:" + dayKey, r); return r; },
+      retry(){ flush(); subs.forEach((_, d) => refresh(d)); },
       async profile(){ return session ? rpc("my_profile", {}, true) : null; },   // no account until the first vote
-      async friendMatch(codes){ return codes.length ? rpc("friend_match", { codes }, true) : []; },
+      async friendMatch(codes){ return codes.length && session ? rpc("friend_match", { codes }, true) : []; },
       async board(dayKey, n, place, level){ return rpc("get_board", { d: dayKey, n, cc: level === "country" ? null : place.country, st: level === "city" ? place.state : null }); },
       async suggest(q, answers){ return rpc("suggest_question", { q, answers }, true); },
       waiting: d => stuck && store.get("outbox", []).some(x => x.d === d)   // saved, but no connection to send it
@@ -183,6 +187,7 @@ const backends = {
     return {
       mode: "preview", label: "Preview: shared with the people you send this page to.",
       watch(dayKey, n, place, cb){ const f = () => cb(compute(dayKey, n, place)); cbs.add(f); f(); },
+      async results(dayKey, n, place){ return compute(dayKey, n, place); },
       async vote(dayKey, c, n, place){
         const ref = db.doc("votes/" + uid), s = await ref.get();
         const v = (s.exists && (s.data() || {}).v) || {};
@@ -211,6 +216,7 @@ const backends = {
     return {
       mode: "device", label: "Not live yet: answers are saved on this phone until Verd's database is switched on.",
       watch(dayKey, n, place, cb){ cbs.set(dayKey, cb); cb(result(dayKey)); },
+      async results(dayKey){ return result(dayKey); },
       async vote(dayKey){ const cb = cbs.get(dayKey); if (cb) cb(result(dayKey)); return true; },
       async profile(){ return { code: me }; },
       async friendMatch(){ return []; },
@@ -312,9 +318,18 @@ const TOPICS = [
   ["money", "Money", /money|\$|rich|\bjob\b|\bwork|\bpay|\btip|\bbuy|price|expensive|save|billion|million/i, 7],
   ["tech", "Tech", /phone|iphone|android|\bai\b|\bapps?\b|gaming|video game|tiktok|instagram|internet|online|robot/i, 3],
   ["rather", "Would you rather", /would you rather|\brather\b/i, 4],
-  ["takes", "Hot takes", /overrated|underrated|hot take|unpopular|honestly|lowkey|highkey/i, 1]
+  ["takes", "Hot takes", /overrated|underrated|hot take|unpopular|honestly|lowkey|highkey/i, 1],
+  ["future", "Space & future", /\bspace\b|\bmars\b|planet|alien|future|time travel|extinct/i, 0],
+  ["life", "Everyday life", /\bsleep|shower|\bbed\b|morning|\bnight\b|weekend|routine|chores/i, 2]
 ];
 const catOf = text => { const t = TOPICS.find(([, , re]) => re.test(text || "")); return t ? t[0] : "takes"; };
+const topicName = id => (TOPICS.find(t => t[0] === id) || TOPICS.find(t => t[0] === "takes"))[1];
+const topicOfDay = n => qFor(n)[2] || catOf(qFor(n)[0]);
+// Daily questions that are out (today's and before), newest first. Once the list loops, a question shows once, at its latest day.
+function aired(){ const out = [], had = new Set(); for (let n = today; n >= 0 && out.length < QUESTIONS.length; n--){ const q = qFor(n)[0]; if (!had.has(q)){ had.add(q); out.push(n); } } return out; }
+// Days until the next question that passes test(day), or 0 if none comes up in the next loop.
+function daysUntil(test){ for (let k = 1; k <= QUESTIONS.length; k++) if (test(today + k)) return k; return 0; }
+const dateLabel = n => n === today ? "Today" : n === today - 1 ? "Yesterday" : new Date(START + n * DAY_MS).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 
 function combinePosts(postDocs, voteDocs, reportDocs, commentDocs, photoDocs){
   const byId = {}, cById = {};
@@ -397,8 +412,7 @@ const SCOPES = [["world","World"],["country","Country"],["state","State"],["city
 const COLORS = [["#5b3df5","#3d22c7"],["#c81e3a","#8f1230"],["#04724c","#055c3a"],["#17181a","#000000"],["#1d4ed8","#1e3a8a"],["#be185d","#9d174d"],["#b93d0a","#8a3006"],["#0c6f80","#0b5566"]];
 const hue = (e, c) => { e.style.setProperty("--c0", c[0]); e.style.setProperty("--c1", c[1]); return e; };
 const hash = s => { let h = 0; for (const c of String(s)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h; };
-const ask = { api: null, posts: [], myVotes: {}, myReports: {}, flipped: {}, scope: store.get("askScope", "world") };
-if (!SCOPES.some(([k]) => k === ask.scope)) ask.scope = "world";
+const ask = { api: null, posts: [], myVotes: {}, myReports: {}, flipped: {}, scope: "world" };
 const signOf = p => p.yes > p.no ? 1 : p.yes < p.no ? -1 : 0;
 const BLOCK = [/\d[\d\s().-]{6,}\d/, /@\w/, /https?:|www\./i, /\b(kill|kys|die)\b/i];
 const ICON = {
@@ -460,13 +474,14 @@ function answers(id, labels, results, mineIdx, onTap, anim){
 function todayState(){
   const mine = myVotes[todayKey];
   if (mine && !backend) return "loading";
-  return dayState({ mine: mine ? mine.choice : null, mode: backend && backend.mode, res, waiting: !!(backend && backend.waiting && backend.waiting(todayKey)) });
+  return dayState({ mine: mine ? mine.choice : null, mode: backend && backend.mode, res, failed: netDown, waiting: !!(backend && backend.waiting && backend.waiting(todayKey)) });
 }
 const placeNames = () => { const p = myPlace(); return { city: p.city, state: p.state, country: COUNTRIES[p.country] }; };
 function verdict(state, mine){
   if (state === "device") return ["Your answer is saved.", "Live results aren't switched on yet, so there's no verdict to show."];
   if (state === "offline") return ["Your answer is saved.", "It counts as soon as you're back online."];
   if (state === "loading" || state === "counting") return ["Your answer is in.", "Counting the votes…"];
+  if (state === "error") return ["Your answer is in.", "Couldn't load the count right now."];
   if (state === "locked"){ const [a, b] = lockedLines(res); return [a, b + (mine.guess ? " Your guess is saved." : "")]; }
   const counts = countsOf(res.world), teaser = pickTeaser(res, mine.choice, placeNames());
   if (mine.guess) return [guessLine(mine.guess, shares(counts)[mine.choice]), teaser || flavor(counts, mine.choice)];
@@ -479,11 +494,15 @@ function noteShare(key, r){
   if (mine.share === share && mine.majority === majority) return;
   mine.share = share; mine.majority = majority; store.set("myVotes", myVotes); checkBadges();
 }
-function nextIn(){ const left = START + (today + 1) * DAY_MS - Date.now(); return Math.floor(left / 3600000) + "h " + Math.floor(left % 3600000 / 60000) + "m"; }
+const nextIn = () => countdown(START + (today + 1) * DAY_MS - Date.now());
 
+// The line at the bottom of today's slide. null means the count is on its way: a placeholder bar shows instead.
 function dailyFoot(){
   const n = res && res.world ? res.world.n : 0;
-  if (!myVotes[todayKey]) return promptLine(res, backend && backend.mode);
+  if (!myVotes[todayKey]){
+    const counted = backend ? backend.mode !== "device" : LIVE || !!(window.claude && window.claude.use);
+    return counted && !res && !netDown ? null : promptLine(res, backend && backend.mode);
+  }
   return (todayState() === "revealed" ? num(n) + (n === 1 ? " answer" : " answers") + " · " : "") + "Next question in " + nextIn();
 }
 // Today's slide moves through: open → (tap) guess → (tap) reveal. With no database there's no guess,
@@ -497,21 +516,26 @@ function dailyModel(){
     choice: mine ? mine.choice : -1, guessing, share: !!mine && !guessing, foot: dailyFoot(),
     lines: guessing ? ["Quick guess before the reveal.", "How many people picked " + options[mine.choice] + "?"] : mine ? verdict(state, mine) : null,
     results: counts ? shares(counts) : null,
+    wait: !guessing && (state === "loading" || state === "counting"),   // the count is on its way
+    retry: state === "error",
     reveal: !!counts && !mine.seen   // the first time you see this verdict
   };
 }
-const modelKey = m => JSON.stringify({ ...m, reveal: 0 });
+const modelKey = m => JSON.stringify({ ...m, reveal: 0, foot: 0 });   // the footer line is updated on its own
+const setFoot = (e, text) => { if (!e) return; e.classList.toggle("sk", text == null); e.textContent = text == null ? "Loading" : text; };
 function dailySlide(m = dailyModel()){
   const s = shell("daily", COLORS[today % COLORS.length]), body = el("div", "sbody"), mine = myVotes[todayKey];
   s.dataset.key = modelKey(m);
   body.append(el("div", "kicker", "Today's question · No. " + (today + 1)), el("h2", "stext" + sizeClass(question), question));
   if (m.lines){ body.append(el("p", "sverdict", m.lines[0])); if (m.lines[1]) body.append(el("p", "ssub", m.lines[1])); }
-  const foot = el("div", "sfoot"), info = el("span", "", m.foot);
-  if (mine) info.id = "nextIn";
+  if (m.retry){ const b = el("button", "cta ghost", "Try again"); b.onclick = retryNow; body.append(b); }
+  const foot = el("div", "sfoot"), info = el("span", "sinfo"); setFoot(info, m.foot);
   foot.append(info); const acts = el("div", "sacts");
   if (m.share) acts.append(iact("share", "Share", "Share", shareDaily));
   foot.append(acts);
-  s.append(body, m.guessing ? guessRow() : answers("daily", options, m.results, m.choice, vote, m.reveal), foot);
+  const box = m.guessing ? guessRow() : answers("daily", options, m.results, m.choice, vote, m.reveal);
+  if (m.wait) box.classList.add("wait");
+  s.append(body, box, foot);
   if (m.reveal){
     s.classList.add("reveal"); s.append(el("div", "hint", "Swipe up for more"));
     mine.seen = true; store.set("myVotes", myVotes); revealing = Date.now() + 1400; haptics.reveal();
@@ -532,13 +556,13 @@ let revealing = 0, later = null;
 function renderDaily(){
   const old = $("feed").querySelector('.slide[data-id="daily"]');
   if (!old) return renderFeed();
-  const m = dailyModel(); if (old.dataset.key === modelKey(m)) return;
+  const m = dailyModel(); if (old.dataset.key === modelKey(m)) return setFoot(old.querySelector(".sinfo"), m.foot);
   const fresh = dailySlide(m); old.className = fresh.className + (old.classList.contains("in") ? " in" : ""); old.dataset.key = fresh.dataset.key; old.replaceChildren(...fresh.childNodes);
 }
 // A new count while the reveal is still playing waits for it to finish.
 function onToday(r){
-  if (r){ res = r; noteShare(todayKey, r); }
-  clearTimeout(later); const wait = revealing - Date.now();
+  if (r){ res = r; noteShare(todayKey, r); if (!r.stale) netDown = false; } else netDown = true;
+  renderNet(); clearTimeout(later); const wait = revealing - Date.now();
   if (wait > 0) later = setTimeout(renderDaily, wait); else renderDaily();
 }
 function yesterdaySlide(){
@@ -572,17 +596,27 @@ function postSlide(p){
   s.append(body, answers(p.id, labels, show && total ? [yes, 100 - yes] : null, my ? (my > 0 ? 0 : 1) : -1, tap, animate === p.id), foot);
   return s;
 }
+const dropLine = () => "Tomorrow's question drops in " + nextIn() + ".";
 function endSlide(){
   const s = el("section", "slide end"); s.dataset.id = "end"; const body = el("div", "sbody"), pl = myPlace();
-  let h = "You're all caught up.", sub = "Come back later for more, or put something up for a verdict.", cta = ["Post something", openCompose];
-  if (!ask.api){ sub = "Posts from people are coming soon. A new question drops in " + nextIn() + "."; cta = null; }
-  else if ((ask.scope === "city" && (!pl.city || !pl.state)) || (ask.scope === "state" && !pl.state)){ h = "Where are you?"; sub = "Add your city and state to see what people near you really think."; cta = ["Set my place", () => showPage("me")]; }
+  let h = "You're caught up.", sub = null, cta = null;
+  if ((ask.scope === "city" && (!pl.city || !pl.state)) || (ask.scope === "state" && !pl.state)){ h = "Where are you?"; sub = "Add your city and state to see what people near you really think."; cta = ["Set my place", () => showPage("me")]; }
   else if (ask.scope === "friends" && !friends().length){ h = "No friends here yet."; sub = "Swap codes with a friend and judge each other's posts."; cta = ["Add a friend", () => showPage("me")]; }
-  else if (!order.length && ask.scope !== "world"){ h = "Nothing here yet."; sub = "Be the first one to ask."; }
-  body.append(el("h2", "stext m", h), el("p", "ssub", sub));
+  else if (!order.length && ask.scope !== "world"){ h = "Nothing here yet."; sub = "Be the first one to ask."; cta = ["Post something", openCompose]; }
+  body.append(el("h2", "stext m", h));
+  if (sub) body.append(el("p", "ssub", sub));
+  else {
+    // The real end of the feed: when the next question drops, and a sneak peek of what it's about.
+    const next = el("p", "ssub", dropLine()), peek = el("p", "peekline"); next.dataset.tick = "drop";
+    peek.append(el("span", "", "Tomorrow's topic"), el("b", "", topicName(topicOfDay(today + 1))));
+    body.append(next, peek);
+    cta = !myVotes[todayKey] ? ["Answer today's question", () => openPost("daily")] : ask.api ? ["Post something", openCompose] : null;
+  }
   if (cta){ const b = el("button", "cta", cta[0]); b.onclick = cta[1]; body.append(b); }
   s.append(body); return s;
 }
+// The end slide changes once you've answered (no more "Answer today's question").
+function renderEnd(){ const old = $("feed").querySelector('.slide[data-id="end"]'); if (old) old.replaceChildren(...endSlide().childNodes); }
 function renderFeed(){
   const feed = $("feed"), cur = jumpTo || currentId();
   syncOrder(); feed.innerHTML = "";
@@ -599,11 +633,28 @@ function renderFeed(){
 // Text eases in the first time each post comes into view. Posts are fully visible without it.
 const shown = new Set();
 const seen = "IntersectionObserver" in window ? new IntersectionObserver(es => { for (const e of es) if (e.isIntersecting && e.intersectionRatio > .6 && !shown.has(e.target.dataset.id)){ shown.add(e.target.dataset.id); if (shown.size > 1) e.target.classList.add("in"); } }, { threshold: .6 }) : null;
+// The tabs only filter people's posts. With no posts to filter they would be dead controls, so they don't show
+// and the feed is simply today's question.
 function renderTop(){
-  const box = $("scopes"); box.innerHTML = "";
+  const box = $("scopes"), show = !!ask.api && ask.posts.some(p => visible(p, true));
+  if (!show) ask.scope = "world";
+  box.hidden = !show; box.innerHTML = ""; if (!show) return;
   SCOPES.forEach(([k, l]) => { const b = el("button", "scope" + (k === ask.scope ? " on" : ""), l); b.setAttribute("role", "tab"); b.setAttribute("aria-selected", k === ask.scope);
-    b.onclick = () => { ask.scope = k; store.set("askScope", k); order = []; renderTop(); renderFeed(); $("feed").scrollTop = 0; }; box.append(b); });
+    b.onclick = () => { ask.scope = k; order = []; renderTop(); renderFeed(); $("feed").scrollTop = 0; }; box.append(b); });
 }
+
+// ---------- Connection ----------
+// A small pill in the top bar when Verd can't be reached. Answers are never lost: they wait in the outbox.
+let netDown = false;   // the last try to load today's count failed
+function renderNet(){
+  const b = $("net"), counted = !!backend && backend.mode !== "device", off = !navigator.onLine;
+  const stuck = !!(backend && backend.waiting && backend.waiting(todayKey));
+  b.hidden = !counted || !(off || netDown || stuck);
+  $("netText").textContent = off ? "Offline" : "Can't connect · Retry";
+}
+function retryNow(){ netDown = false; renderNet(); renderDaily(); if (backend && backend.retry) backend.retry(); }
+$("net").onclick = () => navigator.onLine ? retryNow() : toast("You're offline. Answers are saved and sent when you're back.");
+addEventListener("online", renderNet); addEventListener("offline", renderNet);
 
 // ---------- Actions ----------
 // The tap itself only marks your answer and ticks (under 16 ms). Saving and drawing happen after that frame.
@@ -617,13 +668,14 @@ function vote(i, btn){
 async function commitVote(i){
   const place = myPlace(); myVotes[todayKey] = { choice: i, country: place.country }; store.set("myVotes", myVotes); bumpStreak();
   if (res) res = { ...res, mine: i };
-  withTransition(renderDaily); checkBadges();
+  withTransition(() => { renderDaily(); renderEnd(); }); checkBadges();
   if (!backend) await ready;
   let ok = false;
   try{ ok = await backend.vote(todayKey, i, options.length, place); }catch{}
   voting = false;
   if (ok){ store.set("sent", todayKey); showCode(); }
   else { toast("Saved. It will count when you're back online."); renderDaily(); }
+  renderNet();
 }
 function guess(k){
   const mine = myVotes[todayKey]; if (!mine || mine.guess) return;
@@ -795,7 +847,7 @@ $("psend").onclick = async () => {
   const item = { id: ask.api.me + "-" + Date.now().toString(36), author: ask.api.me, text, color: cColor, photos: imgs.length, cat: catOf(text), scope: imgs.length ? "friends" : cScope, city: pl.city, state: pl.state, country: pl.country, t: Date.now() };
   $("psend").disabled = true;
   try{
-    if (ask.scope !== item.scope){ ask.scope = item.scope; store.set("askScope", item.scope); order = []; renderTop(); }
+    if (ask.scope !== item.scope){ ask.scope = item.scope; order = []; renderTop(); }
     jumpTo = item.id; if (imgs.length) await ask.api.photo(item.id, imgs); await ask.api.post(item); store.set("posted", true);
     $("ptext").value = ""; $("compose").hidden = true; showPage("feed"); renderFeed(); toast("Posted."); checkBadges();
   }catch{ jumpTo = null; toast("Couldn't post. Check your connection and try again."); }
@@ -823,7 +875,8 @@ function renderMe(){
   const s = streakNow(), p = profile();
   $("meta").textContent = "No. " + (today + 1);
   $("streak").textContent = s.current;
-  $("streakNote").textContent = !myVotes[todayKey] && s.current > 0 ? "Answer today to keep it alive." + (s.freezes ? " " + s.freezes + " freeze" + (s.freezes > 1 ? "s" : "") + " saved." : "")
+  $("streakNote").textContent = !Object.keys(myVotes).length ? "Answer today's question to start your streak."
+    : !myVotes[todayKey] && s.current > 0 ? "Answer today to keep it alive." + (s.freezes ? " " + s.freezes + " freeze" + (s.freezes > 1 ? "s" : "") + " saved." : "")
     : s.freezes ? s.freezes + " streak freeze" + (s.freezes > 1 ? "s" : "") + " saved. A freeze covers one missed day." : "Answer every day. Seven in a row earns a streak freeze.";
   $("otype").textContent = p.type || "–";
   $("otypeNote").textContent = p.type ? "your opinion type" : "opinion type, " + (3 - p.nTyped) + " more to unlock";
@@ -842,17 +895,27 @@ function showCode(){
   $("mycode").textContent = store.get("myCode", "······");
   if (backend) backend.profile().then(p => { if (p && p.code){ $("mycode").textContent = p.code; store.set("myCode", p.code); } }).catch(() => {});
 }
+// Your friends and how often you agree. Placeholder rows show while the matches load.
+let friendsCall = 0;
 async function renderFriends(){
-  const fl = friends(), box = $("flist"); let rows = [];
-  try{ if (backend && fl.length) rows = await backend.friendMatch(fl); }catch{}
-  box.innerHTML = ""; const by = Object.fromEntries(rows.map(r => [r.code, r]));
-  fl.map(c => { const r = by[c]; return { c, shared: r ? r.shared : 0, m: r && r.agree !== null && r.shared ? pct(r.agree, r.shared) : null }; })
-    .sort((a, b) => (b.m ?? -1) - (a.m ?? -1))
-    .forEach(r => { const d = el("div"); d.append(el("b", "", r.c), el("span", "", r.m === null ? (r.shared ? r.shared + " shared answers so far" : "No shared answers yet") : (r.m >= 80 ? "Same brain, " : r.m <= 30 ? "Opposites, " : "") + r.m + "% match")); box.append(d); });
+  const fl = friends(), box = $("flist"), call = ++friendsCall;
+  const draw = (by, failed) => {
+    box.innerHTML = "";
+    fl.map(c => { const r = by && by[c]; return { c, shared: r ? r.shared : 0, m: r && r.agree !== null && r.shared ? pct(r.agree, r.shared) : null }; })
+      .sort((a, b) => (b.m ?? -1) - (a.m ?? -1))
+      .forEach(r => { const d = el("div"), t = !by ? "Loading" : r.m === null ? (r.shared ? r.shared + " shared answers so far" : "No shared answers yet") : (r.m >= 80 ? "Same brain, " : r.m <= 30 ? "Opposites, " : "") + r.m + "% match";
+        d.append(el("b", "", r.c), el("span", by ? "" : "sk", t)); box.append(d); });
+    if (failed) box.append(el("p", "note", "Couldn't load your matches. Check your connection."));
+  };
+  if (!fl.length){ box.innerHTML = ""; return; }
+  draw(null);
+  let rows = [], failed = false;
+  try{ if (backend) rows = await backend.friendMatch(fl); }catch{ failed = true; }
+  if (call === friendsCall) draw(Object.fromEntries(rows.map(r => [r.code, r])), failed);
 }
 $("recapShare").onclick = () => { const r = recapData(), p = profile(); if (!r) return;
   copyOrShow("My week on Verd\n" + r.answered + "/7 days answered" + (r.known ? ", with the majority " + r.maj + " of " + r.known + " times" : "") + "\n" + (p.type ? "I'm a " + p.type + ". " : "") + r.s + " day streak\nWhat are you? " + (CONFIG.siteUrl || location.href.split("#")[0]), "Copied. Post it anywhere."); };
-$("copycode").onclick = () => copyOrShow($("mycode").textContent, "Code copied. Send it to a friend.");
+$("copycode").onclick = () => { const c = $("mycode").textContent; if (!/^[A-Z0-9]{6}$/.test(c)){ toast("Your code shows up after your first answer."); return; } copyOrShow(c, "Code copied. Send it to a friend."); };
 $("fform").onsubmit = e => { e.preventDefault(); const c = $("fcode").value.trim().toUpperCase(), me = $("mycode").textContent;
   if (!/^[A-Z0-9]{6}$/.test(c)){ toast("Friend codes are 6 letters and numbers."); return; } if (c === me){ toast("That's your own code."); return; }
   const f = friends(); if (!f.includes(c)) f.push(c); store.set("friends", f); $("fcode").value = ""; toast("Friend added."); checkBadges(); renderMe(); order = []; renderFeed(); };
@@ -878,9 +941,9 @@ function highlight(text, words){
   text.split(re).forEach((part, i) => frag.append(i % 2 ? el("mark", "", part) : part)); return frag;
 }
 function openPost(id){
-  if (id === "daily"){ ask.scope = "world"; store.set("askScope", "world"); order = []; renderTop(); showPage("feed"); renderFeed(); $("feed").scrollTop = 0; return; }
+  if (id === "daily"){ ask.scope = "world"; order = []; renderTop(); showPage("feed"); renderFeed(); $("feed").scrollTop = 0; return; }
   const p = ask.posts.find(x => x.id === id); if (!p) return;
-  ask.scope = p.scope; store.set("askScope", p.scope); order = []; jumpTo = id; renderTop(); showPage("feed"); renderFeed();
+  ask.scope = p.scope; order = []; jumpTo = id; renderTop(); showPage("feed"); renderFeed();
 }
 function resultRow(p, words, onTap){
   const b = el("button", "res"), mini = el("div", "mini"), rb = el("div", "rb");
@@ -897,7 +960,7 @@ function postMeta(p){
 function section(title, action){ const sec = el("div"), h = el("div", "shd"); h.append(el("h3", "", title)); if (action) h.append(action); sec.append(h); return sec; }
 function renderSearch(){
   const raw = $("q").value, q = norm(raw), box = $("sres"); box.innerHTML = ""; $("qclear").hidden = !raw;
-  const posts = searchable();
+  const posts = searchable(), days = aired();
   if (!q){
     const recent = store.get("recentQ", []);
     if (recent.length){
@@ -907,33 +970,86 @@ function renderSearch(){
         const x = el("button", "rx", "×"); x.setAttribute("aria-label", "Remove"); x.onclick = () => { store.set("recentQ", recent.filter(y => y !== r)); renderSearch(); }; row.append(go, x); sec.append(row); }
       box.append(sec);
     }
-    const stats = TOPICS.map(([id, name, , ci], i) => { const ps = posts.filter(p => p.cat === id); return { id, name, ci, i, n: ps.length, heat: ps.reduce((a, p) => a + heat(p), 0) }; })
-      .sort((a, b) => b.heat - a.heat || b.n - a.n || a.i - b.i).slice(0, 6);
-    const sec = section("Trending topics"), grid = el("div", "topics");
-    stats.forEach((t, i) => { const b = hue(el("button", "topic"), COLORS[t.ci]), rk = el("span", "rk", String(i + 1)); rk.setAttribute("aria-hidden", "true");
-      b.append(rk, el("b", "", t.name), el("small", "", t.n ? t.n + (t.n === 1 ? " debate" : " debates") : "Be the first"));
+    // Topics with questions out so far or debates, then the ones coming up next. Never a dead "Be the first".
+    const stats = TOPICS.map(([id, name, , ci], i) => { const ps = posts.filter(p => p.cat === id), nq = days.filter(n => topicOfDay(n) === id).length;
+        return { id, name, ci, i, nq, n: ps.length, heat: ps.reduce((a, p) => a + heat(p), 0), soon: daysUntil(d => topicOfDay(d) === id) }; })
+      .filter(t => t.nq || t.n || t.soon)
+      .sort((a, b) => b.heat - a.heat || (b.nq + b.n) - (a.nq + a.n) || (a.soon || 99) - (b.soon || 99) || a.i - b.i).slice(0, 6);
+    const trending = stats.some(t => t.heat > 0), sec = section(trending ? "Trending topics" : "Topics"), grid = el("div", "topics");
+    stats.forEach((t, i) => { const b = hue(el("button", "topic"), COLORS[t.ci]);
+      if (trending){ const rk = el("span", "rk", String(i + 1)); rk.setAttribute("aria-hidden", "true"); b.append(rk); }
+      const what = [t.nq ? t.nq + (t.nq === 1 ? " question" : " questions") : "", t.n ? t.n + (t.n === 1 ? " debate" : " debates") : ""].filter(Boolean).join(" · ");
+      b.append(el("b", "", t.name), el("small", "", what || "Next one " + inDays(t.soon)));
       b.onclick = () => { $("q").value = t.name; remember(t.name); renderSearch(); }; grid.append(b); });
     sec.append(grid); box.append(sec);
+    const qs = section("Questions so far"); for (const n of days.slice(0, 6)) qs.append(dayRow(n, [], "")); box.append(qs);
     const hot = posts.filter(p => heat(p) > 0).sort((a, b) => heat(b) - heat(a)).slice(0, 5);
     if (hot.length){ const hs = section("Hot debates"); for (const p of hot) hs.append(resultRow({ ...p, meta: postMeta(p), badge: badgeOf(p) }, [], () => openPost(p.id))); box.append(hs); }
     return;
   }
   const words = q.split(/\s+/).filter(w => w.length > 0), topic = TOPICS.find(([id, name]) => norm(name) === q || norm(name).startsWith(q) && q.length >= 3 || id === q);
+  const hasWords = d => words.every(w => norm(qFor(d)[0]).includes(w));
+  const qHits = days.filter(n => hasWords(n) || (topic && topicOfDay(n) === topic[0]));
   const hits = posts.map(p => { const t = norm(p.text), m = words.filter(w => t.includes(w)).length, on = topic && p.cat === topic[0];
       return { p, score: (m === words.length ? 10 : m * 2) + (on ? 6 : 0) + Math.log1p(heat(p)) }; })
     .filter(h => h.score >= 6).sort((a, b) => b.score - a.score).map(h => h.p);
-  const res = section(topic ? topic[1] : "Results");
-  if (words.every(w => norm(question).includes(w)) || (topic && TOPICS.find(([id]) => id === catOf(question))[0] === topic[0])){
-    const mine = myVotes[todayKey];
-    res.append(resultRow({ id: "daily", text: question, colorPair: COLORS[today % COLORS.length], badge: "No." + (today + 1), meta: "Today's question" + (res && res.world ? " · " + res.world.n.toLocaleString() + " answers" : "") + (mine ? "" : " · Tap to answer") }, topic ? [] : words, () => openPost("daily")));
+  const out = section(topic ? topic[1] : "Results");
+  for (const n of qHits) out.append(dayRow(n, topic ? [] : words, raw));
+  for (const p of hits.slice(0, 30)) out.append(resultRow({ ...p, meta: postMeta(p), badge: badgeOf(p) }, topic && !words.some(w => norm(p.text).includes(w)) ? [] : words, () => { remember(raw); openPost(p.id); }));
+  const found = out.children.length > 1; if (found) box.append(out);
+  // A question that hasn't dropped yet is announced, never shown: "Something on pizza is coming up."
+  const soon = qHits.length ? 0 : daysUntil(d => topic ? topicOfDay(d) === topic[0] : hasWords(d)), e = el("div", "sempty");
+  if (soon) e.append(el("h2", "", (topic ? topic[1] + " questions are" : "Something on “" + raw.trim() + "” is") + " coming up."), el("p", "note", "The next one drops " + inDays(soon) + "."));
+  else {
+    e.append(el("h2", "", found ? "Got a take on " + raw.trim() + "?" : "Nothing on “" + raw.trim() + "” yet."));
+    // Posting is off on the public site, so there the next step is suggesting it as a question for everyone.
+    const act = ask.api ? ["Start a debate", found ? "Put it up and let people decide." : "Be the first. Ask it and let people decide.", () => { remember(raw); openCompose(topic ? "" : asQuestion(raw)); }]
+      : backend && backend.suggest ? ["Suggest it as a daily question", "Good ones become the question for everyone.", () => { remember(raw); suggestFrom(topic ? "" : asQuestion(raw)); }] : null;
+    if (act){ const go = el("button", "b2", act[0]); go.onclick = act[2]; e.append(el("p", "note", act[1]), go); }
   }
-  for (const p of hits.slice(0, 30)) res.append(resultRow({ ...p, meta: postMeta(p), badge: badgeOf(p) }, topic && !words.some(w => norm(p.text).includes(w)) ? [] : words, () => { remember(raw); openPost(p.id); }));
-  if (res.children.length > 1) box.append(res);
-  const e = el("div", "sempty");
-  e.append(el("h2", "", res.children.length > 1 ? "Got a take on " + raw.trim() + "?" : "Nothing on “" + raw.trim() + "” yet."), el("p", "note", res.children.length > 1 ? "Put it up and let people decide." : "Be the first. Ask it and let people decide."));
-  const go = el("button", "b2", "Start a debate"); go.onclick = () => { remember(raw); openCompose(topic ? "" : raw.trim().replace(/\?*$/, "") + "?"); };
-  e.append(go); box.append(e);
+  box.append(e);
 }
+const asQuestion = s => s.trim().replace(/\?*$/, "") + "?";
+function suggestFrom(text){ $("sq").value = text; showPage("me"); setTimeout(() => $("suggest").scrollIntoView({ block: "center", behavior: calm() ? "auto" : "smooth" }), 350); }
+// A daily question in search: today's opens the feed, an older one opens its final verdict.
+function dayRow(n, words, raw){
+  const [dq, o] = qFor(n), mine = myVotes[dayKey(n)], counted = !backend || backend.mode !== "device";
+  const meta = [n === today ? "Today's question" : dateLabel(n), n === today && res && res.world && res.world.n ? num(res.world.n) + " answers" : "",
+    mine ? "You said " + o[mine.choice] : n === today ? "Tap to answer" : counted ? "See the verdict" : ""].filter(Boolean).join(" · ");
+  return resultRow({ id: "day" + n, text: dq, colorPair: COLORS[n % COLORS.length], badge: "No." + (n + 1), meta }, words, () => { if (raw.trim()) remember(raw); if (n === today) openPost("daily"); else openDay(n); });
+}
+
+// ---------- A past question: its final verdict, full screen ----------
+let dayOpen = -1;
+function openDay(n){
+  const key = dayKey(n), cached = store.get("res:" + key, null);
+  dayOpen = n; drawDay(n, cached || undefined); $("dayview").hidden = false;
+  if (!backend || !backend.results) return;
+  backend.results(key, qFor(n)[1].length, myPlace()).then(r => { if (dayOpen === n) drawDay(n, r || null); }, () => { if (dayOpen === n && !cached) drawDay(n, null); });
+}
+function closeDay(){ dayOpen = -1; $("dayview").hidden = true; }
+const drawDay = (n, r) => $("dayslot").replaceChildren(daySlide(n, r));
+// r: that day's results. undefined while they load, null if they couldn't be loaded.
+function daySlide(n, r){
+  const [dq, o] = qFor(n), mine = myVotes[dayKey(n)], c = r ? countsOf(r.world) : null, total = r && r.world ? r.world.n : 0;
+  const s = shell("past", COLORS[n % COLORS.length]), body = el("div", "sbody");
+  body.append(el("div", "kicker", "No. " + (n + 1) + " · " + dateLabel(n)), el("h2", "stext" + sizeClass(dq), dq));
+  let lines;
+  if (r === undefined) lines = ["Loading the verdict…"];
+  else if (r === null) lines = ["Couldn't load the verdict.", "Check your connection and try again."];
+  else if (c){ const lead = leader(c), sh = shares(c); lines = [mine ? verdictMain(c, mine.choice) : lead < 0 ? "It ended in a tie." : sh[lead] > 50 ? "Most people said " + o[lead] + "." : o[lead] + " came out on top."]; }
+  else if (r.mode === "device") lines = [mine ? "You said " + o[mine.choice] + "." : "You didn't answer this one.", "Live results weren't switched on yet, so there's no verdict."];
+  else if (!total) lines = ["Nobody answered this one on Verd."];
+  else lines = ["Not enough answers for a verdict.", num(total) + (total === 1 ? " person" : " people") + " answered. A verdict needs " + num((r.min && r.min.world) || CONFIG.min.world) + "."];
+  body.append(el("p", "sverdict", lines[0])); if (lines[1]) body.append(el("p", "ssub", lines[1]));
+  if (r === null){ const b = el("button", "cta ghost", "Try again"); b.onclick = () => openDay(n); body.append(b); }
+  const box = answers("past", o, c ? shares(c) : null, mine ? mine.choice : -1, () => {}, false);
+  for (const b of box.children) b.disabled = true;
+  if (r === undefined) box.classList.add("wait");
+  const foot = el("div", "sfoot"); foot.append(el("span", "sinfo", total ? num(total) + (total === 1 ? " answer" : " answers") : ""), el("div", "sacts"));
+  s.append(body, box, foot); return s;
+}
+$("dclose").onclick = closeDay;
 $("q").oninput = renderSearch;
 $("q").onkeydown = e => { if (e.key === "Enter"){ remember($("q").value); $("q").blur(); } };
 $("qclear").onclick = () => { $("q").value = ""; renderSearch(); $("q").focus(); };
@@ -951,17 +1067,26 @@ $("navSearch").onclick = () => showPage("search");
 $("navHome").onclick = () => { if ($("me").hidden && $("search").hidden) $("feed").scrollTo({ top: 0, behavior: "smooth" }); showPage("feed"); };
 $("navMe").onclick = () => showPage("me");
 $("navPlus").onclick = openCompose;
-setInterval(() => { const n = $("nextIn"); if (n) n.textContent = dailyFoot(); }, 30000);
+// Every 30 s the countdowns move on. When a new day starts while Verd is open it reloads for the new question,
+// unless you're in the middle of writing something (then on the next tick, or when you come back to it).
+function tick(){
+  if (dayNum() !== today){ const a = document.activeElement; if ($("compose").hidden && $("sheet").hidden && !(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))) location.reload(); return; }
+  setFoot($("feed").querySelector('.slide[data-id="daily"] .sinfo'), dailyFoot());
+  for (const e of document.querySelectorAll("[data-tick=drop]")) e.textContent = dropLine();
+}
+setInterval(tick, 30000);
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") tick(); });
+document.addEventListener("keydown", e => { if (e.key !== "Escape") return; if (!$("dayview").hidden) closeDay(); else if (!$("sheet").hidden) closeSheet(); else if (!$("compose").hidden) $("compose").hidden = true; });
 
 (async function start(){
   setupPlace(); renderTop(); renderFeed();
   ready = pickBackend(); backend = await ready;
   $("mode").textContent = backend.label;
-  showCode();
+  showCode(); renderNet();
   if (backend.ask){
-    ask.api = backend.ask;
-    ask.api.watch((posts, mv, mr) => { ask.posts = posts; ask.myVotes = { ...mv, ...ask.myVotes }; ask.myReports = { ...mr, ...ask.myReports }; checkFlips(); renderFeed(); if (sheetPost) renderSheet(); if (!$("search").hidden) renderSearch(); });
-  } else $("navPlus").hidden = true;
+    ask.api = backend.ask; $("navPlus").hidden = false;   // posting starts hidden: it's off on the public site
+    ask.api.watch((posts, mv, mr) => { ask.posts = posts; ask.myVotes = { ...mv, ...ask.myVotes }; ask.myReports = { ...mr, ...ask.myReports }; checkFlips(); renderTop(); renderFeed(); if (sheetPost) renderSheet(); if (!$("search").hidden) renderSearch(); });
+  }
   if (backend.suggest){
     $("suggest").hidden = false;
     $("sform").onsubmit = async e => { e.preventDefault();

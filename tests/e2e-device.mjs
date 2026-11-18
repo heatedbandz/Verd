@@ -53,3 +53,44 @@ test('an answer is locked in: tapping the other side does nothing', async () => 
   assert.equal(saved, 0);
   await ctx.close();
 });
+
+test('the feed has a real end: no dead tabs, when the next question drops, and its topic', async () => {
+  const { p, ctx, errors } = await open();
+  assert.equal(await p.$eval('#scopes', e => e.hidden), true, 'scope tabs show with no posts to filter');
+  await p.evaluate(() => { const f = document.getElementById('feed'); f.scrollTo(0, f.scrollHeight); });
+  const end = () => p.evaluate(() => document.querySelector('.slide[data-id=end]').innerText);
+  const text = await end();
+  assert.match(text, /You're caught up\./);
+  assert.match(text, /Tomorrow's question drops in (\d+h )?\d+m\./);
+  assert.match(text, /Tomorrow's topic\s*(School|Food|Money|Tech|Would you rather|Hot takes|Space & future|Everyday life)/);
+  assert.match(text, /Answer today's question/);
+  await p.click('.slide[data-id=end] .cta'); await p.waitForTimeout(400);
+  assert.equal(await p.$eval('#feed', f => f.scrollTop), 0, 'the button goes back to today');
+  await p.click('.slide[data-id=daily] .ans'); await p.waitForTimeout(500);
+  assert.doesNotMatch(await end(), /Answer today's question/, 'still asks after answering');
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test('search finds questions that are out, announces ones coming up, and a past one has no fake verdict', async () => {
+  const { p, ctx, errors } = await open();
+  const q = await p.$eval('.slide[data-id=daily] .stext', e => e.textContent);
+  await p.click('#navSearch'); await p.waitForTimeout(400);
+  const home = await p.innerText('#sres');
+  assert.match(home, /Topics/); assert.doesNotMatch(home, /Be the first/);
+  assert.match(home, /Questions so far/); assert.ok(home.includes(q), 'today is not in the list');
+  // the longest word of today's question finds it
+  const word = q.replace(/[^A-Za-z ]/g, '').split(' ').sort((a, b) => b.length - a.length)[0];
+  await p.fill('#q', word); await p.waitForTimeout(200);
+  assert.match(await p.innerText('#sres'), /Today's question/);
+  await p.fill('#q', 'zzqx'); await p.waitForTimeout(200);
+  assert.match(await p.innerText('#sres'), /Nothing on “zzqx” yet\./);
+  // yesterday's question: no database, so no verdict and no percentage
+  await p.fill('#q', ''); await p.waitForTimeout(200);
+  const rows = await p.$$('#sres .res'); await rows[rows.length - 1].click(); await p.waitForTimeout(400);
+  const past = await p.innerText('#dayview');
+  assert.match(past, /Live results weren't switched on yet/); assert.doesNotMatch(past, /\d\s*%/);
+  await p.click('#dclose'); assert.equal(await p.$eval('#dayview', e => e.hidden), true);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});

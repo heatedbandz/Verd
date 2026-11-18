@@ -1,232 +1,308 @@
 <title>Verd</title>
 <meta name="claude:viewport-fit-sides" content="cover">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&display=swap">
-<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;font:14px system-ui,sans-serif}img{max-width:100%}[hidden]{display:none!important}</style><style>
-/* Layout: a full-screen feed. Each post is one screen of big text on a color, with two tap targets at the bottom. Chrome stays out of the way. */
+<style>
+/* ---------- Tokens. Every colour, space, radius, shadow, blur, type size and motion value lives here. ---------- */
+/* Colour pairs are checked for WCAG AA by tests/contrast.mjs, including white text on the frosted glass and tiles. */
 :root{
-  --bg:#ffffff; --surface:#f3f3f1; --surface-2:#e6e6e2; --ink:#0f100e; --muted:#6d6f68; --line:#e9e9e5; --accent:#10a966; --accent-ink:#0a7d4b;
-  --font:"Geist", "Inter", -apple-system, "Segoe UI", system-ui, sans-serif;
-  --nav:58px; --navh:calc(84px + env(safe-area-inset-bottom,0px)); --gut-l:max(20px,env(safe-area-inset-left,0px)); --gut-r:max(20px,env(safe-area-inset-right,0px));
+  --bg:#ffffff; --surface:#f3f3f1; --surface-2:#e6e6e2; --ink:#0f100e; --muted:#5f615a; --line:#e6e6e1;
+  --accent:#10a966; --accent-ink:#087443; --accent-tint:#dcf1e7;
+  --on-color:#ffffff; --feed-bg:#0b0b0b; --scrim:rgba(0,0,0,.45);
+  --sheen:rgba(255,255,255,.1); --glass:rgba(255,255,255,.14); --fill:rgba(255,255,255,.18); --fill-mine:rgba(255,255,255,.26);
+  --nav-glass:rgba(14,14,14,.72); --nav-icon:rgba(255,255,255,.72); --paged-glass:rgba(255,255,255,.8); --skeleton:var(--surface-2);
+  --font:-apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --t-xs:.75rem; --t-sm:.8125rem; --t-md:.875rem; --t-base:1rem; --t-lg:1.125rem; --t-xl:1.25rem; --t-2xl:1.5rem; --t-3xl:1.75rem; --t-4xl:2rem;
+  --t-display:clamp(2.2rem,10.5vw,3.1rem); --t-display-m:clamp(1.8rem,8.2vw,2.4rem); --t-display-s:clamp(1.4rem,6.2vw,1.8rem); --t-hero:5.25rem;
+  --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:20px; --s6:24px; --s7:28px; --s8:32px; --s12:48px; --s16:64px;
+  --r1:8px; --r2:12px; --r3:16px; --r4:20px; --r5:24px; --r6:36px; --r-pill:999px;
+  --sh1:0 10px 30px rgba(0,0,0,.28); --sh2:0 14px 36px rgba(0,0,0,.32); --sh3:0 40px 120px rgba(0,0,0,.6);
+  --blur1:blur(10px); --blur2:blur(22px) saturate(1.6);
+  /* One spring for everything that moves under a finger: stiffness 380, damping 26 (6% overshoot, settles in ~500 ms). */
+  --spring:linear(0, .04, .139, .27, .412, .551, .677, .786, .874, .943, .993, 1.027, 1.047, 1.058, 1.06, 1.057, 1.051, 1.043, 1.034, 1.026, 1.019, 1.012, 1.007, 1.003, 1, .998, .997, .997, .996, .997, .997, .997, 1);
+  --spring-dur:500ms; --ease-out:cubic-bezier(.16,1,.3,1); --dur-press:90ms; --dur-1:160ms; --dur-2:280ms; --dur-3:500ms; --dur-bar:900ms;
+  --tap:44px; --safe-t:env(safe-area-inset-top,0px); --safe-b:env(safe-area-inset-bottom,0px);
+  --gut-l:max(var(--s5),env(safe-area-inset-left,0px)); --gut-r:max(var(--s5),env(safe-area-inset-right,0px));
+  --navh:calc(84px + var(--safe-b));
+  color-scheme:light;
 }
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
-  --bg:#0b0b0b; --surface:#191919; --surface-2:#262626; --ink:#f4f4f2; --muted:#9a9a94; --line:#232323; --accent:#2bd98a; --accent-ink:#3fe39a; color-scheme:dark}}
+  --bg:#0b0b0b; --surface:#191919; --surface-2:#262626; --ink:#f4f4f2; --muted:#a3a39d; --line:#262626;
+  --accent:#2bd98a; --accent-ink:#3fe39a; --accent-tint:#123323; --paged-glass:rgba(11,11,11,.8); color-scheme:dark}}
 :root[data-theme="dark"]{
-  --bg:#0b0b0b; --surface:#191919; --surface-2:#262626; --ink:#f4f4f2; --muted:#9a9a94; --line:#232323; --accent:#2bd98a; --accent-ink:#3fe39a; color-scheme:dark}
-html{box-sizing:border-box}
-html,body{height:100%}
-body{background:var(--bg);color:var(--ink);font-family:var(--font);font-size:16px;line-height:1.45;-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent;overflow:hidden}
+  --bg:#0b0b0b; --surface:#191919; --surface-2:#262626; --ink:#f4f4f2; --muted:#a3a39d; --line:#262626;
+  --accent:#2bd98a; --accent-ink:#3fe39a; --accent-tint:#123323; --paged-glass:rgba(11,11,11,.8); color-scheme:dark}
+
+/* ---------- Base: iPhone touch behaviour ---------- */
+html{box-sizing:border-box;height:100%;background:var(--feed-bg);overscroll-behavior:none;-webkit-text-size-adjust:100%}
+*,*::before,*::after{box-sizing:inherit;touch-action:manipulation}
+body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:var(--feed-bg);color:var(--ink);font-family:var(--font);font-size:var(--t-base);line-height:1.45;
+  -webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+input,textarea,.cmt>p,#shareBox{-webkit-user-select:text;user-select:text;-webkit-touch-callout:default}
+img{max-width:100%;-webkit-user-drag:none}
+[hidden]{display:none!important}
 button,input,select,textarea{font:inherit;color:inherit}
 button{border:0;background:none;padding:0;cursor:pointer}
 :is(button,input,select,textarea):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.app{height:100%;max-width:480px;margin:0 auto;position:relative;display:flex;flex-direction:column;background:var(--bg)}
+.num,.apct,.hero-n b,.trio b,.code{font-variant-numeric:tabular-nums}
+.app{height:100%;max-width:480px;margin:0 auto;position:relative;display:flex;flex-direction:column;background:var(--feed-bg)}
 .stage{flex:1;min-height:0;position:relative}
 
-/* feed */
-.feed{position:absolute;inset:0;overflow-y:auto;scroll-snap-type:y mandatory;overscroll-behavior:contain;scrollbar-width:none}
+/* Press: squish to 0.96 fast, spring back on release. Shared by every big tap target. */
+:is(.ans,.cta,.b2,.topic,.duo-imgs button,.res,.peek,.iact,.nav button){transition:transform var(--spring-dur) var(--spring)}
+:is(.ans,.cta,.b2,.topic,.duo-imgs button,.res,.peek,.iact,.nav button):not(:disabled):active{transform:scale(.96);transition:transform var(--dur-press) var(--ease-out)}
+
+/* ---------- Feed: one full-screen question per slide ---------- */
+.feed{position:absolute;inset:0;overflow-y:auto;scroll-snap-type:y mandatory;overscroll-behavior:contain;scrollbar-width:none;background:var(--feed-bg)}
 .feed::-webkit-scrollbar{display:none}
-.slide{height:100%;box-sizing:border-box;scroll-snap-align:start;scroll-snap-stop:always;position:relative;display:flex;flex-direction:column;color:#fff;padding:64px var(--gut-r) calc(var(--navh) + 12px) var(--gut-l);background:#151515}
-.sbody{flex:1;min-height:0;display:flex;flex-direction:column;justify-content:center;gap:14px}
-.kicker{font-size:.8rem;font-weight:600;opacity:.8;letter-spacing:.02em}
-.stext{margin:0;font-weight:800;letter-spacing:-.045em;line-height:1.02;font-size:clamp(2.2rem,10.5vw,3.1rem);text-wrap:balance;overflow-wrap:anywhere}
-.stext.m{font-size:clamp(1.8rem,8.2vw,2.4rem);letter-spacing:-.04em;line-height:1.06}
-.stext.s{font-size:clamp(1.4rem,6.2vw,1.8rem);letter-spacing:-.03em;line-height:1.12}
-.sverdict{margin:0;font-size:1.1rem;font-weight:600;letter-spacing:-.015em;line-height:1.3;text-wrap:pretty}
-.ssub{margin:0;font-size:.92rem;opacity:.82}
-.answers{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.slide{--c0:#17181a;--c1:#000;--skeleton:var(--fill);contain:layout style paint;height:100%;scroll-snap-align:start;scroll-snap-stop:always;position:relative;display:flex;flex-direction:column;color:var(--on-color);
+  padding:calc(var(--safe-t) + var(--s16)) var(--gut-r) calc(var(--navh) + var(--s3)) var(--gut-l);
+  background:radial-gradient(120% 70% at 0% 0%,var(--sheen),transparent 60%),radial-gradient(90% 60% at 100% 100%,rgba(0,0,0,.28),transparent 70%),linear-gradient(165deg,var(--c0),var(--c1));background-color:var(--c1)}
+.slide::before{content:"";position:absolute;inset:0 0 auto 0;height:calc(var(--safe-t) + 110px);background:linear-gradient(180deg,rgba(0,0,0,.22),transparent);pointer-events:none}
+.sbody{flex:1;min-height:0;display:flex;flex-direction:column;justify-content:center;gap:var(--s3)}
+.kicker{font-size:var(--t-sm);font-weight:600;letter-spacing:.02em}
+.stext{margin:0;font-weight:800;letter-spacing:-.045em;line-height:1.02;font-size:var(--t-display);text-wrap:balance;overflow-wrap:anywhere}
+.stext.m{font-size:var(--t-display-m);letter-spacing:-.04em;line-height:1.06}
+.stext.s{font-size:var(--t-display-s);letter-spacing:-.03em;line-height:1.12}
+.sverdict{margin:0;font-size:var(--t-lg);font-weight:700;letter-spacing:-.015em;line-height:1.3;text-wrap:pretty}
+.ssub{margin:0;font-size:var(--t-md);font-weight:500}
+.answers{display:grid;grid-template-columns:1fr 1fr;gap:var(--s3)}
 .answers.stack{grid-template-columns:1fr}
-.ans{position:relative;overflow:hidden;border-radius:18px;background:rgba(255,255,255,.16);box-shadow:inset 0 1px 0 rgba(255,255,255,.22);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);color:#fff;min-height:92px;padding:14px 16px;display:flex;flex-direction:column;align-items:flex-start;justify-content:flex-end;gap:2px;text-align:left;transition:transform .12s ease,background-color .2s}
+.ans{position:relative;overflow:hidden;border-radius:var(--r4);background:var(--glass);box-shadow:inset 0 1px 0 rgba(255,255,255,.22);backdrop-filter:var(--blur1);-webkit-backdrop-filter:var(--blur1);
+  color:var(--on-color);min-height:92px;padding:var(--s4);display:flex;flex-direction:column;align-items:flex-start;justify-content:flex-end;gap:2px;text-align:left}
 .answers.stack .ans{min-height:60px;flex-direction:row;align-items:center;justify-content:space-between}
-.ans:not(:disabled):hover{background:rgba(255,255,255,.26)}
-.ans:not(:disabled):active{transform:scale(.97)}
+@media (hover:hover){.ans:not(:disabled):hover{background:var(--fill-mine)}}
 .ans:disabled{cursor:default}
-.ans .fill{position:absolute;inset:auto 0 0 0;height:0;background:rgba(255,255,255,.2);transition:height .9s cubic-bezier(.16,1,.3,1),width .9s cubic-bezier(.16,1,.3,1)}
-.answers.stack .ans .fill{inset:0 auto 0 0;height:100%;width:0}
-.ans.mine{box-shadow:inset 0 0 0 2.5px #fff} .ans.mine .fill{background:rgba(255,255,255,.34)}
+.ans .fill{position:absolute;inset:0;background:var(--fill);transform:scaleY(0);transform-origin:50% 100%;transition:transform var(--dur-bar) var(--ease-out)}
+.answers.stack .ans .fill{transform:scaleX(0);transform-origin:0 50%}
+.ans.mine{box-shadow:inset 0 0 0 2.5px var(--on-color)} .ans.mine .fill{background:var(--fill-mine)}
 .ans span{position:relative}
-.alabel{font-weight:700;font-size:1.15rem;letter-spacing:-.02em}
-.apct{font-weight:800;font-size:1.9rem;letter-spacing:-.05em;line-height:1;font-variant-numeric:tabular-nums;order:-1}
-.answers.stack .apct{order:0;font-size:1.3rem}
-.sfoot{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:44px;margin-top:8px;font-size:.85rem}
-.sfoot>span{opacity:.82;min-width:0}
-.sacts{display:flex;gap:4px;flex:none}
-.iact{display:flex;align-items:center;gap:6px;color:#fff;font-size:.85rem;font-weight:600;padding:10px;border-radius:10px}
-.iact:hover{background:rgba(255,255,255,.14)}
+.alabel{font-weight:700;font-size:var(--t-xl);letter-spacing:-.02em}
+.apct{font-weight:800;font-size:var(--t-4xl);letter-spacing:-.05em;line-height:1;order:-1}
+.answers.stack .apct{order:0;font-size:var(--t-2xl)}
+.sfoot{display:flex;align-items:center;justify-content:space-between;gap:var(--s3);min-height:var(--tap);margin-top:var(--s2);font-size:var(--t-sm);font-weight:500}
+.sfoot>span{min-width:0}
+.sacts{display:flex;gap:var(--s1);flex:none}
+.iact{display:flex;align-items:center;justify-content:center;gap:6px;min-width:var(--tap);min-height:var(--tap);padding:0 var(--s2);color:var(--on-color);font-size:var(--t-sm);font-weight:600;border-radius:var(--r2)}
+@media (hover:hover){.iact:hover{background:var(--glass)}}
 .iact svg,.nav svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
-.slide.in .sbody>*{animation:lift .5s cubic-bezier(.16,1,.3,1) both}
-.slide.in .sbody>:nth-child(2){animation-delay:.05s} .slide.in .sbody>:nth-child(3){animation-delay:.1s}
-.slide.in .answers{animation:lift .5s .12s cubic-bezier(.16,1,.3,1) both}
+.slide.in .sbody>*{animation:lift var(--dur-3) var(--ease-out) both}
+.slide.in .sbody>:nth-child(2){animation-delay:50ms} .slide.in .sbody>:nth-child(3){animation-delay:100ms}
+.slide.in .answers{animation:lift var(--dur-3) 120ms var(--ease-out) both}
 @keyframes lift{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
-.ans.pop{animation:pop .5s cubic-bezier(.2,1.5,.4,1)}
-@keyframes pop{0%{transform:scale(.95)}55%{transform:scale(1.03)}100%{transform:scale(1)}}
-.hint{position:absolute;left:0;right:0;bottom:calc(var(--navh) - 8px);text-align:center;font-size:.72rem;font-weight:600;letter-spacing:.04em;opacity:0;animation:hint 3.2s 1.6s ease both;pointer-events:none}
-@keyframes hint{0%{opacity:0;transform:translateY(6px)}20%,70%{opacity:.75;transform:none}100%{opacity:0;transform:translateY(-6px)}}
-.slide::before{content:"";position:absolute;inset:0 0 auto 0;height:110px;background:linear-gradient(180deg,rgba(0,0,0,.22),rgba(0,0,0,0));pointer-events:none}
+.ans.pop{animation:pop var(--spring-dur) var(--spring)}
+/* The reveal, on one timeline: bars and count-up from 0 ms, the headline at 420 ms, the teaser at 700 ms. */
+.slide.reveal .sverdict{animation:lift var(--dur-3) 420ms var(--ease-out) both}
+.slide.reveal .ssub{animation:lift var(--dur-3) 700ms var(--ease-out) both}
+.answers.guess .ans{min-height:56px}
+@keyframes pop{from{transform:scale(.96)}to{transform:none}}
+.hint{position:absolute;left:0;right:0;bottom:calc(var(--navh) - var(--s2));text-align:center;font-size:var(--t-xs);font-weight:600;letter-spacing:.04em;opacity:0;animation:hint 3.2s 1.6s ease both;pointer-events:none}
+@keyframes hint{0%{opacity:0;transform:translateY(6px)}20%,70%{opacity:1;transform:none}100%{opacity:0;transform:translateY(-6px)}}
 .slide.end{background:radial-gradient(90% 60% at 0% 0%,#242424,#0c0c0c 70%);justify-content:center}
 .slide.end .sbody{flex:none}
-.cta{align-self:flex-start;margin-top:6px;background:#fff;color:#111;font-weight:700;border-radius:12px;padding:14px 20px}
+.cta{align-self:flex-start;margin-top:var(--s2);min-height:var(--tap);background:var(--on-color);color:#111;font-weight:700;border-radius:var(--r2);padding:var(--s3) var(--s5)}
 
-/* top bar over the feed */
-.top{position:absolute;inset:0 0 auto 0;z-index:3;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px var(--gut-r) 0 var(--gut-l);color:#fff;pointer-events:none}
+/* ---------- Loading, offline and caught-up states ---------- */
+/* Placeholders breathe on opacity only. Reduced motion leaves them still. */
+@keyframes pulse{from{opacity:.5}to{opacity:1}}
+@keyframes breathe{from{opacity:0}to{opacity:1}}
+.sk,.skel .bar,.skel .ans{color:transparent!important;text-shadow:none!important;background:var(--skeleton);border-radius:var(--r1);animation:pulse var(--dur-3) var(--ease-out) infinite alternate}
+.sfoot .sk{display:inline-block;min-width:13em;line-height:1.15}
+.rowlist span.sk{min-width:8em}
+.skel .bar{display:block;height:var(--t-sm)}
+.skel .bar.kick{width:38%}
+.skel .bar.big{height:var(--t-4xl);width:92%;border-radius:var(--r2)}
+.skel .bar.short{width:58%}
+.skel .bar.foot{width:52%}
+.skel .ans{border-radius:var(--r4);box-shadow:none}
+/* The count is on its way: your answer stays ringed and the buttons breathe. */
+.answers.wait .ans::after{content:"";position:absolute;inset:0;background:var(--sheen);animation:breathe var(--dur-3) var(--ease-out) infinite alternate}
+.cta.ghost{background:var(--glass);color:var(--on-color)}
+.peekline{margin:var(--s1) 0 0;display:flex;flex-wrap:wrap;align-items:center;gap:var(--s2);font-size:var(--t-md);font-weight:600}
+.peekline b{font-weight:800;padding:var(--s1) var(--s3);border-radius:var(--r-pill);background:var(--glass)}
+.net{display:grid;place-items:center;min-height:var(--tap);margin-right:auto}
+.net span{font-size:var(--t-xs);font-weight:700;padding:var(--s1) var(--s3);border-radius:var(--r-pill);background:var(--scrim);color:var(--on-color);backdrop-filter:var(--blur1);-webkit-backdrop-filter:var(--blur1)}
+.page.dayview{z-index:8;background:var(--feed-bg);overflow:hidden}
+#dayslot,#dayslot .slide{height:100%}
+#dayslot .slide{padding-bottom:calc(var(--safe-b) + var(--s6))}
+.dclose{position:absolute;z-index:2;top:calc(var(--safe-t) + var(--s2));left:var(--gut-l);min-width:var(--tap);min-height:var(--tap);color:var(--on-color);font-size:var(--t-4xl);line-height:1;text-align:left;text-shadow:0 1px 8px rgba(0,0,0,.18)}
+
+/* ---------- Top bar over the feed ---------- */
+.top{position:absolute;inset:0 0 auto 0;z-index:3;display:flex;align-items:center;justify-content:space-between;gap:var(--s3);padding:calc(var(--safe-t) + var(--s2)) var(--gut-r) 0 var(--gut-l);color:var(--on-color);pointer-events:none}
 .top>*{pointer-events:auto}
-.brand{font-weight:800;font-size:1.35rem;letter-spacing:-.06em;line-height:1}
-.scopes{display:flex;gap:14px;overflow-x:auto;scrollbar-width:none}
-.scope{color:#fff;opacity:.6;font-size:.88rem;font-weight:600;padding:8px 0;white-space:nowrap;border-bottom:2px solid transparent;transition:opacity .2s}
-.scope.on{opacity:1;border-bottom-color:#fff}
+.brand{font-weight:800;font-size:var(--t-xl);letter-spacing:-.06em;line-height:1}
+.scopes{display:flex;gap:var(--s2);overflow-x:auto;scrollbar-width:none}
+.scope{color:var(--on-color);font-size:var(--t-md);font-weight:500;min-height:var(--tap);min-width:var(--tap);white-space:nowrap;border-bottom:2px solid transparent}
+.scope.on{font-weight:800;border-bottom-color:var(--on-color)}
 .brand,.scope,.kicker,.sfoot{text-shadow:0 1px 8px rgba(0,0,0,.18)}
 
-/* bottom nav: a floating glass capsule */
-.nav{position:absolute;z-index:6;left:var(--gut-l);right:var(--gut-r);bottom:calc(12px + env(safe-area-inset-bottom,0px));height:60px;display:grid;grid-template-columns:repeat(4,1fr);align-items:center;padding:0 6px;border-radius:22px;background:rgba(14,14,14,.6);backdrop-filter:blur(22px) saturate(1.6);-webkit-backdrop-filter:blur(22px) saturate(1.6);box-shadow:inset 0 0 0 1px rgba(255,255,255,.1),0 14px 36px rgba(0,0,0,.32)}
-.nav button{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;color:rgba(255,255,255,.55);transition:color .2s}
-.nav button::after{content:"";width:4px;height:4px;border-radius:50%;background:currentColor;opacity:0;transition:opacity .2s}
-.nav button.on{color:#fff} .nav button.on::after{opacity:1}
+/* ---------- Bottom nav: a floating glass capsule, clear of the home indicator ---------- */
+.nav{position:absolute;z-index:6;left:var(--gut-l);right:var(--gut-r);bottom:calc(var(--s3) + var(--safe-b));height:60px;display:grid;grid-auto-flow:column;grid-auto-columns:1fr;align-items:center;padding:0 6px;
+  border-radius:var(--r5);background:var(--nav-glass);backdrop-filter:var(--blur2);-webkit-backdrop-filter:var(--blur2);box-shadow:inset 0 0 0 1px rgba(255,255,255,.1),var(--sh2)}
+.nav button{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;color:var(--nav-icon)}
+.nav button::after{content:"";width:4px;height:4px;border-radius:50%;background:currentColor;opacity:0;transition:opacity var(--dur-1)}
+.nav button.on{color:var(--on-color)} .nav button.on::after{opacity:1}
 #navPlus::after{display:none}
-.nav .plus{width:46px;height:36px;border-radius:13px;background:#fff;color:#111;display:grid;place-items:center;transition:transform .12s ease}
-.nav button:active .plus{transform:scale(.92)}
+.nav .plus{width:46px;height:36px;border-radius:var(--r2);background:var(--on-color);color:#111;display:grid;place-items:center}
+.app.paged .nav{background:var(--paged-glass);box-shadow:inset 0 0 0 1px var(--line),0 12px 32px rgba(0,0,0,.14)}
+.app.paged .nav button{color:var(--muted)} .app.paged .nav button.on{color:var(--ink)}
+.app.paged .nav .plus{background:var(--ink);color:var(--bg)}
 
-/* pages */
-.page{position:absolute;inset:0;z-index:5;background:var(--bg);overflow-y:auto;animation:rise .28s cubic-bezier(.16,1,.3,1) both}
+/* ---------- Pages ---------- */
+.page{position:absolute;inset:0;z-index:5;background:var(--bg);color:var(--ink);overflow-y:auto;overscroll-behavior:contain;animation:rise var(--dur-2) var(--ease-out) both}
 @keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
-.me{padding:26px var(--gut-r) calc(var(--navh) + 28px) var(--gut-l);display:flex;flex-direction:column;gap:30px}
+.me{padding:calc(var(--safe-t) + var(--s6)) var(--gut-r) calc(var(--navh) + var(--s7)) var(--gut-l);display:flex;flex-direction:column;gap:var(--s7)}
 .me header{display:flex;justify-content:space-between;align-items:baseline}
 .me .brand i,.sec h3 i{color:var(--accent);font-style:normal}
-.hero-n{display:flex;align-items:baseline;gap:12px}
-.hero-n b{font-size:5.2rem;font-weight:800;letter-spacing:-.07em;line-height:.9;font-variant-numeric:tabular-nums}
-.hero-n span{font-size:1.1rem;font-weight:600;color:var(--muted)}
-.note{margin:0;font-size:.88rem;color:var(--muted)}
-.trio{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
-.trio b{display:block;font-size:1.25rem;font-weight:700;letter-spacing:-.03em;line-height:1.2}
-.trio small{font-size:.78rem;color:var(--muted)}
-.sec{display:flex;flex-direction:column;gap:14px;border-top:1px solid var(--line);padding-top:26px}
-.sec h3{margin:0;font-size:1.05rem;font-weight:700;letter-spacing:-.02em}
-.tags{display:flex;flex-wrap:wrap;gap:8px 18px;font-size:.92rem;font-weight:600}
-.tags span.off{color:var(--muted);font-weight:400;opacity:.7}
-.tags span:not(.off)::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-right:8px;vertical-align:middle}
-.line{display:flex;gap:10px;align-items:center}
-.field{background:var(--surface);border:0;border-radius:12px;padding:13px 14px;width:100%;box-sizing:border-box;min-width:0}
-::placeholder{color:var(--muted);opacity:.85}
-.b2{flex:none;background:var(--ink);color:var(--bg);font-weight:600;border-radius:12px;padding:13px 18px;transition:transform .12s ease}
+.hero-n{display:flex;align-items:baseline;gap:var(--s3)}
+.hero-n b{font-size:var(--t-hero);font-weight:800;letter-spacing:-.07em;line-height:.9}
+.hero-n span{font-size:var(--t-lg);font-weight:600;color:var(--muted)}
+.note{margin:0;font-size:var(--t-md);color:var(--muted)}
+.trio{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--s4)}
+.trio b{display:block;font-size:var(--t-xl);font-weight:700;letter-spacing:-.03em;line-height:1.2}
+.trio small{font-size:var(--t-xs);color:var(--muted)}
+.sec{display:flex;flex-direction:column;gap:var(--s3);border-top:1px solid var(--line);padding-top:var(--s6)}
+.sec h3{margin:0;font-size:var(--t-lg);font-weight:700;letter-spacing:-.02em}
+.tags{display:flex;flex-wrap:wrap;gap:var(--s2) var(--s4);font-size:var(--t-md);font-weight:600}
+.tags span.off{color:var(--muted);font-weight:400}
+.tags span:not(.off)::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-right:var(--s2);vertical-align:middle}
+.line{display:flex;gap:var(--s3);align-items:center}
+.field{background:var(--surface);border:0;border-radius:var(--r2);padding:var(--s3) var(--s4);min-height:var(--tap);width:100%;min-width:0}
+::placeholder{color:var(--muted);opacity:1}
+.b2{flex:none;min-height:var(--tap);background:var(--ink);color:var(--bg);font-weight:600;border-radius:var(--r2);padding:var(--s3) var(--s4)}
 .b2.soft{background:var(--surface);color:var(--ink)}
-.b2:active{transform:scale(.96)}
-.code{font-size:1.5rem;font-weight:700;letter-spacing:.16em;flex:1}
+.code{font-size:var(--t-2xl);font-weight:700;letter-spacing:.16em;flex:1}
 .rowlist{display:flex;flex-direction:column}
-.rowlist>div{display:flex;justify-content:space-between;gap:12px;padding:12px 0;border-top:1px solid var(--line);font-size:.92rem}
+.rowlist>div{display:flex;justify-content:space-between;gap:var(--s3);padding:var(--s3) 0;border-top:1px solid var(--line);font-size:var(--t-md)}
 .rowlist>div:first-child{border-top:0}
 .rowlist b{font-weight:600}
 .rowlist span{color:var(--muted);text-align:right}
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:var(--s3)}
 
-/* compose */
-.compose{z-index:8;color:#fff;display:flex;flex-direction:column;padding:16px var(--gut-r) 20px var(--gut-l);gap:16px;transition:background-color .25s}
+/* ---------- Compose ---------- */
+.compose{--c0:#5b3df5;--c1:#3d22c7;z-index:8;color:var(--on-color);display:flex;flex-direction:column;gap:var(--s4);
+  padding:calc(var(--safe-t) + var(--s4)) var(--gut-r) calc(var(--safe-b) + var(--s5)) var(--gut-l);
+  background:radial-gradient(120% 70% at 0% 0%,var(--sheen),transparent 60%),linear-gradient(165deg,var(--c0),var(--c1));background-color:var(--c1)}
 .cbar{display:flex;justify-content:space-between;align-items:center}
-.cbar .x{font-size:1.9rem;line-height:1;padding:4px 8px;color:#fff;opacity:.9}
-.cbar .post{background:#fff;color:#111;font-weight:700;border-radius:12px;padding:11px 20px}
+.cbar .x{font-size:var(--t-4xl);line-height:1;min-width:var(--tap);min-height:var(--tap);color:var(--on-color);text-align:left}
+.cbar .post{background:var(--on-color);color:#111;font-weight:700;border-radius:var(--r2);min-height:var(--tap);padding:0 var(--s5)}
 .cbar .post:disabled{opacity:.5}
-#ptext{flex:1;min-height:0;background:none;border:0;resize:none;color:#fff;font-weight:800;font-size:clamp(1.9rem,8.6vw,2.5rem);letter-spacing:-.04em;line-height:1.06;padding:0;outline:none}
-#ptext::placeholder{color:#fff;opacity:.55}
-.clabel{font-size:.8rem;font-weight:600;opacity:.75;margin-bottom:8px}
-.swatches{display:flex;gap:10px}
-.sw{width:34px;height:34px;border-radius:10px;box-shadow:inset 0 0 0 2px rgba(255,255,255,.35)}
-.sw.on{box-shadow:inset 0 0 0 3px #fff}
-.aud{display:flex;gap:16px;flex-wrap:wrap}
-.aud button{color:#fff;opacity:.6;font-weight:700;font-size:1rem;padding:6px 0;border-bottom:2px solid transparent}
-.aud button.on{opacity:1;border-bottom-color:#fff}
-.cnote{margin:0;font-size:.78rem;opacity:.75}
-.thumbs{display:flex;gap:10px;align-items:center}
-.thumb{position:relative;width:64px;height:84px;border-radius:12px;overflow:hidden;box-shadow:inset 0 0 0 2px rgba(255,255,255,.35)}
-.thumb img{width:100%;height:100%;object-fit:cover;display:block}
-.thumb button{position:absolute;top:3px;right:3px;width:22px;height:22px;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;font-size:1rem;line-height:1;display:grid;place-items:center}
-.addp{width:64px;height:84px;border-radius:12px;background:rgba(255,255,255,.17);color:#fff;display:grid;place-items:center}
+#ptext{flex:1;min-height:0;background:none;border:0;resize:none;color:var(--on-color);font-weight:800;font-size:var(--t-display-m);letter-spacing:-.04em;line-height:1.06;padding:0;outline:none}
+#ptext::placeholder{color:rgba(255,255,255,.8)}
+.clabel{font-size:var(--t-sm);font-weight:600;margin-bottom:var(--s2)}
+.swatches{display:grid;grid-template-columns:repeat(8,1fr)}
+.sw{height:var(--tap);padding:5px;background-clip:content-box!important;border-radius:var(--r2);box-shadow:none}
+.sw.on{outline:3px solid var(--on-color);outline-offset:-3px}
+.aud{display:flex;gap:var(--s4);flex-wrap:wrap}
+.aud button{color:var(--on-color);font-weight:500;font-size:var(--t-base);min-height:var(--tap);min-width:var(--tap);border-bottom:2px solid transparent}
+.aud button.on{font-weight:800;border-bottom-color:var(--on-color)}
+.aud button:disabled{opacity:.4;cursor:default}
+.cnote{margin:0;font-size:var(--t-sm);font-weight:500}
+.thumbs{display:flex;gap:var(--s3);align-items:center}
+.thumb{position:relative;width:64px;height:84px;border-radius:var(--r2);box-shadow:inset 0 0 0 2px rgba(255,255,255,.35)}
+.thumb img{width:100%;height:100%;object-fit:cover;display:block;border-radius:var(--r2)}
+.thumb button{position:absolute;top:-8px;right:-8px;width:var(--tap);height:var(--tap);display:grid;place-items:center;color:var(--on-color);font-size:var(--t-base);line-height:1}
+.thumb button::before{content:"";position:absolute;width:24px;height:24px;border-radius:50%;background:rgba(0,0,0,.6)}
+.thumb button span{position:relative}
+.addp{width:64px;height:84px;border-radius:var(--r2);background:var(--fill);color:var(--on-color);display:grid;place-items:center}
 .addp svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round}
-.aud button:disabled{opacity:.3;cursor:default}
-.compose.haspic #ptext{font-size:1.5rem;letter-spacing:-.03em;flex:0 0 3.4em}
+.compose.haspic #ptext{font-size:var(--t-2xl);letter-spacing:-.03em;flex:0 0 3.4em}
 .compose.haspic{justify-content:space-between}
+
+/* ---------- Photo posts ---------- */
 .slide.photo .pbg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
-.slide.photo::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.45) 0,rgba(0,0,0,0) 22%,rgba(0,0,0,0) 45%,rgba(0,0,0,.78) 100%);pointer-events:none}
+.slide.photo::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.45) 0,transparent 22%,transparent 45%,rgba(0,0,0,.78) 100%);pointer-events:none}
 .slide.photo>:not(.pbg){position:relative;z-index:1}
-.slide.photo .sbody{justify-content:flex-end;padding-bottom:16px}
-.slide.photo .ans,.slide.duo .ans{background:rgba(255,255,255,.2);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);min-height:76px}
-.slide.duo{background:#0d0d0d!important;gap:12px}
-.duo-imgs{flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.duo-imgs button{border-radius:16px;overflow:hidden;position:relative;transition:transform .12s ease}
-.duo-imgs button:active:not(:disabled){transform:scale(.98)}
-.duo-imgs button.mine{box-shadow:0 0 0 3px #fff}
+.slide.photo .sbody{justify-content:flex-end;padding-bottom:var(--s4)}
+.slide.photo .ans,.slide.duo .ans{background:var(--fill);min-height:76px}
+.slide.duo{background:var(--feed-bg);gap:var(--s3)}
+.duo-imgs{flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr;gap:var(--s3)}
+.duo-imgs button{border-radius:var(--r3);overflow:hidden;position:relative}
+.duo-imgs button.mine{box-shadow:0 0 0 3px var(--on-color)}
 .duo-imgs img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .slide.duo .sbody{flex:none;gap:6px}
 
-/* comments sheet */
-.sheet{position:absolute;inset:0;z-index:9;background:rgba(0,0,0,.45);display:flex;align-items:flex-end}
-.sheetin{width:100%;max-height:72%;background:var(--bg);color:var(--ink);border-radius:20px 20px 0 0;display:flex;flex-direction:column;padding:18px var(--gut-r) 16px var(--gut-l);box-sizing:border-box;gap:12px;animation:up .3s cubic-bezier(.16,1,.3,1) both}
+/* ---------- Comments sheet ---------- */
+.sheet{position:absolute;inset:0;z-index:9;background:var(--scrim);display:flex;align-items:flex-end}
+.sheetin{width:100%;max-height:72%;background:var(--bg);color:var(--ink);border-radius:var(--r4) var(--r4) 0 0;display:flex;flex-direction:column;
+  padding:var(--s4) var(--gut-r) calc(var(--safe-b) + var(--s4)) var(--gut-l);gap:var(--s3);animation:up var(--dur-2) var(--ease-out) both}
 @keyframes up{from{transform:translateY(100%)}to{transform:none}}
 .shead{display:flex;justify-content:space-between;align-items:center;font-weight:700}
-.shead button{font-size:1.6rem;line-height:1;color:var(--muted);padding:0 6px}
-#clist{overflow-y:auto;display:flex;flex-direction:column;gap:14px;min-height:60px}
-.cmt{display:flex;gap:10px;align-items:baseline;font-size:.95rem}
-.cmt b{font-size:.8rem;font-weight:600;color:var(--muted);flex:none}
-.cmt span{flex:1;min-width:0;overflow-wrap:anywhere}
-.lnk{font-size:.78rem;color:var(--muted);text-decoration:underline;text-underline-offset:3px;flex:none}
-#shareBox{width:100%;box-sizing:border-box;min-height:110px;background:var(--surface);border:0;border-radius:12px;padding:12px;font-size:.9rem}
+.shead button{font-size:var(--t-3xl);line-height:1;color:var(--muted);min-width:var(--tap);min-height:var(--tap);margin:-10px -10px -10px 0}
+#clist{overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:var(--s4);min-height:60px}
+.cmt{display:flex;flex-direction:column;gap:3px;font-size:var(--t-base)}
+.cmt>p{margin:0;overflow-wrap:anywhere}
+.chead{display:flex;gap:var(--s2);align-items:center;font-size:var(--t-sm);color:var(--muted)}
+.chead b{font-weight:600}
+.chead .lnk{margin-left:auto}
+.chead i{font-style:normal;font-size:var(--t-xs);font-weight:700;padding:2px var(--s2);border-radius:var(--r1);background:var(--surface-2);color:var(--ink)}
+.chead i.a{background:var(--accent-tint);color:var(--accent-ink)}
+.lnk{font-size:var(--t-sm);color:var(--muted);text-decoration:underline;text-underline-offset:3px;flex:none;min-height:var(--tap);padding:0 var(--s2);margin:-12px calc(var(--s2) * -1)}
+#shareBox{width:100%;min-height:110px;background:var(--surface);border:0;border-radius:var(--r2);padding:var(--s3);font-size:var(--t-md)}
+.ssubt{font-size:var(--t-sm);color:var(--muted);font-weight:500;margin-top:2px}
 
-.toast{position:absolute;left:50%;top:62px;transform:translate(-50%,-12px);opacity:0;transition:transform .3s cubic-bezier(.16,1,.3,1),opacity .25s;background:var(--ink);color:var(--bg);padding:12px 18px;border-radius:12px;font-size:.9rem;font-weight:600;max-width:calc(100% - 40px);width:max-content;text-align:center;z-index:20}
+/* ---------- Toast ---------- */
+.toast{position:absolute;left:50%;top:calc(var(--safe-t) + 62px);transform:translate(-50%,-12px);opacity:0;transition:transform var(--dur-2) var(--ease-out),opacity var(--dur-2);
+  background:var(--ink);color:var(--bg);padding:var(--s3) var(--s4);border-radius:var(--r2);font-size:var(--t-md);font-weight:600;max-width:calc(100% - 40px);width:max-content;text-align:center;z-index:20;box-shadow:var(--sh1)}
 .toast.show{transform:translate(-50%,0);opacity:1}
-.toast{box-shadow:0 10px 30px rgba(0,0,0,.28)}
-/* search */
-.search{padding:0 var(--gut-r) calc(var(--navh) + 28px) var(--gut-l);display:flex;flex-direction:column;gap:26px}
-.sbar{position:sticky;top:0;z-index:2;background:var(--bg);display:flex;gap:14px;align-items:center;padding:14px 0 8px}
-.sfield{flex:1;min-width:0;display:flex;align-items:center;gap:10px;height:46px;padding:0 12px 0 14px;border-radius:14px;background:var(--surface);color:var(--muted);transition:box-shadow .2s}
+
+/* ---------- Search ---------- */
+.search{padding:0 var(--gut-r) calc(var(--navh) + var(--s7)) var(--gut-l);display:flex;flex-direction:column;gap:var(--s6)}
+.sbar{position:sticky;top:0;z-index:2;background:var(--bg);display:flex;gap:var(--s3);align-items:center;padding:calc(var(--safe-t) + var(--s3)) 0 var(--s2)}
+.sfield{flex:1;min-width:0;display:flex;align-items:center;gap:var(--s2);height:46px;padding:0 var(--s1) 0 var(--s4);border-radius:var(--r3);background:var(--surface);color:var(--muted)}
 .sfield input:focus-visible{outline:none}
-.app.paged .nav{background:color-mix(in srgb,var(--bg) 80%,transparent);box-shadow:inset 0 0 0 1px var(--line),0 12px 32px rgba(0,0,0,.14)}
-.app.paged .nav button{color:var(--muted)} .app.paged .nav button.on{color:var(--ink)}
-.app.paged .nav .plus{background:var(--ink);color:var(--bg)}
 .sfield svg,.rrow svg{flex:none;width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-.sfield input{flex:1;min-width:0;border:0;background:none;outline:none;color:var(--ink);font-size:1rem;-webkit-appearance:none;appearance:none}
+.sfield input{flex:1;min-width:0;height:100%;border:0;background:none;outline:none;color:var(--ink);font-size:var(--t-base);-webkit-appearance:none;appearance:none}
 .sfield input::-webkit-search-cancel-button{display:none}
-.qx{flex:none;width:20px;height:20px;border-radius:50%;background:var(--muted);color:var(--bg);font-size:.95rem;line-height:1;display:grid;place-items:center}
-.scancel{flex:none;font-weight:600;font-size:.95rem}
-.shd{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px}
-.shd h3{margin:0;font-size:1.05rem;font-weight:700;letter-spacing:-.02em}
-.rrow{display:flex;align-items:center;gap:12px;width:100%;padding:11px 0;color:var(--ink);text-align:left;font-size:.98rem}
+.qx{position:relative;flex:none;width:var(--tap);height:var(--tap);display:grid;place-items:center;color:var(--bg);font-size:var(--t-md);line-height:1}
+.qx::before{content:"";position:absolute;width:20px;height:20px;border-radius:50%;background:var(--muted)}
+.qx span{position:relative}
+.scancel{flex:none;font-weight:600;font-size:var(--t-base);min-height:var(--tap)}
+.shd{display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--s2)}
+.shd h3{margin:0;font-size:var(--t-lg);font-weight:700;letter-spacing:-.02em}
+.rrow{display:flex;align-items:center;gap:var(--s3);width:100%;min-height:var(--tap);color:var(--ink);text-align:left;font-size:var(--t-base)}
 .rrow svg{color:var(--muted)} .rrow span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.rrow .rx{color:var(--muted);font-size:1.3rem;line-height:1;padding:0 4px}
-.topics{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.topic{position:relative;height:100px;border-radius:18px;padding:14px;color:#fff;display:flex;flex-direction:column;justify-content:flex-end;gap:2px;text-align:left;overflow:hidden;transition:transform .12s ease}
-.topic:active{transform:scale(.97)}
-.topic b{font-size:1.15rem;font-weight:800;letter-spacing:-.03em;line-height:1.1}
-.topic small{font-size:.75rem;font-weight:600;opacity:.85}
-.topic .rk{position:absolute;right:12px;top:8px;font-size:1.7rem;font-weight:800;letter-spacing:-.06em;opacity:.38}
-.res{display:flex;gap:14px;align-items:center;width:100%;padding:9px 0;text-align:left;color:var(--ink)}
-.res:active{opacity:.7}
-.mini{flex:none;width:52px;height:68px;border-radius:12px;overflow:hidden;position:relative;color:#fff;font-weight:800;font-size:1.05rem;letter-spacing:-.04em;display:grid;place-items:center}
+.rrow .rx{color:var(--muted);font-size:var(--t-2xl);line-height:1;min-width:var(--tap);min-height:var(--tap)}
+.topics{display:grid;grid-template-columns:1fr 1fr;gap:var(--s3)}
+.topic{--c0:#5b3df5;--c1:#3d22c7;position:relative;height:100px;border-radius:var(--r4);padding:var(--s4);color:var(--on-color);display:flex;flex-direction:column;justify-content:flex-end;gap:2px;text-align:left;overflow:hidden;
+  background:radial-gradient(120% 80% at 0% 0%,var(--sheen),transparent 60%),linear-gradient(160deg,var(--c0),var(--c1));background-color:var(--c1)}
+.topic b{font-size:var(--t-lg);font-weight:800;letter-spacing:-.03em;line-height:1.1}
+.topic small{font-size:var(--t-xs);font-weight:600}
+.topic .rk{position:absolute;right:var(--s3);top:var(--s2);font-size:var(--t-3xl);font-weight:800;letter-spacing:-.06em;opacity:.38}
+.res{display:flex;gap:var(--s4);align-items:center;width:100%;padding:var(--s2) 0;text-align:left;color:var(--ink)}
+.mini{--c0:#5b3df5;--c1:#3d22c7;flex:none;width:52px;height:68px;border-radius:var(--r2);overflow:hidden;position:relative;color:var(--on-color);font-weight:800;font-size:var(--t-base);letter-spacing:-.04em;display:grid;place-items:center;
+  background:radial-gradient(120% 80% at 0% 0%,var(--sheen),transparent 60%),linear-gradient(160deg,var(--c0),var(--c1));background-color:var(--c1)}
 .mini img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .res .rb{min-width:0;flex:1}
-.res .rt{font-weight:650;font-size:.98rem;line-height:1.3;letter-spacing:-.01em;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.res .rm{font-size:.8rem;color:var(--muted);margin-top:4px}
+.res .rt{font-weight:650;font-size:var(--t-base);line-height:1.3;letter-spacing:-.01em;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.res .rm{font-size:var(--t-sm);color:var(--muted);margin-top:var(--s1)}
 .res mark{background:none;color:var(--accent-ink);font-weight:800}
-.sempty{display:flex;flex-direction:column;gap:12px;align-items:flex-start;padding:24px 0}
-.sempty h2{margin:0;font-size:1.7rem;font-weight:800;letter-spacing:-.045em;line-height:1.08}
-/* comment preview on a post + sides in comments */
-.peek{display:flex;gap:8px;align-items:baseline;max-width:100%;box-sizing:border-box;align-self:flex-start;text-align:left;color:#fff;background:rgba(0,0,0,.2);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-radius:14px;padding:10px 13px;font-size:.88rem}
-.peek b{flex:none;font-weight:700;opacity:.75}
+.sempty{display:flex;flex-direction:column;gap:var(--s3);align-items:flex-start;padding:var(--s6) 0}
+.sempty h2{margin:0;font-size:var(--t-3xl);font-weight:800;letter-spacing:-.045em;line-height:1.08}
+
+/* ---------- Comment preview on a post ---------- */
+.peek{display:flex;gap:var(--s2);align-items:baseline;max-width:100%;min-height:var(--tap);align-self:flex-start;text-align:left;color:var(--on-color);background:rgba(0,0,0,.24);
+  backdrop-filter:var(--blur1);-webkit-backdrop-filter:var(--blur1);border-radius:var(--r3);padding:var(--s3);font-size:var(--t-md)}
+.peek b{flex:none;font-weight:700}
 .peek span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.cmt{flex-direction:column;align-items:stretch!important;gap:3px!important}
-.chead{display:flex;gap:8px;align-items:center;font-size:.8rem;color:var(--muted)}
-.chead .lnk{margin-left:auto}
-.chead i{font-style:normal;font-size:.68rem;font-weight:700;padding:2px 7px;border-radius:6px;background:var(--surface-2);color:var(--ink)}
-.chead i.a{background:rgba(16,169,102,.15);color:var(--accent-ink)}
-.cmt>p{margin:0;font-size:.97rem;overflow-wrap:anywhere}
-.ssubt{font-size:.82rem;color:var(--muted);font-weight:500;margin-top:2px}
+
+/* ---------- Bigger screens: show the phone-sized app in a frame ---------- */
 @media (min-width:560px) and (min-height:700px){
-  body{background:#050505;display:grid;place-items:center}
-  .app{width:420px;height:min(860px,calc(100% - 48px));border-radius:36px;overflow:hidden;box-shadow:0 0 0 1px #262626,0 40px 120px rgba(0,0,0,.6)}
+  body{display:grid;place-items:center}
+  .app{width:420px;height:min(860px,calc(100% - 48px));border-radius:var(--r6);overflow:hidden;box-shadow:0 0 0 1px #262626,var(--sh3)}
 }
+/* View Transitions (Safari 18+, Chrome) cross-fade tabs and the reveal; the page rise is the fallback. */
+::view-transition-old(root),::view-transition-new(root){animation-duration:var(--dur-2);animation-timing-function:var(--ease-out)}
+html.vt .page{animation:none}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 </style>
 <div class="app">
   <div class="stage">
-    <main class="feed" id="feed" aria-label="Feed"></main>
+    <main class="feed" id="feed" aria-label="Feed">
+      <section class="slide skel" aria-hidden="true"><div class="sbody"><i class="bar kick"></i><i class="bar big"></i><i class="bar big short"></i></div><div class="answers"><i class="ans"></i><i class="ans"></i></div><div class="sfoot"><i class="bar foot"></i></div></section>
+    </main>
     <div class="top" id="top">
       <div class="brand">verd.</div>
-      <div class="scopes" id="scopes" role="tablist" aria-label="Who is answering"></div>
+      <button class="net" id="net" hidden><span id="netText"></span></button>
+      <div class="scopes" id="scopes" role="tablist" aria-label="Who is answering" hidden></div>
     </div>
 
     <section class="page me" id="me" hidden>
@@ -268,10 +344,15 @@ button{border:0;background:none;padding:0;cursor:pointer}
 
     <section class="page search" id="search" hidden>
       <div class="sbar">
-        <label class="sfield"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="q" type="search" placeholder="Search topics and debates" aria-label="Search" autocomplete="off" enterkeyhint="search" maxlength="60"><button type="button" class="qx" id="qclear" aria-label="Clear" hidden>×</button></label>
+        <label class="sfield"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="q" type="search" placeholder="Search topics and debates" aria-label="Search" autocomplete="off" enterkeyhint="search" maxlength="60"><button type="button" class="qx" id="qclear" aria-label="Clear" hidden><span>×</span></button></label>
         <button class="scancel" id="qcancel">Cancel</button>
       </div>
       <div id="sres" style="display:flex;flex-direction:column;gap:28px"></div>
+    </section>
+
+    <section class="page dayview" id="dayview" aria-label="Past question" hidden>
+      <div id="dayslot"></div>
+      <button class="dclose" id="dclose" aria-label="Close">×</button>
     </section>
 
     <section class="page compose" id="compose" hidden>
@@ -297,7 +378,7 @@ button{border:0;background:none;padding:0;cursor:pointer}
   <nav class="nav" aria-label="Main">
     <button id="navHome" class="on" aria-label="Feed"><svg viewBox="0 0 24 24"><path d="M4 11l8-7 8 7v8a1 1 0 0 1-1 1h-4v-6h-6v6H5a1 1 0 0 1-1-1z"/></svg></button>
     <button id="navSearch" aria-label="Search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button>
-    <button id="navPlus" aria-label="New post"><span class="plus"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span></button>
+    <button id="navPlus" aria-label="New post" hidden><span class="plus"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span></button>
     <button id="navMe" aria-label="Me"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c1.5-4 4.5-6 8-6s6.500 2 8 6"/></svg></button>
   </nav>
 </div>
@@ -338,11 +419,12 @@ function localLevel(res){
 //   open: you haven't answered · loading: no results yet · device: no database, nothing to count
 //   offline: your answer is waiting to be sent · counting: sent, the count is on its way
 //   locked: counted, but fewer votes than the minimum · revealed: the verdict can be shown
-function dayState({ mine, mode, res, waiting }){
+//   error: sent, but the count couldn't be loaded (failed: the last try to load it failed)
+function dayState({ mine, mode, res, waiting, failed }){
   if (mine == null) return "open";
   if (mode === "device") return "device";
   if (waiting) return "offline";
-  if (!res) return "loading";
+  if (!res) return failed ? "error" : "loading";
   if (!res.visible) return "counting";
   return countsOf(res.world) ? "revealed" : "locked";
 }
@@ -361,10 +443,27 @@ function promptLine(res, mode){
 function verdictMain(counts, mine){
   const s = shares(counts), share = s[mine], top = [...s].sort((a, b) => b - a);
   if (top[0] - top[1] <= 8) return "It's neck and neck.";
-  if (share === 0) return "Nobody else picked that. Yet.";
+  if (share === 0) return "Almost nobody picked that. Rare club.";
   if (share < 35) return "Only " + share + "% are with you. Rare club.";
   if (share >= 75) return share + "% agree with you.";
   return share + "% are on your side.";
+}
+
+// A short second line about the split, for when the headline is about your guess.
+function flavor(counts, mine){
+  const s = shares(counts), share = s[mine], top = [...s].sort((a, b) => b - a);
+  if (top[0] - top[1] <= 8) return "It's neck and neck.";
+  if (share < 35) return "Rare club.";
+  if (share >= 75) return "Most people are with you.";
+  return "";
+}
+
+// The guess before the reveal: how many people picked the same answer as you?
+const GUESSES = [["most", "Most"], ["half", "About half"], ["few", "Few"]];
+const bucket = share => share >= 60 ? "most" : share >= 40 ? "half" : "few";
+function guessLine(guess, share){
+  if (bucket(share) === guess) return "You called it. " + share + "% are with you.";
+  return "You guessed " + { most: "most people", half: "about half", few: "only a few" }[guess] + ". It's " + share + "%.";
 }
 
 // Before the minimum: how far along the count is, in plain numbers.
@@ -393,6 +492,13 @@ function pickTeaser(res, mine, names){
   return who + " doesn't have enough votes yet. You're early.";
 }
 
+// Time left until the next question, as people say it: "6h 12m", "12m", "1m".
+function countdown(ms){
+  const mins = Math.max(1, Math.ceil(ms / 60000)), h = Math.floor(mins / 60), m = mins % 60;
+  return h ? h + "h " + m + "m" : m + "m";
+}
+const inDays = k => k === 1 ? "tomorrow" : "in " + k + " days";
+
 
 // ---------- Settings ----------
 // To go live: paste the Supabase Project URL and anon public key (Project Settings > API).
@@ -405,49 +511,51 @@ const CONFIG = {
   // these are only used by the claude.ai preview, which has no database to ask.
   min: { world: 10, country: 30, state: 30, city: 30, friends: 3 }
 };
+const LIVE = !!(CONFIG.supabaseUrl && CONFIG.supabaseKey);
 
-// ---------- Questions: one per day, in order, then it loops. Two to four answers each. ----------
+// ---------- Questions: one per day, in order, then it loops. Two to four answers each, and a topic
+// (for search and tomorrow's sneak peek; ids are in TOPICS below). ----------
 const QUESTIONS = [
-  ["Would you rather be able to fly or be invisible?", ["Fly","Be invisible"]],
-  ["Cats or dogs?", ["Cats","Dogs"]],
-  ["Is a hot dog a sandwich?", ["Yes","No"]],
-  ["Would you go to Mars if you could never come back?", ["Yes, I'd go","No way"]],
-  ["Which is better: morning or night?", ["Morning","Night"]],
-  ["Would you rather know the future or change the past?", ["Know the future","Change the past"]],
-  ["Do you put pineapple on pizza?", ["Yes","Never"]],
-  ["Should school start later in the day?", ["Yes","No"]],
-  ["Would you rather live by the beach or in the mountains?", ["Beach","Mountains"]],
-  ["Will humans live on another planet within 50 years?", ["Yes","No"]],
-  ["Would you take $1 million now or $5,000 a month for life?", ["$1 million now","$5,000 a month"]],
-  ["Sweet or salty snacks?", ["Sweet","Salty"]],
-  ["Would you rather speak every language or play every instrument?", ["Every language","Every instrument"]],
-  ["Is it okay to text while someone is talking to you?", ["Sometimes","Never"]],
-  ["Summer or winter?", ["Summer","Winter"]],
-  ["Would you trust a self-driving car with your life?", ["Yes","Not yet"]],
-  ["Do you believe in aliens?", ["Yes","No","Not sure"]],
-  ["Would you give up your phone for a month for $10,000?", ["Easily","No chance"]],
-  ["Books or movies?", ["Books","Movies"]],
-  ["Should everyone learn to code at school?", ["Yes","No"]],
-  ["Would you rather be famous or rich?", ["Famous","Rich"]],
-  ["Do you shower in the morning or at night?", ["Morning","Night"]],
-  ["Would you rather explore space or the deep ocean?", ["Space","Deep ocean"]],
-  ["Is cereal a soup?", ["Yes","No"]],
-  ["Would you rather never use social media again or never watch TV again?", ["No social media","No TV"]],
-  ["Do you think AI will make life better overall?", ["Better","Worse","Not sure"]],
-  ["Would you rather have no homework or no exams?", ["No homework","No exams"]],
-  ["Tea or coffee?", ["Tea","Coffee","Neither"]],
-  ["Would you live 200 years if you could?", ["Yes","No"]],
-  ["Would you rather be the funniest or the smartest person in the room?", ["Funniest","Smartest"]],
-  ["Should the minimum age for social media be 16?", ["Yes","No"]],
-  ["Do you make your bed every morning?", ["Yes","No"]],
-  ["Would you rather time travel to the past or the future?", ["Past","Future"]],
-  ["Is it better to rent or to own a home?", ["Rent","Own"]],
-  ["Would you eat bugs to save the planet?", ["Yes","No"]],
-  ["Do you sleep with socks on?", ["Yes","No"]],
-  ["Would you rather work from home or in an office?", ["Home","Office"]],
-  ["Should we bring back extinct animals like the mammoth?", ["Yes","No"]],
-  ["Would you rather have a rewind button or a pause button for your life?", ["Rewind","Pause"]],
-  ["Are you happier today than a year ago?", ["Happier","Same","Less happy"]]
+  ["Would you rather be able to fly or be invisible?", ["Fly","Be invisible"], "rather"],
+  ["Cats or dogs?", ["Cats","Dogs"], "takes"],
+  ["Is a hot dog a sandwich?", ["Yes","No"], "food"],
+  ["Would you go to Mars if you could never come back?", ["Yes, I'd go","No way"], "future"],
+  ["Which is better: morning or night?", ["Morning","Night"], "life"],
+  ["Would you rather know the future or change the past?", ["Know the future","Change the past"], "rather"],
+  ["Do you put pineapple on pizza?", ["Yes","Never"], "food"],
+  ["Should school start later in the day?", ["Yes","No"], "school"],
+  ["Would you rather live by the beach or in the mountains?", ["Beach","Mountains"], "rather"],
+  ["Will humans live on another planet within 50 years?", ["Yes","No"], "future"],
+  ["Would you take $1 million now or $5,000 a month for life?", ["$1 million now","$5,000 a month"], "money"],
+  ["Sweet or salty snacks?", ["Sweet","Salty"], "food"],
+  ["Would you rather speak every language or play every instrument?", ["Every language","Every instrument"], "rather"],
+  ["Is it okay to text while someone is talking to you?", ["Sometimes","Never"], "tech"],
+  ["Summer or winter?", ["Summer","Winter"], "takes"],
+  ["Would you trust a self-driving car with your life?", ["Yes","Not yet"], "tech"],
+  ["Do you believe in aliens?", ["Yes","No","Not sure"], "future"],
+  ["Would you give up your phone for a month for $10,000?", ["Easily","No chance"], "money"],
+  ["Books or movies?", ["Books","Movies"], "takes"],
+  ["Should everyone learn to code at school?", ["Yes","No"], "school"],
+  ["Would you rather be famous or rich?", ["Famous","Rich"], "rather"],
+  ["Do you shower in the morning or at night?", ["Morning","Night"], "life"],
+  ["Would you rather explore space or the deep ocean?", ["Space","Deep ocean"], "rather"],
+  ["Is cereal a soup?", ["Yes","No"], "food"],
+  ["Would you rather never use social media again or never watch TV again?", ["No social media","No TV"], "rather"],
+  ["Do you think AI will make life better overall?", ["Better","Worse","Not sure"], "tech"],
+  ["Would you rather have no homework or no exams?", ["No homework","No exams"], "school"],
+  ["Tea or coffee?", ["Tea","Coffee","Neither"], "food"],
+  ["Would you live 200 years if you could?", ["Yes","No"], "future"],
+  ["Would you rather be the funniest or the smartest person in the room?", ["Funniest","Smartest"], "rather"],
+  ["Should the minimum age for social media be 16?", ["Yes","No"], "tech"],
+  ["Do you make your bed every morning?", ["Yes","No"], "life"],
+  ["Would you rather time travel to the past or the future?", ["Past","Future"], "rather"],
+  ["Is it better to rent or to own a home?", ["Rent","Own"], "money"],
+  ["Would you eat bugs to save the planet?", ["Yes","No"], "food"],
+  ["Do you sleep with socks on?", ["Yes","No"], "life"],
+  ["Would you rather work from home or in an office?", ["Home","Office"], "rather"],
+  ["Should we bring back extinct animals like the mammoth?", ["Yes","No"], "future"],
+  ["Would you rather have a rewind button or a pause button for your life?", ["Rewind","Pause"], "rather"],
+  ["Are you happier today than a year ago?", ["Happier","Same","Less happy"], "life"]
 ];
 
 const COUNTRIES = {US:"United States",IN:"India",BR:"Brazil",ID:"Indonesia",NG:"Nigeria",PK:"Pakistan",MX:"Mexico",PH:"Philippines",GB:"United Kingdom",DE:"Germany",FR:"France",ES:"Spain",IT:"Italy",CA:"Canada",AU:"Australia",JP:"Japan",KR:"South Korea",CN:"China",RU:"Russia",TR:"Turkey",EG:"Egypt",ZA:"South Africa",KE:"Kenya",GH:"Ghana",AR:"Argentina",CO:"Colombia",PE:"Peru",CL:"Chile",VN:"Vietnam",TH:"Thailand",MY:"Malaysia",BD:"Bangladesh",SA:"Saudi Arabia",AE:"UAE",PL:"Poland",NL:"Netherlands",SE:"Sweden",UA:"Ukraine",NZ:"New Zealand",IE:"Ireland",JM:"Jamaica",XX:"Somewhere else"};
@@ -546,8 +654,10 @@ const backends = {
         store.set("outbox", [...store.get("outbox", []).filter(x => x.d !== dayKey), { d: dayKey, c, n, place }]);
         return flush();
       },
+      async results(dayKey, n, place){ const r = shape(await rpc("get_results", { d: dayKey, n, ...placeArgs(place) })); store.set("res:" + dayKey, r); return r; },
+      retry(){ flush(); subs.forEach((_, d) => refresh(d)); },
       async profile(){ return session ? rpc("my_profile", {}, true) : null; },   // no account until the first vote
-      async friendMatch(codes){ return codes.length ? rpc("friend_match", { codes }, true) : []; },
+      async friendMatch(codes){ return codes.length && session ? rpc("friend_match", { codes }, true) : []; },
       async board(dayKey, n, place, level){ return rpc("get_board", { d: dayKey, n, cc: level === "country" ? null : place.country, st: level === "city" ? place.state : null }); },
       async suggest(q, answers){ return rpc("suggest_question", { q, answers }, true); },
       waiting: d => stuck && store.get("outbox", []).some(x => x.d === d)   // saved, but no connection to send it
@@ -577,6 +687,7 @@ const backends = {
     return {
       mode: "preview", label: "Preview: shared with the people you send this page to.",
       watch(dayKey, n, place, cb){ const f = () => cb(compute(dayKey, n, place)); cbs.add(f); f(); },
+      async results(dayKey, n, place){ return compute(dayKey, n, place); },
       async vote(dayKey, c, n, place){
         const ref = db.doc("votes/" + uid), s = await ref.get();
         const v = (s.exists && (s.data() || {}).v) || {};
@@ -605,6 +716,7 @@ const backends = {
     return {
       mode: "device", label: "Not live yet: answers are saved on this phone until Verd's database is switched on.",
       watch(dayKey, n, place, cb){ cbs.set(dayKey, cb); cb(result(dayKey)); },
+      async results(dayKey){ return result(dayKey); },
       async vote(dayKey){ const cb = cbs.get(dayKey); if (cb) cb(result(dayKey)); return true; },
       async profile(){ return { code: me }; },
       async friendMatch(){ return []; },
@@ -636,19 +748,32 @@ const iosTick = (() => {
     l.appendChild(i); document.body.appendChild(l); return () => l.click();
   }catch{ return () => {}; }
 })();
-function haptic(pattern){
-  try{
-    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    if (navigator.vibrate) { navigator.vibrate(pattern); return; }
-    iosTick();
-    if (Array.isArray(pattern) && pattern.length > 2) setTimeout(iosTick, 90);
-  }catch{}
-}
+// The only haptics in the app: four meaningful moments. Never on scroll, never on ordinary taps.
+const haptics = (() => {
+  const play = (pattern, ticks) => { try{ if (navigator.vibrate) navigator.vibrate(pattern); else ticks.forEach(ms => ms ? setTimeout(iosTick, ms) : iosTick()); }catch{} };
+  return {
+    vote: () => play(12, [0]),                           // your answer is in
+    reveal: () => play([10, 60, 18], [0, 90]),           // the verdict lands
+    streak: () => play([8, 40, 8, 40, 16], [0, 80, 160]), // a streak milestone
+    badge: () => play([16, 50, 16], [0, 110])            // a new badge
+  };
+})();
+const calm = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+// Counts up with an ease-out and always lands exactly on the real number.
 function countUp(el, to, suffix){
-  if (matchMedia("(prefers-reduced-motion: reduce)").matches){ el.textContent = to + suffix; return; }
-  const t0 = performance.now(), dur = 750;
-  const step = now => { const k = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - k, 3); el.textContent = Math.round(to * e) + suffix; if (k < 1) requestAnimationFrame(step); };
-  requestAnimationFrame(step);
+  if (calm()){ el.textContent = to + suffix; return; }
+  const t0 = performance.now(), dur = 800;
+  const step = now => { const k = Math.min(1, (now - t0) / dur); el.textContent = (k < 1 ? Math.round(to * (1 - Math.pow(1 - k, 3))) : to) + suffix; if (k < 1) requestAnimationFrame(step); };
+  el.textContent = "0" + suffix; requestAnimationFrame(step);
+}
+// Let the browser paint the tap first, then do the work (keeps every tap well under 100 ms).
+const afterPaint = fn => requestAnimationFrame(() => setTimeout(fn, 0));
+const idle = fn => "requestIdleCallback" in window ? requestIdleCallback(fn, { timeout: 2000 }) : setTimeout(fn, 600);
+// View Transitions where the browser has them (Safari 18+, Chrome); otherwise the change just happens.
+function withTransition(update){
+  if (!document.startViewTransition || calm() || document.hidden) return update();
+  const root = document.documentElement; root.classList.add("vt");
+  document.startViewTransition(update).finished.finally(() => root.classList.remove("vt"));
 }
 
 // ---------- Streaks with freezes ----------
@@ -667,7 +792,7 @@ function bumpStreak(){
   s.last = today; s.best = Math.max(s.best, s.streak);
   store.set("streakState", { last:s.last, streak:s.streak, freezes:s.freezes, best:s.best });
   if (used) toast("Streak freeze used. Your " + s.streak + "-day streak is safe.");
-  else if (s.streak % 7 === 0) toast(s.streak + " days! You earned a streak freeze.");
+  else if (s.streak % 7 === 0){ toast(s.streak + " days! You earned a streak freeze."); haptics.streak(); }
 }
 
 function recapData(){
@@ -693,9 +818,18 @@ const TOPICS = [
   ["money", "Money", /money|\$|rich|\bjob\b|\bwork|\bpay|\btip|\bbuy|price|expensive|save|billion|million/i, 7],
   ["tech", "Tech", /phone|iphone|android|\bai\b|\bapps?\b|gaming|video game|tiktok|instagram|internet|online|robot/i, 3],
   ["rather", "Would you rather", /would you rather|\brather\b/i, 4],
-  ["takes", "Hot takes", /overrated|underrated|hot take|unpopular|honestly|lowkey|highkey/i, 1]
+  ["takes", "Hot takes", /overrated|underrated|hot take|unpopular|honestly|lowkey|highkey/i, 1],
+  ["future", "Space & future", /\bspace\b|\bmars\b|planet|alien|future|time travel|extinct/i, 0],
+  ["life", "Everyday life", /\bsleep|shower|\bbed\b|morning|\bnight\b|weekend|routine|chores/i, 2]
 ];
 const catOf = text => { const t = TOPICS.find(([, , re]) => re.test(text || "")); return t ? t[0] : "takes"; };
+const topicName = id => (TOPICS.find(t => t[0] === id) || TOPICS.find(t => t[0] === "takes"))[1];
+const topicOfDay = n => qFor(n)[2] || catOf(qFor(n)[0]);
+// Daily questions that are out (today's and before), newest first. Once the list loops, a question shows once, at its latest day.
+function aired(){ const out = [], had = new Set(); for (let n = today; n >= 0 && out.length < QUESTIONS.length; n--){ const q = qFor(n)[0]; if (!had.has(q)){ had.add(q); out.push(n); } } return out; }
+// Days until the next question that passes test(day), or 0 if none comes up in the next loop.
+function daysUntil(test){ for (let k = 1; k <= QUESTIONS.length; k++) if (test(today + k)) return k; return 0; }
+const dateLabel = n => n === today ? "Today" : n === today - 1 ? "Yesterday" : new Date(START + n * DAY_MS).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 
 function combinePosts(postDocs, voteDocs, reportDocs, commentDocs, photoDocs){
   const byId = {}, cById = {};
@@ -763,7 +897,7 @@ const today = dayNum(), todayKey = dayKey(today);
 const [question, options] = qFor(today);
 let myVotes = store.get("myVotes", {});
 let res = null, yres = null;   // today's and yesterday's results (see Backends for the shape)
-let backend = null, order = [], animate = null, jumpTo = null, sheetPost = null, revealPending = false;
+let backend = null, ready = null, order = [], animate = null, jumpTo = null, sheetPost = null;
 function guessCountry(){
   const saved = store.get("country"); if (saved) return saved;
   const langs = navigator.languages || [navigator.language || ""];
@@ -773,10 +907,12 @@ function guessCountry(){
 const myPlace = () => ({ city: store.get("city", ""), state: store.get("state", ""), country: guessCountry() });
 const friends = () => store.get("friends", []);
 const SCOPES = [["world","World"],["country","Country"],["state","State"],["city","City"],["friends","Friends"]];
-const COLORS = [["#5b3df5","#3d22c7"],["#ff4d4d","#d62a41"],["#0fa968","#07784a"],["#17181a","#000000"],["#2563ff","#1240c4"],["#e0338a","#ad1966"],["#f2730a","#cc4e00"],["#0e8fa3","#066a7c"]];
+// Slide colours: violet, crimson, green, ink, blue, pink, rust, teal. Each is dark enough that white text passes
+// WCAG AA (4.5:1) on both ends of its gradient, under the sheen. tests/contrast.mjs checks every pair.
+const COLORS = [["#5b3df5","#3d22c7"],["#c81e3a","#8f1230"],["#04724c","#055c3a"],["#17181a","#000000"],["#1d4ed8","#1e3a8a"],["#be185d","#9d174d"],["#b93d0a","#8a3006"],["#0c6f80","#0b5566"]];
+const hue = (e, c) => { e.style.setProperty("--c0", c[0]); e.style.setProperty("--c1", c[1]); return e; };
 const hash = s => { let h = 0; for (const c of String(s)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h; };
-const ask = { api: null, posts: [], myVotes: {}, myReports: {}, flipped: {}, scope: store.get("askScope", "world") };
-if (!SCOPES.some(([k]) => k === ask.scope)) ask.scope = "world";
+const ask = { api: null, posts: [], myVotes: {}, myReports: {}, flipped: {}, scope: "world" };
 const signOf = p => p.yes > p.no ? 1 : p.yes < p.no ? -1 : 0;
 const BLOCK = [/\d[\d\s().-]{6,}\d/, /@\w/, /https?:|www\./i, /\b(kill|kys|die)\b/i];
 const ICON = {
@@ -788,7 +924,8 @@ function el(tag, cls, text){ const e = document.createElement(tag); if (cls) e.c
 function iact(icon, label, text, fn){ const b = el("button", "iact"); b.innerHTML = ICON[icon]; b.setAttribute("aria-label", label); if (text) b.append(el("span", "", text)); b.onclick = fn; return b; }
 function ago(t){ const m = Math.max(1, Math.round((Date.now() - t) / 60000)); return m < 60 ? m + "m" : m < 1440 ? Math.round(m / 60) + "h" : Math.round(m / 1440) + "d"; }
 function sizeClass(text){ return text.length > 105 ? " s" : text.length > 55 ? " m" : ""; }
-document.addEventListener("click", e => { if (e.isTrusted && e.target.closest("button")) haptic(8); }, true);
+// Safari only shows :active (the press squish) if a touchstart listener exists.
+document.addEventListener("touchstart", () => {}, { passive: true });
 
 // ---------- Feed ----------
 function visible(p, anyScope){
@@ -814,20 +951,20 @@ function syncOrder(){
 }
 function currentId(){ const f = $("feed"); if (!f.children.length || !f.clientHeight) return null; const s = f.children[Math.round(f.scrollTop / f.clientHeight)]; return s ? s.dataset.id : null; }
 
-function shell(id, color){ const s = el("section", "slide"); s.dataset.id = id; s.style.background = "radial-gradient(120% 70% at 0% 0%,rgba(255,255,255,.2),rgba(255,255,255,0) 60%),radial-gradient(90% 60% at 100% 100%,rgba(0,0,0,.28),rgba(0,0,0,0) 70%),linear-gradient(165deg," + color[0] + "," + color[1] + ")"; return s; }
-function answers(id, labels, results, mineIdx, onTap){
+function shell(id, color){ const s = hue(el("section", "slide"), color); s.dataset.id = id; return s; }
+function answers(id, labels, results, mineIdx, onTap, anim){
   const box = el("div", "answers" + (labels.length > 2 ? " stack" : ""));
   labels.forEach((label, i) => {
     const b = el("button", "ans" + (mineIdx === i ? " mine" : ""));
     const fill = el("i", "fill"); b.append(fill, el("span", "alabel", label));
-    if (animate === id && mineIdx === i) b.classList.add("pop");
+    if (anim && mineIdx === i) b.classList.add("pop");
     if (results){
       const p = el("span", "apct"); b.append(p); b.disabled = true;
-      const set = () => { fill.style.width = results[i] + "%"; fill.style.height = labels.length > 2 ? "100%" : results[i] + "%"; };
-      if (animate === id){ countUp(p, results[i], "%"); requestAnimationFrame(() => requestAnimationFrame(set)); }
+      const set = () => { fill.style.transform = (labels.length > 2 ? "scaleX(" : "scaleY(") + results[i] / 100 + ")"; };   // transform only: no layout per frame
+      if (anim){ countUp(p, results[i], "%"); requestAnimationFrame(() => requestAnimationFrame(set)); }
       else { p.textContent = results[i] + "%"; set(); }
     } else if (mineIdx >= 0) b.disabled = true;   // answered: locked in while the count comes
-    else b.onclick = () => onTap(i);
+    else b.onclick = () => onTap(i, b);
     box.append(b);
   });
   return box;
@@ -837,15 +974,18 @@ function answers(id, labels, results, mineIdx, onTap){
 function todayState(){
   const mine = myVotes[todayKey];
   if (mine && !backend) return "loading";
-  return dayState({ mine: mine ? mine.choice : null, mode: backend && backend.mode, res, waiting: !!(backend && backend.waiting && backend.waiting(todayKey)) });
+  return dayState({ mine: mine ? mine.choice : null, mode: backend && backend.mode, res, failed: netDown, waiting: !!(backend && backend.waiting && backend.waiting(todayKey)) });
 }
 const placeNames = () => { const p = myPlace(); return { city: p.city, state: p.state, country: COUNTRIES[p.country] }; };
 function verdict(state, mine){
   if (state === "device") return ["Your answer is saved.", "Live results aren't switched on yet, so there's no verdict to show."];
   if (state === "offline") return ["Your answer is saved.", "It counts as soon as you're back online."];
   if (state === "loading" || state === "counting") return ["Your answer is in.", "Counting the votes…"];
-  if (state === "locked") return lockedLines(res);
-  return [verdictMain(countsOf(res.world), mine.choice), pickTeaser(res, mine.choice, placeNames())];
+  if (state === "error") return ["Your answer is in.", "Couldn't load the count right now."];
+  if (state === "locked"){ const [a, b] = lockedLines(res); return [a, b + (mine.guess ? " Your guess is saved." : "")]; }
+  const counts = countsOf(res.world), teaser = pickTeaser(res, mine.choice, placeNames());
+  if (mine.guess) return [guessLine(mine.guess, shares(counts)[mine.choice]), teaser || flavor(counts, mine.choice)];
+  return [verdictMain(counts, mine.choice), teaser];
 }
 // Remember how your answer did once the real count is in (for badges, your week and your opinion type).
 function noteShare(key, r){
@@ -854,34 +994,83 @@ function noteShare(key, r){
   if (mine.share === share && mine.majority === majority) return;
   mine.share = share; mine.majority = majority; store.set("myVotes", myVotes); checkBadges();
 }
-function nextIn(){ const left = START + (today + 1) * DAY_MS - Date.now(); return Math.floor(left / 3600000) + "h " + Math.floor(left % 3600000 / 60000) + "m"; }
+const nextIn = () => countdown(START + (today + 1) * DAY_MS - Date.now());
 
+// The line at the bottom of today's slide. null means the count is on its way: a placeholder bar shows instead.
 function dailyFoot(){
   const n = res && res.world ? res.world.n : 0;
-  if (!myVotes[todayKey]) return promptLine(res, backend && backend.mode);
+  if (!myVotes[todayKey]){
+    const counted = backend ? backend.mode !== "device" : LIVE || !!(window.claude && window.claude.use);
+    return counted && !res && !netDown ? null : promptLine(res, backend && backend.mode);
+  }
   return (todayState() === "revealed" ? num(n) + (n === 1 ? " answer" : " answers") + " · " : "") + "Next question in " + nextIn();
 }
-function dailySlide(){
-  const s = shell("daily", COLORS[today % COLORS.length]), mine = myVotes[todayKey], body = el("div", "sbody"), state = todayState();
+// Today's slide moves through: open → (tap) guess → (tap) reveal. With no database there's no guess,
+// because there will be nothing to check it against.
+// What today's slide shows, as plain data. Two models with the same key look identical on screen.
+function dailyModel(){
+  const mine = myVotes[todayKey], state = todayState();
+  const guessing = !!(mine && backend && backend.mode !== "device" && mine.guess == null && !mine.seen);
+  const counts = state === "revealed" && !guessing ? countsOf(res.world) : null;
+  return {
+    choice: mine ? mine.choice : -1, guessing, share: !!mine && !guessing, foot: dailyFoot(),
+    lines: guessing ? ["Quick guess before the reveal.", "How many people picked " + options[mine.choice] + "?"] : mine ? verdict(state, mine) : null,
+    results: counts ? shares(counts) : null,
+    wait: !guessing && (state === "loading" || state === "counting"),   // the count is on its way
+    retry: state === "error",
+    reveal: !!counts && !mine.seen   // the first time you see this verdict
+  };
+}
+const modelKey = m => JSON.stringify({ ...m, reveal: 0, foot: 0 });   // the footer line is updated on its own
+const setFoot = (e, text) => { if (!e) return; e.classList.toggle("sk", text == null); e.textContent = text == null ? "Loading" : text; };
+function dailySlide(m = dailyModel()){
+  const s = shell("daily", COLORS[today % COLORS.length]), body = el("div", "sbody"), mine = myVotes[todayKey];
+  s.dataset.key = modelKey(m);
   body.append(el("div", "kicker", "Today's question · No. " + (today + 1)), el("h2", "stext" + sizeClass(question), question));
-  if (mine){ const [main, sub] = verdict(state, mine); body.append(el("p", "sverdict", main)); if (sub) body.append(el("p", "ssub", sub)); }
-  const counts = state === "revealed" ? countsOf(res.world) : null;
-  const foot = el("div", "sfoot");
-  const info = el("span", "", dailyFoot());
-  if (mine) info.id = "nextIn";
+  if (m.lines){ body.append(el("p", "sverdict", m.lines[0])); if (m.lines[1]) body.append(el("p", "ssub", m.lines[1])); }
+  if (m.retry){ const b = el("button", "cta ghost", "Try again"); b.onclick = retryNow; body.append(b); }
+  const foot = el("div", "sfoot"), info = el("span", "sinfo"); setFoot(info, m.foot);
   foot.append(info); const acts = el("div", "sacts");
-  if (mine) acts.append(iact("share", "Share", "Share", shareDaily));
+  if (m.share) acts.append(iact("share", "Share", "Share", shareDaily));
   foot.append(acts);
-  s.append(body, answers("daily", options, counts ? shares(counts) : null, mine ? mine.choice : -1, vote), foot);
-  if (mine && animate === "daily"){ const h = el("div", "hint", "Swipe up for more"); s.append(h); }
+  const box = m.guessing ? guessRow() : answers("daily", options, m.results, m.choice, vote, m.reveal);
+  if (m.wait) box.classList.add("wait");
+  s.append(body, box, foot);
+  if (m.reveal){
+    s.classList.add("reveal"); s.append(el("div", "hint", "Swipe up for more"));
+    mine.seen = true; store.set("myVotes", myVotes); revealing = Date.now() + 1400; haptics.reveal();
+  }
+  if (m.share) setTimeout(() => idle(prepareCard), m.reveal ? 3000 : 2500);   // drawn while you read, never during the reveal
   return s;
+}
+function guessRow(){
+  const box = el("div", "answers stack guess");
+  for (const [k, label] of GUESSES){ const b = el("button", "ans"); b.dataset.guess = k; b.append(el("span", "alabel", label)); b.onclick = () => guess(k); box.append(b); }
+  return box;
+}
+// Re-draw only today's slide, not the whole feed, and keep the slide itself: its full-screen gradient
+// stays painted and only what changed inside it is drawn again. This keeps a vote or a new count cheap.
+let revealing = 0, later = null;
+// If nothing visible changed (say, a new count arrives while you're choosing a guess), nothing is redrawn,
+// so a button is never swapped out from under your finger.
+function renderDaily(){
+  const old = $("feed").querySelector('.slide[data-id="daily"]');
+  if (!old) return renderFeed();
+  const m = dailyModel(); if (old.dataset.key === modelKey(m)) return setFoot(old.querySelector(".sinfo"), m.foot);
+  const fresh = dailySlide(m); old.className = fresh.className + (old.classList.contains("in") ? " in" : ""); old.dataset.key = fresh.dataset.key; old.replaceChildren(...fresh.childNodes);
+}
+// A new count while the reveal is still playing waits for it to finish.
+function onToday(r){
+  if (r){ res = r; noteShare(todayKey, r); if (!r.stale) netDown = false; } else netDown = true;
+  renderNet(); clearTimeout(later); const wait = revealing - Date.now();
+  if (wait > 0) later = setTimeout(renderDaily, wait); else renderDaily();
 }
 function yesterdaySlide(){
   const [yq, yo] = qFor(today - 1), s = shell("yday", COLORS[(today + 7) % COLORS.length]), body = el("div", "sbody"), mine = myVotes[dayKey(today - 1)];
   body.append(el("div", "kicker", "Yesterday's final verdict"), el("h2", "stext" + sizeClass(yq), yq));
   const yc = countsOf(yres.world), yt = sum(yc);
   const foot = el("div", "sfoot"); foot.append(el("span", "", num(yt) + (yt === 1 ? " answer" : " answers"))); foot.append(el("div", "sacts"));
-  s.append(body, answers("yday", yo, shares(yc), mine ? mine.choice : -1, () => {}), foot);
+  s.append(body, answers("yday", yo, shares(yc), mine ? mine.choice : -1, () => {}, false), foot);
   return s;
 }
 function postSlide(p){
@@ -904,20 +1093,30 @@ function postSlide(p){
   acts.append(iact("comment", "Comments", nC ? String(nC) : "", () => openSheet(p.id)));
   if (!mine) acts.append(iact("flag", "Report", "", () => report(p.id)));
   foot.append(acts);
-  s.append(body, answers(p.id, labels, show && total ? [yes, 100 - yes] : null, my ? (my > 0 ? 0 : 1) : -1, tap), foot);
+  s.append(body, answers(p.id, labels, show && total ? [yes, 100 - yes] : null, my ? (my > 0 ? 0 : 1) : -1, tap, animate === p.id), foot);
   return s;
 }
+const dropLine = () => "Tomorrow's question drops in " + nextIn() + ".";
 function endSlide(){
   const s = el("section", "slide end"); s.dataset.id = "end"; const body = el("div", "sbody"), pl = myPlace();
-  let h = "You're all caught up.", sub = "Come back later for more, or put something up for a verdict.", cta = ["Post something", openCompose];
-  if (!ask.api){ sub = "Posts from people are coming soon. A new question drops in " + nextIn() + "."; cta = null; }
-  else if ((ask.scope === "city" && (!pl.city || !pl.state)) || (ask.scope === "state" && !pl.state)){ h = "Where are you?"; sub = "Add your city and state to see what people near you really think."; cta = ["Set my place", () => showPage("me")]; }
+  let h = "You're caught up.", sub = null, cta = null;
+  if ((ask.scope === "city" && (!pl.city || !pl.state)) || (ask.scope === "state" && !pl.state)){ h = "Where are you?"; sub = "Add your city and state to see what people near you really think."; cta = ["Set my place", () => showPage("me")]; }
   else if (ask.scope === "friends" && !friends().length){ h = "No friends here yet."; sub = "Swap codes with a friend and judge each other's posts."; cta = ["Add a friend", () => showPage("me")]; }
-  else if (!order.length && ask.scope !== "world"){ h = "Nothing here yet."; sub = "Be the first one to ask."; }
-  body.append(el("h2", "stext m", h), el("p", "ssub", sub));
+  else if (!order.length && ask.scope !== "world"){ h = "Nothing here yet."; sub = "Be the first one to ask."; cta = ["Post something", openCompose]; }
+  body.append(el("h2", "stext m", h));
+  if (sub) body.append(el("p", "ssub", sub));
+  else {
+    // The real end of the feed: when the next question drops, and a sneak peek of what it's about.
+    const next = el("p", "ssub", dropLine()), peek = el("p", "peekline"); next.dataset.tick = "drop";
+    peek.append(el("span", "", "Tomorrow's topic"), el("b", "", topicName(topicOfDay(today + 1))));
+    body.append(next, peek);
+    cta = !myVotes[todayKey] ? ["Answer today's question", () => openPost("daily")] : ask.api ? ["Post something", openCompose] : null;
+  }
   if (cta){ const b = el("button", "cta", cta[0]); b.onclick = cta[1]; body.append(b); }
   s.append(body); return s;
 }
+// The end slide changes once you've answered (no more "Answer today's question").
+function renderEnd(){ const old = $("feed").querySelector('.slide[data-id="end"]'); if (old) old.replaceChildren(...endSlide().childNodes); }
 function renderFeed(){
   const feed = $("feed"), cur = jumpTo || currentId();
   syncOrder(); feed.innerHTML = "";
@@ -934,26 +1133,59 @@ function renderFeed(){
 // Text eases in the first time each post comes into view. Posts are fully visible without it.
 const shown = new Set();
 const seen = "IntersectionObserver" in window ? new IntersectionObserver(es => { for (const e of es) if (e.isIntersecting && e.intersectionRatio > .6 && !shown.has(e.target.dataset.id)){ shown.add(e.target.dataset.id); if (shown.size > 1) e.target.classList.add("in"); } }, { threshold: .6 }) : null;
+// The tabs only filter people's posts. With no posts to filter they would be dead controls, so they don't show
+// and the feed is simply today's question.
 function renderTop(){
-  const box = $("scopes"); box.innerHTML = "";
+  const box = $("scopes"), show = !!ask.api && ask.posts.some(p => visible(p, true));
+  if (!show) ask.scope = "world";
+  box.hidden = !show; box.innerHTML = ""; if (!show) return;
   SCOPES.forEach(([k, l]) => { const b = el("button", "scope" + (k === ask.scope ? " on" : ""), l); b.setAttribute("role", "tab"); b.setAttribute("aria-selected", k === ask.scope);
-    b.onclick = () => { ask.scope = k; store.set("askScope", k); order = []; renderTop(); renderFeed(); $("feed").scrollTop = 0; }; box.append(b); });
+    b.onclick = () => { ask.scope = k; order = []; renderTop(); renderFeed(); $("feed").scrollTop = 0; }; box.append(b); });
 }
 
+// ---------- Connection ----------
+// A small pill in the top bar when Verd can't be reached. Answers are never lost: they wait in the outbox.
+let netDown = false;   // the last try to load today's count failed
+function renderNet(){
+  const b = $("net"), counted = !!backend && backend.mode !== "device", off = !navigator.onLine;
+  const stuck = !!(backend && backend.waiting && backend.waiting(todayKey));
+  b.hidden = !counted || !(off || netDown || stuck);
+  $("netText").textContent = off ? "Offline" : "Can't connect · Retry";
+}
+function retryNow(){ netDown = false; renderNet(); renderDaily(); if (backend && backend.retry) backend.retry(); }
+$("net").onclick = () => navigator.onLine ? retryNow() : toast("You're offline. Answers are saved and sent when you're back.");
+addEventListener("online", renderNet); addEventListener("offline", renderNet);
+
 // ---------- Actions ----------
-async function vote(i){
+// The tap itself only marks your answer and ticks (under 16 ms). Saving and drawing happen after that frame.
+let voting = false;
+function vote(i, btn){
+  if (myVotes[todayKey] || voting) return; voting = true;
+  if (btn){ btn.classList.add("mine", "pop"); for (const b of btn.parentNode.children) b.disabled = true; }
+  haptics.vote();
+  afterPaint(() => commitVote(i));
+}
+async function commitVote(i){
   const place = myPlace(); myVotes[todayKey] = { choice: i, country: place.country }; store.set("myVotes", myVotes); bumpStreak();
   if (res) res = { ...res, mine: i };
-  haptic([14, 30, 20]); animate = "daily"; revealPending = true; renderFeed(); checkBadges();
+  withTransition(() => { renderDaily(); renderEnd(); }); checkBadges();
+  if (!backend) await ready;
   let ok = false;
   try{ ok = await backend.vote(todayKey, i, options.length, place); }catch{}
+  voting = false;
   if (ok){ store.set("sent", todayKey); showCode(); }
-  else { toast("Saved. It will count when you're back online."); renderFeed(); }
+  else { toast("Saved. It will count when you're back online."); renderDaily(); }
+  renderNet();
+}
+function guess(k){
+  const mine = myVotes[todayKey]; if (!mine || mine.guess) return;
+  mine.guess = k; store.set("myVotes", myVotes);
+  withTransition(renderDaily);
 }
 async function votePost(id, v){
   ask.myVotes = { ...ask.myVotes, [id]: v }; const p = ask.posts.find(x => x.id === id);
   if (p){ v > 0 ? p.yes++ : p.no++; const signs = store.get("askSigns", {}); signs[id] = signOf(p) || v; store.set("askSigns", signs); }
-  haptic([14, 30, 20]); animate = id; renderFeed();
+  haptics.vote(); animate = id; renderFeed();
   try{ await ask.api.vote(id, v); }catch{ toast("Couldn't save your vote. Try again."); }
 }
 async function report(id){ ask.myReports = { ...ask.myReports, [id]: 1 }; toast("Reported. It's hidden for you."); renderFeed(); if (sheetPost) renderSheet(); try{ await ask.api.report(id); }catch{} }
@@ -962,12 +1194,78 @@ async function copyOrShow(text, okMsg){
   try{ await navigator.clipboard.writeText(text); toast(okMsg); }
   catch{ sheetPost = null; $("stitle").textContent = "Copy this"; $("clist").hidden = true; $("cform").hidden = true; const b = $("shareBox"); b.hidden = false; b.value = text; $("sheet").hidden = false; b.focus(); b.select(); }
 }
-function shareDaily(){
-  const mine = myVotes[todayKey]; if (!mine) return;
-  const url = CONFIG.siteUrl || location.href.split("#")[0];
-  const counts = todayState() === "revealed" ? countsOf(res.world) : null;
-  const line = counts ? "I'm with " + shares(counts)[mine.choice] + "% of the " + num(sum(counts)) + " people who answered." : "I answered. The verdict isn't in yet.";
-  copyOrShow("Verd #" + (today + 1) + "\n" + question + "\n" + line + " What's your Verd? (No peeking before you answer.)\n" + streakNow().current + " day streak\n" + url, "Copied. Paste it in your group chat.");
+// ---------- Share: a result card image, through the share sheet ----------
+// The card says how big your side is, never which side won, so friends still have to answer to find out.
+const FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
+const siteUrl = () => CONFIG.siteUrl || location.href.split("#")[0].split("?")[0];
+function shareLines(){
+  const mine = myVotes[todayKey], counts = todayState() === "revealed" ? countsOf(res.world) : null;
+  if (counts) return ["I'm with " + shares(counts)[mine.choice] + "% of " + num(sum(counts)) + " people.", "Which side are you on?"];
+  return ["I answered. The verdict isn't in yet.", "What's your Verd?"];
+}
+function wrapText(g, text, width){
+  const lines = []; let line = "";
+  for (const w of text.split(" ")){ const t = line ? line + " " + w : w; if (line && g.measureText(t).width > width){ lines.push(line); line = w; } else line = t; }
+  return line ? [...lines, line] : lines;
+}
+function drawCard(){
+  const W = 1080, H = 1350, P = 88, cv = document.createElement("canvas"); cv.width = W; cv.height = H;
+  const g = cv.getContext("2d"), [c0, c1] = COLORS[today % COLORS.length];
+  let gr = g.createLinearGradient(W * .37, 0, W * .63, H); gr.addColorStop(0, c0); gr.addColorStop(1, c1); g.fillStyle = gr; g.fillRect(0, 0, W, H);
+  gr = g.createRadialGradient(0, 0, 0, 0, 0, W * 1.2); gr.addColorStop(0, "rgba(255,255,255,.1)"); gr.addColorStop(.6, "rgba(255,255,255,0)"); g.fillStyle = gr; g.fillRect(0, 0, W, H);
+  g.fillStyle = "#fff"; g.textBaseline = "alphabetic";
+  g.font = "800 54px " + FONT; g.fillText("What's the Verd?", P, 160);
+  g.font = "600 36px " + FONT; g.textAlign = "right"; g.fillText("No. " + (today + 1), W - P, 158); g.textAlign = "left";
+  let size = 124, lines;   // the question, as big as fits
+  do { size -= 6; g.font = "800 " + size + "px " + FONT; lines = wrapText(g, question, W - 2 * P); } while ((lines.length > 5 || lines.length * size * 1.04 > 500) && size > 56);
+  const [l1, l2] = shareLines(); g.font = "700 50px " + FONT; const l1s = wrapText(g, l1, W - 2 * P);
+  const n = options.length, gap = 24, pw = (W - 2 * P - gap * (n - 1)) / n, ph = 120, py = H - 330;
+  const block = lines.length * size * 1.04 + 40 + l1s.length * 62 + 42;   // centre the words between the header and the answers
+  let y = 200 + Math.max(40, (py - 200 - block) / 2) + size * .8;
+  g.font = "800 " + size + "px " + FONT; for (const l of lines){ g.fillText(l, P, y); y += size * 1.04; }
+  y += 40; g.font = "700 50px " + FONT; for (const l of l1s){ g.fillText(l, P, y); y += 62; }
+  g.font = "500 42px " + FONT; g.fillText(l2, P, y);
+  // the answers, without numbers
+  options.forEach((o, i) => {
+    const x = P + i * (pw + gap); g.beginPath(); g.roundRect ? g.roundRect(x, py, pw, ph, 28) : g.rect(x, py, pw, ph);
+    g.fillStyle = "rgba(255,255,255,.16)"; g.fill(); g.strokeStyle = "rgba(255,255,255,.28)"; g.lineWidth = 2; g.stroke();
+    let fs = 44; do { g.font = "700 " + fs + "px " + FONT; fs -= 2; } while (g.measureText(o).width > pw - 40 && fs > 22);
+    g.fillStyle = "#fff"; g.textAlign = "center"; g.fillText(o, x + pw / 2, py + ph / 2 + fs * .36); g.textAlign = "left";
+  });
+  const code = store.get("myCode", "");
+  g.font = "600 34px " + FONT; g.fillText("Answer at " + siteUrl().replace(/^https?:\/\//, "").replace(/\/$/, ""), P, code ? H - 140 : H - 100);
+  if (code){ g.font = "500 34px " + FONT; g.fillText("Add me on Verd: " + code, P, H - 88); }
+  return cv;
+}
+const cardName = () => "verd-" + (today + 1) + ".png";
+function fileFromCanvas(cv){
+  const bin = atob(cv.toDataURL("image/png").split(",")[1]), u8 = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+  return new File([u8], cardName(), { type: "image/png" });
+}
+// The card is drawn ahead of time, in idle moments, so tapping Share opens the sheet straight away.
+let card = null;
+const cardKey = () => todayState() + "|" + shareLines()[0] + "|" + store.get("myCode", "");
+function prepareCard(){
+  if (!myVotes[todayKey]) return;
+  const key = cardKey(); if (card && card.key === key) return;
+  try{ drawCard().toBlob(b => { if (b) card = { key, file: new File([b], cardName(), { type: "image/png" }) }; }, "image/png"); }catch{}
+}
+function saveFile(file){
+  try{ const a = el("a"); a.href = URL.createObjectURL(file); a.download = file.name; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000); }catch{}
+}
+async function shareDaily(){
+  if (!myVotes[todayKey]) return;
+  const [l1, l2] = shareLines(), url = siteUrl();
+  const text = "Verd No. " + (today + 1) + ": " + question + "\n" + l1 + " " + l2 + " (No peeking before you answer.)";
+  let file = card && card.key === cardKey() ? card.file : null;
+  if (!file){ try{ file = fileFromCanvas(drawCard()); }catch{} }
+  try{
+    if (file && navigator.canShare && navigator.canShare({ files: [file] })){ await navigator.share({ files: [file], text: text + "\n" + url }); return; }
+    if (navigator.share){ await navigator.share({ title: "What's the Verd?", text, url }); return; }
+  }catch(e){ if (e && e.name === "AbortError") return; }
+  if (file) saveFile(file);   // no share sheet here (most computers): save the card and copy the text
+  copyOrShow(text + "\n" + url, file ? "Card saved. The text is copied too." : "Copied. Paste it in your group chat.");
 }
 
 // ---------- Comments ----------
@@ -1023,13 +1321,13 @@ function openCompose(prefill){
   if (typeof prefill === "string") $("ptext").value = prefill; $("ptext").focus();
 }
 function drawCompose(){
-  $("compose").style.background = "radial-gradient(120% 70% at 0% 0%,rgba(255,255,255,.2),rgba(255,255,255,0) 60%),linear-gradient(165deg," + COLORS[cColor][0] + "," + COLORS[cColor][1] + ")";
+  hue($("compose"), COLORS[cColor]);
   const sw = $("swatches"); sw.innerHTML = "";
   COLORS.forEach((c, i) => { const b = el("button", "sw" + (i === cColor ? " on" : "")); b.style.background = c[0]; b.setAttribute("aria-label", "Color " + (i + 1)); b.onclick = () => { cColor = i; drawCompose(); }; sw.append(b); });
   const au = $("aud"); au.innerHTML = "";
   SCOPES.forEach(([k, l]) => { const b = el("button", k === cScope ? "on" : "", l); b.disabled = cPhotos.length > 0 && k !== "friends"; b.onclick = () => { cScope = k; drawCompose(); }; au.append(b); });
   const th = $("thumbs"); th.innerHTML = "";
-  cPhotos.forEach((src, i) => { const t = el("div", "thumb"), im = el("img"); im.src = src; im.alt = "Photo " + (i + 1); const x = el("button", "", "×"); x.setAttribute("aria-label", "Remove photo"); x.onclick = () => { cPhotos.splice(i, 1); drawCompose(); }; t.append(im, x); th.append(t); });
+  cPhotos.forEach((src, i) => { const t = el("div", "thumb"), im = el("img"); im.src = src; im.alt = "Photo " + (i + 1); const x = el("button"); x.append(el("span", "", "×")); x.setAttribute("aria-label", "Remove photo"); x.onclick = () => { cPhotos.splice(i, 1); drawCompose(); }; t.append(im, x); th.append(t); });
   if (cPhotos.length < 2){ const a = el("button", "addp"); a.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>'; a.setAttribute("aria-label", "Add a photo"); a.onclick = () => $("pfile").click(); th.append(a); }
   $("compose").classList.toggle("haspic", cPhotos.length > 0); $("colorRow").hidden = cPhotos.length > 0;
   $("ptext").placeholder = cPhotos.length === 2 ? "Which one?" : cPhotos.length === 1 ? "Yes or no?" : "What do you want a verdict on?";
@@ -1049,7 +1347,7 @@ $("psend").onclick = async () => {
   const item = { id: ask.api.me + "-" + Date.now().toString(36), author: ask.api.me, text, color: cColor, photos: imgs.length, cat: catOf(text), scope: imgs.length ? "friends" : cScope, city: pl.city, state: pl.state, country: pl.country, t: Date.now() };
   $("psend").disabled = true;
   try{
-    if (ask.scope !== item.scope){ ask.scope = item.scope; store.set("askScope", item.scope); order = []; renderTop(); }
+    if (ask.scope !== item.scope){ ask.scope = item.scope; order = []; renderTop(); }
     jumpTo = item.id; if (imgs.length) await ask.api.photo(item.id, imgs); await ask.api.post(item); store.set("posted", true);
     $("ptext").value = ""; $("compose").hidden = true; showPage("feed"); renderFeed(); toast("Posted."); checkBadges();
   }catch{ jumpTo = null; toast("Couldn't post. Check your connection and try again."); }
@@ -1071,13 +1369,14 @@ const BADGES = [
 function checkBadges(){
   const had = store.get("badges", []), p = profile(); let fresh = null;
   for (const [id, label, test] of BADGES) if (test(p) && !had.includes(id)){ had.push(id); fresh = label; }
-  if (fresh){ store.set("badges", had); if (had.length > 1){ setTimeout(() => toast("New badge: " + fresh), 1400); } }
+  if (fresh){ store.set("badges", had); if (had.length > 1){ setTimeout(() => { toast("New badge: " + fresh); haptics.badge(); }, 1400); } }
 }
 function renderMe(){
   const s = streakNow(), p = profile();
   $("meta").textContent = "No. " + (today + 1);
   $("streak").textContent = s.current;
-  $("streakNote").textContent = !myVotes[todayKey] && s.current > 0 ? "Answer today to keep it alive." + (s.freezes ? " " + s.freezes + " freeze" + (s.freezes > 1 ? "s" : "") + " saved." : "")
+  $("streakNote").textContent = !Object.keys(myVotes).length ? "Answer today's question to start your streak."
+    : !myVotes[todayKey] && s.current > 0 ? "Answer today to keep it alive." + (s.freezes ? " " + s.freezes + " freeze" + (s.freezes > 1 ? "s" : "") + " saved." : "")
     : s.freezes ? s.freezes + " streak freeze" + (s.freezes > 1 ? "s" : "") + " saved. A freeze covers one missed day." : "Answer every day. Seven in a row earns a streak freeze.";
   $("otype").textContent = p.type || "–";
   $("otypeNote").textContent = p.type ? "your opinion type" : "opinion type, " + (3 - p.nTyped) + " more to unlock";
@@ -1096,17 +1395,27 @@ function showCode(){
   $("mycode").textContent = store.get("myCode", "······");
   if (backend) backend.profile().then(p => { if (p && p.code){ $("mycode").textContent = p.code; store.set("myCode", p.code); } }).catch(() => {});
 }
+// Your friends and how often you agree. Placeholder rows show while the matches load.
+let friendsCall = 0;
 async function renderFriends(){
-  const fl = friends(), box = $("flist"); let rows = [];
-  try{ if (backend && fl.length) rows = await backend.friendMatch(fl); }catch{}
-  box.innerHTML = ""; const by = Object.fromEntries(rows.map(r => [r.code, r]));
-  fl.map(c => { const r = by[c]; return { c, shared: r ? r.shared : 0, m: r && r.agree !== null && r.shared ? pct(r.agree, r.shared) : null }; })
-    .sort((a, b) => (b.m ?? -1) - (a.m ?? -1))
-    .forEach(r => { const d = el("div"); d.append(el("b", "", r.c), el("span", "", r.m === null ? (r.shared ? r.shared + " shared answers so far" : "No shared answers yet") : (r.m >= 80 ? "Same brain, " : r.m <= 30 ? "Opposites, " : "") + r.m + "% match")); box.append(d); });
+  const fl = friends(), box = $("flist"), call = ++friendsCall;
+  const draw = (by, failed) => {
+    box.innerHTML = "";
+    fl.map(c => { const r = by && by[c]; return { c, shared: r ? r.shared : 0, m: r && r.agree !== null && r.shared ? pct(r.agree, r.shared) : null }; })
+      .sort((a, b) => (b.m ?? -1) - (a.m ?? -1))
+      .forEach(r => { const d = el("div"), t = !by ? "Loading" : r.m === null ? (r.shared ? r.shared + " shared answers so far" : "No shared answers yet") : (r.m >= 80 ? "Same brain, " : r.m <= 30 ? "Opposites, " : "") + r.m + "% match";
+        d.append(el("b", "", r.c), el("span", by ? "" : "sk", t)); box.append(d); });
+    if (failed) box.append(el("p", "note", "Couldn't load your matches. Check your connection."));
+  };
+  if (!fl.length){ box.innerHTML = ""; return; }
+  draw(null);
+  let rows = [], failed = false;
+  try{ if (backend) rows = await backend.friendMatch(fl); }catch{ failed = true; }
+  if (call === friendsCall) draw(Object.fromEntries(rows.map(r => [r.code, r])), failed);
 }
 $("recapShare").onclick = () => { const r = recapData(), p = profile(); if (!r) return;
   copyOrShow("My week on Verd\n" + r.answered + "/7 days answered" + (r.known ? ", with the majority " + r.maj + " of " + r.known + " times" : "") + "\n" + (p.type ? "I'm a " + p.type + ". " : "") + r.s + " day streak\nWhat are you? " + (CONFIG.siteUrl || location.href.split("#")[0]), "Copied. Post it anywhere."); };
-$("copycode").onclick = () => copyOrShow($("mycode").textContent, "Code copied. Send it to a friend.");
+$("copycode").onclick = () => { const c = $("mycode").textContent; if (!/^[A-Z0-9]{6}$/.test(c)){ toast("Your code shows up after your first answer."); return; } copyOrShow(c, "Code copied. Send it to a friend."); };
 $("fform").onsubmit = e => { e.preventDefault(); const c = $("fcode").value.trim().toUpperCase(), me = $("mycode").textContent;
   if (!/^[A-Z0-9]{6}$/.test(c)){ toast("Friend codes are 6 letters and numbers."); return; } if (c === me){ toast("That's your own code."); return; }
   const f = friends(); if (!f.includes(c)) f.push(c); store.set("friends", f); $("fcode").value = ""; toast("Friend added."); checkBadges(); renderMe(); order = []; renderFeed(); };
@@ -1123,7 +1432,6 @@ function setupPlace(){
 // ---------- Search ----------
 const SEARCH_ICON = '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>';
 const CLOCK_ICON = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg>';
-const grad = c => "radial-gradient(120% 80% at 0% 0%,rgba(255,255,255,.22),rgba(255,255,255,0) 60%),linear-gradient(160deg," + c[0] + "," + c[1] + ")";
 const searchable = () => ask.api ? ask.posts.filter(p => visible(p, true)) : [];
 const heat = p => p.yes + p.no + 2 * liveComments(p).length;
 function remember(q){ q = q.trim(); if (q.length < 2) return; store.set("recentQ", [q, ...store.get("recentQ", []).filter(x => norm(x) !== norm(q))].slice(0, 8)); }
@@ -1133,13 +1441,13 @@ function highlight(text, words){
   text.split(re).forEach((part, i) => frag.append(i % 2 ? el("mark", "", part) : part)); return frag;
 }
 function openPost(id){
-  if (id === "daily"){ ask.scope = "world"; store.set("askScope", "world"); order = []; renderTop(); showPage("feed"); renderFeed(); $("feed").scrollTop = 0; return; }
+  if (id === "daily"){ ask.scope = "world"; order = []; renderTop(); showPage("feed"); renderFeed(); $("feed").scrollTop = 0; return; }
   const p = ask.posts.find(x => x.id === id); if (!p) return;
-  ask.scope = p.scope; store.set("askScope", p.scope); order = []; jumpTo = id; renderTop(); showPage("feed"); renderFeed();
+  ask.scope = p.scope; order = []; jumpTo = id; renderTop(); showPage("feed"); renderFeed();
 }
 function resultRow(p, words, onTap){
   const b = el("button", "res"), mini = el("div", "mini"), rb = el("div", "rb");
-  mini.style.background = grad(p.colorPair || COLORS[(typeof p.color === "number" ? p.color : hash(p.id)) % COLORS.length]);
+  hue(mini, p.colorPair || COLORS[(typeof p.color === "number" ? p.color : hash(p.id)) % COLORS.length]);
   if (p.imgs && p.imgs.length){ const im = el("img"); im.src = p.imgs[0]; im.alt = ""; mini.append(im); } else mini.append(el("span", "", p.badge || "?"));
   const t = el("div", "rt"); t.append(highlight(p.text, words));
   rb.append(t, el("div", "rm", p.meta)); b.append(mini, rb); b.onclick = onTap; return b;
@@ -1152,7 +1460,7 @@ function postMeta(p){
 function section(title, action){ const sec = el("div"), h = el("div", "shd"); h.append(el("h3", "", title)); if (action) h.append(action); sec.append(h); return sec; }
 function renderSearch(){
   const raw = $("q").value, q = norm(raw), box = $("sres"); box.innerHTML = ""; $("qclear").hidden = !raw;
-  const posts = searchable();
+  const posts = searchable(), days = aired();
   if (!q){
     const recent = store.get("recentQ", []);
     if (recent.length){
@@ -1162,40 +1470,94 @@ function renderSearch(){
         const x = el("button", "rx", "×"); x.setAttribute("aria-label", "Remove"); x.onclick = () => { store.set("recentQ", recent.filter(y => y !== r)); renderSearch(); }; row.append(go, x); sec.append(row); }
       box.append(sec);
     }
-    const stats = TOPICS.map(([id, name, , ci], i) => { const ps = posts.filter(p => p.cat === id); return { id, name, ci, i, n: ps.length, heat: ps.reduce((a, p) => a + heat(p), 0) }; })
-      .sort((a, b) => b.heat - a.heat || b.n - a.n || a.i - b.i).slice(0, 6);
-    const sec = section("Trending topics"), grid = el("div", "topics");
-    stats.forEach((t, i) => { const b = el("button", "topic"); b.style.background = grad(COLORS[t.ci]);
-      b.append(el("span", "rk", String(i + 1)), el("b", "", t.name), el("small", "", t.n ? t.n + (t.n === 1 ? " debate" : " debates") : "Be the first"));
+    // Topics with questions out so far or debates, then the ones coming up next. Never a dead "Be the first".
+    const stats = TOPICS.map(([id, name, , ci], i) => { const ps = posts.filter(p => p.cat === id), nq = days.filter(n => topicOfDay(n) === id).length;
+        return { id, name, ci, i, nq, n: ps.length, heat: ps.reduce((a, p) => a + heat(p), 0), soon: daysUntil(d => topicOfDay(d) === id) }; })
+      .filter(t => t.nq || t.n || t.soon)
+      .sort((a, b) => b.heat - a.heat || (b.nq + b.n) - (a.nq + a.n) || (a.soon || 99) - (b.soon || 99) || a.i - b.i).slice(0, 6);
+    const trending = stats.some(t => t.heat > 0), sec = section(trending ? "Trending topics" : "Topics"), grid = el("div", "topics");
+    stats.forEach((t, i) => { const b = hue(el("button", "topic"), COLORS[t.ci]);
+      if (trending){ const rk = el("span", "rk", String(i + 1)); rk.setAttribute("aria-hidden", "true"); b.append(rk); }
+      const what = [t.nq ? t.nq + (t.nq === 1 ? " question" : " questions") : "", t.n ? t.n + (t.n === 1 ? " debate" : " debates") : ""].filter(Boolean).join(" · ");
+      b.append(el("b", "", t.name), el("small", "", what || "Next one " + inDays(t.soon)));
       b.onclick = () => { $("q").value = t.name; remember(t.name); renderSearch(); }; grid.append(b); });
     sec.append(grid); box.append(sec);
+    const qs = section("Questions so far"); for (const n of days.slice(0, 6)) qs.append(dayRow(n, [], "")); box.append(qs);
     const hot = posts.filter(p => heat(p) > 0).sort((a, b) => heat(b) - heat(a)).slice(0, 5);
     if (hot.length){ const hs = section("Hot debates"); for (const p of hot) hs.append(resultRow({ ...p, meta: postMeta(p), badge: badgeOf(p) }, [], () => openPost(p.id))); box.append(hs); }
     return;
   }
   const words = q.split(/\s+/).filter(w => w.length > 0), topic = TOPICS.find(([id, name]) => norm(name) === q || norm(name).startsWith(q) && q.length >= 3 || id === q);
+  const hasWords = d => words.every(w => norm(qFor(d)[0]).includes(w));
+  const qHits = days.filter(n => hasWords(n) || (topic && topicOfDay(n) === topic[0]));
   const hits = posts.map(p => { const t = norm(p.text), m = words.filter(w => t.includes(w)).length, on = topic && p.cat === topic[0];
       return { p, score: (m === words.length ? 10 : m * 2) + (on ? 6 : 0) + Math.log1p(heat(p)) }; })
     .filter(h => h.score >= 6).sort((a, b) => b.score - a.score).map(h => h.p);
-  const res = section(topic ? topic[1] : "Results");
-  if (words.every(w => norm(question).includes(w)) || (topic && TOPICS.find(([id]) => id === catOf(question))[0] === topic[0])){
-    const mine = myVotes[todayKey];
-    res.append(resultRow({ id: "daily", text: question, colorPair: COLORS[today % COLORS.length], badge: "No." + (today + 1), meta: "Today's question" + (res && res.world ? " · " + res.world.n.toLocaleString() + " answers" : "") + (mine ? "" : " · Tap to answer") }, topic ? [] : words, () => openPost("daily")));
+  const out = section(topic ? topic[1] : "Results");
+  for (const n of qHits) out.append(dayRow(n, topic ? [] : words, raw));
+  for (const p of hits.slice(0, 30)) out.append(resultRow({ ...p, meta: postMeta(p), badge: badgeOf(p) }, topic && !words.some(w => norm(p.text).includes(w)) ? [] : words, () => { remember(raw); openPost(p.id); }));
+  const found = out.children.length > 1; if (found) box.append(out);
+  // A question that hasn't dropped yet is announced, never shown: "Something on pizza is coming up."
+  const soon = qHits.length ? 0 : daysUntil(d => topic ? topicOfDay(d) === topic[0] : hasWords(d)), e = el("div", "sempty");
+  if (soon) e.append(el("h2", "", (topic ? topic[1] + " questions are" : "Something on “" + raw.trim() + "” is") + " coming up."), el("p", "note", "The next one drops " + inDays(soon) + "."));
+  else {
+    e.append(el("h2", "", found ? "Got a take on " + raw.trim() + "?" : "Nothing on “" + raw.trim() + "” yet."));
+    // Posting is off on the public site, so there the next step is suggesting it as a question for everyone.
+    const act = ask.api ? ["Start a debate", found ? "Put it up and let people decide." : "Be the first. Ask it and let people decide.", () => { remember(raw); openCompose(topic ? "" : asQuestion(raw)); }]
+      : backend && backend.suggest ? ["Suggest it as a daily question", "Good ones become the question for everyone.", () => { remember(raw); suggestFrom(topic ? "" : asQuestion(raw)); }] : null;
+    if (act){ const go = el("button", "b2", act[0]); go.onclick = act[2]; e.append(el("p", "note", act[1]), go); }
   }
-  for (const p of hits.slice(0, 30)) res.append(resultRow({ ...p, meta: postMeta(p), badge: badgeOf(p) }, topic && !words.some(w => norm(p.text).includes(w)) ? [] : words, () => { remember(raw); openPost(p.id); }));
-  if (res.children.length > 1) box.append(res);
-  const e = el("div", "sempty");
-  e.append(el("h2", "", res.children.length > 1 ? "Got a take on " + raw.trim() + "?" : "Nothing on “" + raw.trim() + "” yet."), el("p", "note", res.children.length > 1 ? "Put it up and let people decide." : "Be the first. Ask it and let people decide."));
-  const go = el("button", "b2", "Start a debate"); go.onclick = () => { remember(raw); openCompose(topic ? "" : raw.trim().replace(/\?*$/, "") + "?"); };
-  e.append(go); box.append(e);
+  box.append(e);
 }
+const asQuestion = s => s.trim().replace(/\?*$/, "") + "?";
+function suggestFrom(text){ $("sq").value = text; showPage("me"); setTimeout(() => $("suggest").scrollIntoView({ block: "center", behavior: calm() ? "auto" : "smooth" }), 350); }
+// A daily question in search: today's opens the feed, an older one opens its final verdict.
+function dayRow(n, words, raw){
+  const [dq, o] = qFor(n), mine = myVotes[dayKey(n)], counted = !backend || backend.mode !== "device";
+  const meta = [n === today ? "Today's question" : dateLabel(n), n === today && res && res.world && res.world.n ? num(res.world.n) + " answers" : "",
+    mine ? "You said " + o[mine.choice] : n === today ? "Tap to answer" : counted ? "See the verdict" : ""].filter(Boolean).join(" · ");
+  return resultRow({ id: "day" + n, text: dq, colorPair: COLORS[n % COLORS.length], badge: "No." + (n + 1), meta }, words, () => { if (raw.trim()) remember(raw); if (n === today) openPost("daily"); else openDay(n); });
+}
+
+// ---------- A past question: its final verdict, full screen ----------
+let dayOpen = -1;
+function openDay(n){
+  const key = dayKey(n), cached = store.get("res:" + key, null);
+  dayOpen = n; drawDay(n, cached || undefined); $("dayview").hidden = false;
+  if (!backend || !backend.results) return;
+  backend.results(key, qFor(n)[1].length, myPlace()).then(r => { if (dayOpen === n) drawDay(n, r || null); }, () => { if (dayOpen === n && !cached) drawDay(n, null); });
+}
+function closeDay(){ dayOpen = -1; $("dayview").hidden = true; }
+const drawDay = (n, r) => $("dayslot").replaceChildren(daySlide(n, r));
+// r: that day's results. undefined while they load, null if they couldn't be loaded.
+function daySlide(n, r){
+  const [dq, o] = qFor(n), mine = myVotes[dayKey(n)], c = r ? countsOf(r.world) : null, total = r && r.world ? r.world.n : 0;
+  const s = shell("past", COLORS[n % COLORS.length]), body = el("div", "sbody");
+  body.append(el("div", "kicker", "No. " + (n + 1) + " · " + dateLabel(n)), el("h2", "stext" + sizeClass(dq), dq));
+  let lines;
+  if (r === undefined) lines = ["Loading the verdict…"];
+  else if (r === null) lines = ["Couldn't load the verdict.", "Check your connection and try again."];
+  else if (c){ const lead = leader(c), sh = shares(c); lines = [mine ? verdictMain(c, mine.choice) : lead < 0 ? "It ended in a tie." : sh[lead] > 50 ? "Most people said " + o[lead] + "." : o[lead] + " came out on top."]; }
+  else if (r.mode === "device") lines = [mine ? "You said " + o[mine.choice] + "." : "You didn't answer this one.", "Live results weren't switched on yet, so there's no verdict."];
+  else if (!total) lines = ["Nobody answered this one on Verd."];
+  else lines = ["Not enough answers for a verdict.", num(total) + (total === 1 ? " person" : " people") + " answered. A verdict needs " + num((r.min && r.min.world) || CONFIG.min.world) + "."];
+  body.append(el("p", "sverdict", lines[0])); if (lines[1]) body.append(el("p", "ssub", lines[1]));
+  if (r === null){ const b = el("button", "cta ghost", "Try again"); b.onclick = () => openDay(n); body.append(b); }
+  const box = answers("past", o, c ? shares(c) : null, mine ? mine.choice : -1, () => {}, false);
+  for (const b of box.children) b.disabled = true;
+  if (r === undefined) box.classList.add("wait");
+  const foot = el("div", "sfoot"); foot.append(el("span", "sinfo", total ? num(total) + (total === 1 ? " answer" : " answers") : ""), el("div", "sacts"));
+  s.append(body, box, foot); return s;
+}
+$("dclose").onclick = closeDay;
 $("q").oninput = renderSearch;
 $("q").onkeydown = e => { if (e.key === "Enter"){ remember($("q").value); $("q").blur(); } };
 $("qclear").onclick = () => { $("q").value = ""; renderSearch(); $("q").focus(); };
 $("qcancel").onclick = () => { $("q").value = ""; showPage("feed"); };
 
 // ---------- Navigation ----------
-function showPage(name){
+function showPage(name){ withTransition(() => showPageNow(name)); }
+function showPageNow(name){
   $("me").hidden = name !== "me"; $("search").hidden = name !== "search"; document.querySelector(".app").classList.toggle("paged", name !== "feed");
   $("navHome").classList.toggle("on", name === "feed"); $("navSearch").classList.toggle("on", name === "search"); $("navMe").classList.toggle("on", name === "me");
   if (name === "search"){ renderSearch(); $("search").scrollTop = 0; setTimeout(() => $("q").focus(), 60); }
@@ -1205,17 +1567,26 @@ $("navSearch").onclick = () => showPage("search");
 $("navHome").onclick = () => { if ($("me").hidden && $("search").hidden) $("feed").scrollTo({ top: 0, behavior: "smooth" }); showPage("feed"); };
 $("navMe").onclick = () => showPage("me");
 $("navPlus").onclick = openCompose;
-setInterval(() => { const n = $("nextIn"); if (n) n.textContent = dailyFoot(); }, 30000);
+// Every 30 s the countdowns move on. When a new day starts while Verd is open it reloads for the new question,
+// unless you're in the middle of writing something (then on the next tick, or when you come back to it).
+function tick(){
+  if (dayNum() !== today){ const a = document.activeElement; if ($("compose").hidden && $("sheet").hidden && !(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))) location.reload(); return; }
+  setFoot($("feed").querySelector('.slide[data-id="daily"] .sinfo'), dailyFoot());
+  for (const e of document.querySelectorAll("[data-tick=drop]")) e.textContent = dropLine();
+}
+setInterval(tick, 30000);
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") tick(); });
+document.addEventListener("keydown", e => { if (e.key !== "Escape") return; if (!$("dayview").hidden) closeDay(); else if (!$("sheet").hidden) closeSheet(); else if (!$("compose").hidden) $("compose").hidden = true; });
 
 (async function start(){
   setupPlace(); renderTop(); renderFeed();
-  backend = await pickBackend();
+  ready = pickBackend(); backend = await ready;
   $("mode").textContent = backend.label;
-  showCode();
+  showCode(); renderNet();
   if (backend.ask){
-    ask.api = backend.ask;
-    ask.api.watch((posts, mv, mr) => { ask.posts = posts; ask.myVotes = { ...mv, ...ask.myVotes }; ask.myReports = { ...mr, ...ask.myReports }; checkFlips(); renderFeed(); if (sheetPost) renderSheet(); if (!$("search").hidden) renderSearch(); });
-  } else $("navPlus").hidden = true;
+    ask.api = backend.ask; $("navPlus").hidden = false;   // posting starts hidden: it's off on the public site
+    ask.api.watch((posts, mv, mr) => { ask.posts = posts; ask.myVotes = { ...mv, ...ask.myVotes }; ask.myReports = { ...mr, ...ask.myReports }; checkFlips(); renderTop(); renderFeed(); if (sheetPost) renderSheet(); if (!$("search").hidden) renderSearch(); });
+  }
   if (backend.suggest){
     $("suggest").hidden = false;
     $("sform").onsubmit = async e => { e.preventDefault();
@@ -1225,10 +1596,7 @@ setInterval(() => { const n = $("nextIn"); if (n) n.textContent = dailyFoot(); }
       try{ await backend.suggest(q, a); $("sform").reset(); toast("Sent. Watch for it."); }catch{ toast("Couldn't send it. Try again."); }
       $("ssend").disabled = false; };
   }
-  backend.watch(todayKey, options.length, myPlace(), r => {
-    if (r){ res = r; noteShare(todayKey, r); if (revealPending && todayState() === "revealed"){ revealPending = false; animate = "daily"; } }
-    renderFeed();
-  });
+  backend.watch(todayKey, options.length, myPlace(), onToday);
   if (today > 0){
     const yKey = dayKey(today - 1), yo = qFor(today - 1)[1];
     backend.watch(yKey, yo.length, myPlace(), r => { if (!r) return; yres = r; noteShare(yKey, r); renderFeed(); });

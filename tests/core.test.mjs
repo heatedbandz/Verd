@@ -2,7 +2,7 @@
 //   cd tests && node --test core.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { shares, leader, localLevel, dayState, promptLine, verdictMain, lockedLines, pickTeaser, guessLine, bucket, flavor } from '../core.js';
+import { shares, leader, localLevel, dayState, promptLine, verdictMain, lockedLines, pickTeaser, guessLine, bucket, flavor, countdown, inDays } from '../core.js';
 
 const MIN = { world: 10, country: 30, state: 30, city: 30 };
 // Builds a results object the way the database sends it: counts are null below the minimum.
@@ -125,4 +125,26 @@ test('the guess is judged against the real share', () => {
   assert.equal(flavor([52, 48], 0), "It's neck and neck.");
   assert.equal(flavor([20, 80], 0), 'Rare club.');
   assert.equal(flavor([65, 35], 0), '');
+});
+
+test('a count that could not be loaded is an error, not endless counting', () => {
+  assert.equal(dayState({ mine: 0, mode: 'live', res: null }), 'loading');
+  assert.equal(dayState({ mine: 0, mode: 'live', res: null, failed: true }), 'error');
+  // a cached count still shows while the network is down
+  assert.equal(dayState({ mine: 0, mode: 'live', res: results({ world: [7, 3] }), failed: true }), 'revealed');
+  // an answer that hasn't been sent yet is "offline", whatever the count is doing
+  assert.equal(dayState({ mine: 0, mode: 'live', res: null, waiting: true, failed: true }), 'offline');
+  assert.equal(dayState({ mine: null, mode: 'live', res: null, failed: true }), 'open');
+});
+
+test('the countdown reads like a person would say it', () => {
+  const H = 3600000, M = 60000;
+  assert.equal(countdown(6 * H + 12 * M), '6h 12m');
+  assert.equal(countdown(6 * H + 11 * M + 5000), '6h 12m');   // rounds up: never says 0m while time is left
+  assert.equal(countdown(12 * M), '12m');
+  assert.equal(countdown(1000), '1m');
+  assert.equal(countdown(0), '1m');
+  assert.equal(countdown(24 * H), '24h 0m');
+  assert.equal(inDays(1), 'tomorrow');
+  assert.equal(inDays(5), 'in 5 days');
 });
