@@ -1,13 +1,15 @@
-// Attacks the REAL Supabase project over HTTPS with the public anon key, like anyone on the internet could.
+// Attacks the REAL Supabase project over HTTPS with the public key, like anyone on the internet could.
 // Every check must be denied. It casts no votes, so real results stay clean.
 //
-//   SUPABASE_URL=https://xxxx.supabase.co SUPABASE_ANON_KEY=eyJ... node tests/live-rls.mjs
-const url = (process.env.SUPABASE_URL || '').replace(/\/+$/, ''), key = process.env.SUPABASE_ANON_KEY || '';
-if (!url || !key) { console.error('Set SUPABASE_URL and SUPABASE_ANON_KEY'); process.exit(2); }
+//   SUPABASE_URL=https://xxxx.supabase.co SUPABASE_KEY=sb_publishable_... node tests/live-rls.mjs
+// (SUPABASE_ANON_KEY works too, for an older project's anon public key.)
+const url = (process.env.SUPABASE_URL || '').replace(/\/+$/, ''), key = process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY || '';
+if (!url || !key) { console.error('Set SUPABASE_URL and SUPABASE_KEY'); process.exit(2); }
 
 let failed = 0;
 const check = (ok, what, detail = '') => { console.log((ok ? 'PASS ' : 'FAIL ') + what + (ok ? '' : '  ' + detail)); if (!ok) failed++; };
-const h = token => ({ apikey: key, Authorization: 'Bearer ' + (token || key), 'Content-Type': 'application/json' });
+// Signed out, the key goes only in apikey, as the app sends it: a publishable key isn't a token.
+const h = token => ({ apikey: key, ...(token ? { Authorization: 'Bearer ' + token } : {}), 'Content-Type': 'application/json' });
 const today = new Date().toISOString().slice(0, 10);
 
 async function signIn() {
@@ -47,5 +49,5 @@ for (const [who, token] of [['anon', null], ['fresh user', await signIn()]]) {
   check(r.ok && b.visible === false && b.world.counts === null, `${who} cannot peek at today's results`, JSON.stringify(b).slice(0, 160));
 }
 
-console.log(failed ? `\n${failed} check(s) FAILED` : '\nAll checks passed: the anon key can only do what setup.sql allows.');
+console.log(failed ? `\n${failed} check(s) FAILED` : '\nAll checks passed: the public key can only do what setup.sql allows.');
 process.exit(failed ? 1 : 0);

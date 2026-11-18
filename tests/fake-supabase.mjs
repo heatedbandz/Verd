@@ -12,7 +12,7 @@ const TABLE_SQL = {
   DELETE: t => `delete from public.${t} returning *`
 };
 
-export async function startFakeSupabase({ databaseUrl, port = 54321, anonKey = 'anon-test-key' }) {
+export async function startFakeSupabase({ databaseUrl, port = 54321, anonKey = 'sb_publishable_test-key' }) {
   const pool = new pg.Pool({ connectionString: databaseUrl, max: 4 });
   const tokens = new Map(), refresh = new Map(), calls = [];
   let offline = false;
@@ -24,7 +24,8 @@ export async function startFakeSupabase({ databaseUrl, port = 54321, anonKey = '
   async function asRole(auth, fn) {
     const bearer = (auth || '').replace(/^Bearer /, '');
     const uid = tokens.get(bearer) || null;
-    if (!uid && bearer !== anonKey) return { status: 401, body: { message: 'JWT invalid' } };
+    // Like Supabase: no Authorization header is the anon role. A publishable key isn't a JWT, so sent as one it's refused.
+    if (!uid && auth && (bearer !== anonKey || anonKey.startsWith('sb_publishable_'))) return { status: 401, body: { message: 'Invalid JWT' } };
     const role = uid ? 'authenticated' : 'anon';
     const c = await pool.connect();
     try {

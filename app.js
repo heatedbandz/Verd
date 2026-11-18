@@ -1,8 +1,9 @@
 import { sum, pct, num, countsOf, shares, leader, dayState, promptLine, verdictMain, lockedLines, pickTeaser, flavor, GUESSES, guessLine, countdown, inDays, FREEZES, NO_STREAK, streakOn, answerOn, streakNote } from "./core.js";
 
 // ---------- Settings ----------
-// To go live: paste the Supabase Project URL and anon public key (Project Settings > API).
-// The anon key is meant to be public; setup.sql locks the database so it can only call safe functions.
+// To go live: paste the Supabase Project URL and publishable key (the project's Connect button, or
+// Settings > API Keys). Older projects call it the anon public key; both work.
+// The key is meant to be public; setup.sql locks the database so it can only call safe functions.
 const CONFIG = {
   supabaseUrl: "",
   supabaseKey: "",
@@ -65,9 +66,10 @@ const backends = {
       return session.at;
     }
     // needAuth: create a session if there is none (voting). Otherwise use it only if it exists.
+    // With no session the key goes only in apikey: a publishable key isn't a token, so it never goes in Authorization.
     async function rpc(name, args, needAuth, retried){
-      const t = needAuth || session ? await (pending ||= token().finally(() => { pending = null; })) : key;
-      const r = await fetch(base + "/rest/v1/rpc/" + name, { method: "POST", headers: { apikey: key, Authorization: "Bearer " + t, "Content-Type": "application/json" }, body: JSON.stringify(args) });
+      const t = needAuth || session ? await (pending ||= token().finally(() => { pending = null; })) : null;
+      const r = await fetch(base + "/rest/v1/rpc/" + name, { method: "POST", headers: { apikey: key, ...(t ? { Authorization: "Bearer " + t } : {}), "Content-Type": "application/json" }, body: JSON.stringify(args) });
       const body = await r.json().catch(() => null);
       if (r.status === 401 && session && !retried){ session = null; store.set("sb", null); return rpc(name, args, needAuth, true); }
       if (!r.ok){ const e = new Error((body && body.message) || "rpc " + r.status); e.status = r.status; throw e; }

@@ -3,10 +3,11 @@
 -- How to install (about 5 minutes, works from a phone):
 --   1. Supabase dashboard > SQL Editor > New query. Paste this whole file. Press Run.
 --   2. Authentication > Sign In / Providers > turn on "Allow anonymous sign-ins". Save.
---   3. Project Settings > API: copy the Project URL and the anon public key into CONFIG in app.js.
+--   3. Press Connect (or Settings > API Keys): copy the Project URL and the publishable key
+--      (sb_publishable_..., called the anon public key on older projects) into CONFIG in app.js.
 -- Running it again is safe: it keeps votes and replaces the functions.
 --
--- Why the anon key can sit in a public web page:
+-- Why the publishable (anon) key can sit in a public web page:
 --   * Every table has row level security ON with no policies, and the browser roles (anon,
 --     authenticated) have no privileges on any table. A client cannot read, insert, update or
 --     delete a single row directly.
