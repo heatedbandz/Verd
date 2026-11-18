@@ -118,11 +118,11 @@ test('an invite link adds the friend by name and clears itself; your own link do
   p.on('pageerror', e => errors.push(e.message)); p.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
   await p.goto(base + '#f=jayk42&n=Jay'); await p.waitForSelector('.slide[data-id=end]');
   assert.equal(await p.evaluate(() => location.hash), '', 'the link is cleared from the address bar');
-  assert.match(await p.innerText('#toast'), /Added Jay\. Send your link back so you can compare\./);
+  assert.equal((await p.innerText('#toast')).trim(), 'Added Jay.', 'nothing to compare before Verd is live, so no promise');
   assert.deepEqual(await p.evaluate(() => JSON.parse(localStorage.getItem('es_friends'))), ['JAYK42']);
   await p.click('#navMe'); await p.waitForTimeout(500);
   const list = await p.innerText('#flist');
-  assert.match(list, /Jay · JAYK42/); assert.match(list, /Matches start when live results do\./);
+  assert.match(list, /Jay · JAYK42/); assert.match(list, /When Verd goes live, swap new invite links to compare\./);
   const own = await p.evaluate(() => localStorage.getItem('es_myCode:device'));
   assert.match(JSON.parse(own), /^[A-Z2-9]{6}$/);
   await p.evaluate(c => { location.hash = 'f=' + c; }, JSON.parse(own)); await p.waitForTimeout(300);
@@ -133,6 +133,11 @@ test('an invite link adds the friend by name and clears itself; your own link do
   await p.click('#invite'); await p.waitForTimeout(300);
   const text = await p.evaluate(() => navigator.clipboard.readText());
   assert.ok(text.endsWith('#f=' + JSON.parse(own) + '&n=Sam'), text);
+  // Removing a friend takes one tap and says how to undo it
+  await p.click('#flist button[aria-label="Remove Jay"]'); await p.waitForTimeout(200);
+  assert.match(await p.innerText('#toast'), /Removed Jay\. To add them back, use JAYK42\./);
+  assert.deepEqual(await p.evaluate(() => [JSON.parse(localStorage.getItem('es_friends')), JSON.parse(localStorage.getItem('es_nicks'))]), [[], {}]);
+  assert.equal(await p.$$eval('#flist > div', d => d.length), 0);
   assert.deepEqual(errors, []);
   await ctx.close();
 });

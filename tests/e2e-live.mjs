@@ -227,6 +227,24 @@ test('invites: no account just for opening one, and a match needs both of you to
   await ctx.close();
 });
 
+test('friends added before Verd went live are asked for a new link, their stand-in codes stay off the server, and removing ends a match', async () => {
+  const friend = await newUser(), fcode = (await fake.pool.query('select verd_private.ensure_profile($1) as c', [friend])).rows[0].c;
+  const { p, ctx, errors } = await page({ es_friends: JSON.stringify(['OLDJAY']), es_nicks: JSON.stringify({ OLDJAY: 'Jay' }) }, '#f=' + fcode + '&n=Sam');
+  assert.match(await p.innerText('#toast'), /Added Sam\. Send your link back so you can compare\./);
+  await tap(p, 0); await p.waitForTimeout(1500);
+  const sent = async () => (await fake.pool.query('select code from public.friend_adds where code in ($1, $2) order by code', [fcode, 'OLDJAY'])).rows.map(r => r.code);
+  assert.deepEqual(await sent(), [fcode], 'only the friend added since launch is sent');
+  await p.click('#navMe'); await p.waitForTimeout(900);
+  const list = await p.innerText('#flist');
+  assert.match(list, /Jay · OLDJAY\s+Added before Verd went live\. Send them your new invite link\./);
+  assert.match(list, new RegExp('Sam · ' + fcode + '\\s+Shows once they add you too\\.'));
+  await p.click('#flist button[aria-label="Remove Sam"]'); await p.waitForTimeout(800);
+  assert.deepEqual(await sent(), [], 'removing a friend takes them off your list in the database too');
+  assert.doesNotMatch(await p.innerText('#flist'), /Sam/);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
 test("today's board: a place shows at 30 answers, and until then it says how to get yours on", async () => {
   const perCountry = async () => Object.fromEntries((await fake.pool.query('select country, count(*)::int as n from public.votes where day = $1 group by country', [today])).rows.map(r => [r.country, r.n]));
   const { p, ctx, errors } = await page({ es_country: JSON.stringify('FR') });

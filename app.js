@@ -99,7 +99,7 @@ const backends = {
     }
     // Your friend list lives on this phone. The database gets a copy once you have an account, so a friend
     // match can check that you both added each other. No account is made just for this.
-    function syncFriends(){ if (session) rpc("set_friends", { codes: store.get("friends", []) }, true).catch(() => {}); }
+    function syncFriends(){ if (session) rpc("set_friends", { codes: liveFriends() }, true).catch(() => {}); }
     // Answers this phone saved before the database existed, copied once (today's goes through the outbox).
     async function importLocal(){
       if (store.get("imported", false)) return;
@@ -384,6 +384,19 @@ const friends = () => store.get("friends", []);
 // First names from invite links. They're kept on this phone only.
 const nick = c => store.get("nicks", {})[c] || "";
 function saveFriends(list){ store.set("friends", list); if (backend && backend.setFriends) backend.setFriends(); }
+// Where each friend was added. A code added before Verd went live is a stand-in that doesn't exist in the database,
+// so that friend is asked for a new link, and the stand-in is never sent there.
+function addedIn(c){ return store.get("addedIn", {})[c] || "device"; }
+// An invite can open before the backend is picked, but whether Verd is live is known from the start.
+const modeNow = () => backend ? backend.mode : LIVE ? "live" : "device";
+function liveFriends(){ return friends().filter(c => addedIn(c) === "live"); }
+function addFriend(c){ store.set("addedIn", { ...store.get("addedIn", {}), [c]: modeNow() }); saveFriends([...friends().filter(x => x !== c), c]); }
+function removeFriend(c){
+  const name = nick(c) || c, nicks = store.get("nicks", {}), added = store.get("addedIn", {});
+  delete nicks[c]; delete added[c]; store.set("nicks", nicks); store.set("addedIn", added);
+  saveFriends(friends().filter(x => x !== c));
+  toast("Removed " + name + ". To add them back, use " + c + "."); renderFriends();
+}
 // Your friend code. Codes from the database and stand-in codes from before it existed are kept apart,
 // so an invite never carries a code that won't work.
 const myCode = () => store.get("myCode:" + (backend ? backend.mode : ""), "");
@@ -950,25 +963,26 @@ function showCode(){
 // A match needs you both to have added each other, and 3 past questions you both answered.
 let friendsCall = 0;
 async function renderFriends(){
-  const fl = friends(), box = $("flist"), call = ++friendsCall, live = !!backend && backend.mode === "live";
+  const fl = friends(), box = $("flist"), call = ++friendsCall, live = !!backend && backend.mode === "live", old = c => live && addedIn(c) !== "live";
   // by: undefined while loading, null when it can't be checked yet, else the matches by code
   const draw = (by, failed) => {
     box.innerHTML = "";
     fl.map(c => { const r = by && by[c]; return { c, r, m: r && r.agree !== null && r.shared ? pct(r.agree, r.shared) : null }; })
       .sort((a, b) => (b.m ?? -1) - (a.m ?? -1))
       .forEach(({ c, r, m }) => {
-        const t = failed ? "" : by === undefined ? "Loading"
-          : by === null ? (live ? "Matches start after your first answer." : "Matches start when live results do.")
+        const t = old(c) ? "Added before Verd went live. Send them your new invite link." : failed ? "" : by === undefined ? "Loading"
+          : by === null ? (live ? "Matches start after your first answer." : "When Verd goes live, swap new invite links to compare.")
           : !r ? (live ? "Shows once they add you too." : "No shared answers yet")
           : m === null ? (r.shared ? r.shared + " shared " + (r.shared === 1 ? "answer" : "answers") + " so far" : "No shared answers yet")
           : (m >= 80 ? "Same brain, " : m <= 30 ? "Opposites, " : "") + m + "% match";
-        const d = el("div"); d.append(el("b", "", nick(c) ? nick(c) + " · " + c : c), el("span", by === undefined && !failed ? "sk" : "", t)); box.append(d); });
+        const d = el("div"), x = el("button", "fx", "×"); x.setAttribute("aria-label", "Remove " + (nick(c) || c)); x.onclick = () => removeFriend(c);
+        d.append(el("b", "", nick(c) ? nick(c) + " · " + c : c), el("span", by === undefined && !failed && !old(c) ? "sk" : "", t), x); box.append(d); });
     if (failed) box.append(el("p", "note", "Couldn't load your matches. Check your connection."));
   };
   if (!fl.length){ box.innerHTML = ""; return; }
   draw(undefined);
   let rows = null, failed = false;
-  try{ if (backend) rows = await backend.friendMatch(fl); }catch{ failed = true; }
+  try{ if (backend) rows = await backend.friendMatch(live ? liveFriends() : fl); }catch{ failed = true; }
   if (call === friendsCall) draw(rows ? Object.fromEntries(rows.map(r => [r.code, r])) : null, failed);
 }
 $("recapShare").onclick = () => { const r = recapData(), p = profile(); if (!r) return;
@@ -997,14 +1011,15 @@ function takeInvite(){
   if (ownCode(code)){ toast("That's your own invite link."); return; }
   const name = cleanName(h.get("n"));
   if (name) store.set("nicks", { ...store.get("nicks", {}), [code]: name });
-  if (!friends().includes(code)) saveFriends([...friends(), code]);
-  toast("Added " + (name || "your friend") + ". Send your link back so you can compare.");
+  addFriend(code);
+  // Before Verd is live there's nothing to compare yet, so the toast doesn't promise it.
+  toast("Added " + (name || "your friend") + "." + (modeNow() !== "device" ? " Send your link back so you can compare." : ""));
   if (!$("me").hidden) renderMe();
 }
 addEventListener("hashchange", takeInvite);
 $("fform").onsubmit = e => { e.preventDefault(); const c = $("fcode").value.trim().toUpperCase(), me = $("mycode").textContent;
   if (!/^[A-Z0-9]{6}$/.test(c)){ toast("Friend codes are 6 letters and numbers."); return; } if (c === me || ownCode(c)){ toast("That's your own code."); return; }
-  if (!friends().includes(c)) saveFriends([...friends(), c]); $("fcode").value = ""; toast("Friend added."); checkBadges(); renderMe(); order = []; renderFeed(); };
+  addFriend(c); $("fcode").value = ""; toast("Friend added."); checkBadges(); renderMe(); order = []; renderFeed(); };
 function setupPlace(){
   const sel = $("country");
   Object.entries(COUNTRIES).sort((a, b) => a[0] === "XX" ? 1 : b[0] === "XX" ? -1 : a[1].localeCompare(b[1])).forEach(([cc, name]) => sel.add(new Option(flag(cc) + "  " + name, cc)));

@@ -285,6 +285,12 @@ How these were measured: Lighthouse 13.6, median of 3 runs, in two profiles. "De
   - `live`: 11. Opening an invite makes no account. The match goes from "after your first answer" to "once they add you too" to "67% match". The board shows its empty state, then France and the US once they reach 30 answers, with yours marked.
   - `live-rls.mjs`, the check you run on the real project, now covers `friend_adds` too.
 - **Numbers:** Lighthouse 100 / 100 / 100. The code grew 2.1 KB gzipped.
+- **Fixed at the end of the session.**
+  - **Removing a friend.** Each friend now has a remove button (44 pt). It takes them off your list in the database too, so the match ends for both of you. The toast shows their code, so it's easy to undo.
+  - **Friends added before Verd goes live.** Their codes are stand-ins that won't exist in the database, so a match with them could never start.
+    - Before launch, their line used to promise "Matches start when live results do." It now says "When Verd goes live, swap new invite links to compare.", and the invite toast no longer promises a comparison.
+    - After launch, their line says "Added before Verd went live. Send them your new invite link." The stand-in codes are never sent to the database.
+  - **Tests:** the `device` invite test now removes a friend, and a new `live` test covers both fixes. All 67 pass.
 
 ### 10. Teen safety and the posting gate
 
