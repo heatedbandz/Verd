@@ -189,8 +189,7 @@ button{border:0;background:none;padding:0;cursor:pointer}
 .sec{display:flex;flex-direction:column;gap:var(--s3);border-top:1px solid var(--line);padding-top:var(--s6)}
 .sec h3{margin:0;font-size:var(--t-lg);font-weight:700;letter-spacing:-.02em}
 .tags{display:flex;flex-wrap:wrap;gap:var(--s2) var(--s4);font-size:var(--t-md);font-weight:600}
-.tags span.off{color:var(--muted);font-weight:400}
-.tags span:not(.off)::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-right:var(--s2);vertical-align:middle}
+.tags span::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-right:var(--s2);vertical-align:middle}
 .line{display:flex;gap:var(--s3);align-items:center}
 .field{background:var(--surface);border:0;border-radius:var(--r2);padding:var(--s3) var(--s4);min-height:var(--tap);width:100%;min-width:0}
 ::placeholder{color:var(--muted);opacity:1}
@@ -414,7 +413,7 @@ html.vt .page{animation:none}
         <div><b id="agree">–</b><small>with the majority</small></div>
         <div><b id="answered">0</b><small>questions answered</small></div>
       </div>
-      <div class="sec"><h3>Badges</h3><div class="tags" id="badges"></div></div>
+      <div class="sec"><h3>Badges</h3><div class="tags" id="badges"></div><p class="note" id="badgesNote" hidden>Answer today's question to earn your first badge.</p></div>
       <div class="sec" id="recap" hidden><h3>Your week</h3><div class="rowlist" id="recapBody"></div><div><button class="b2 soft" id="recapShare">Share my week</button></div></div>
       <div class="sec">
         <h3>Friends</h3>

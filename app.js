@@ -1,4 +1,4 @@
-import { sum, pct, num, countsOf, shares, leader, dayState, promptLine, verdictMain, lockedLines, pickTeaser, flavor, GUESSES, guessLine, countdown, inDays } from "./core.js";
+import { sum, pct, num, countsOf, shares, leader, dayState, promptLine, verdictMain, lockedLines, pickTeaser, flavor, GUESSES, guessLine, countdown, inDays, FREEZES, NO_STREAK, streakOn, answerOn, streakNote } from "./core.js";
 
 // ---------- Settings ----------
 // To go live: paste the Supabase Project URL and anon public key (Project Settings > API).
@@ -238,22 +238,19 @@ function withTransition(update){
 }
 
 // ---------- Streaks with freezes ----------
-// You earn a streak freeze every 7 days in a row (hold up to 2). A missed day uses one automatically.
-function streakNow(){
-  const s = store.get("streakState", { last:-99, streak:0, freezes:0, best:0 });
-  const gap = today - s.last - 1; // days missed since last answer (ignoring today)
-  const alive = s.last === today || gap <= s.freezes;
-  return { ...s, alive, current: alive ? s.streak : 0, gap };
+// The rules live in core.js (streakOn, answerOn, streakNote). A streak saved under the old, stricter rules
+// (a freeze every 7 days in a row) gets the starting freeze too.
+function streakState(){
+  const s = store.get("streakState", null);
+  if (!s) return { ...NO_STREAK };
+  return s.v === 2 ? s : { ...s, freezes: Math.max(s.freezes || 0, FREEZES.start) };
 }
+const streakNow = () => streakOn(streakState(), today);
 function bumpStreak(){
-  const s = streakNow(); let used = 0;
-  if (s.last === today) return;
-  if (s.alive && s.last > -99){ used = Math.max(0, s.gap); s.freezes -= used; s.streak += 1; } else s.streak = 1;
-  if (s.streak % 7 === 0) s.freezes = Math.min(2, s.freezes + 1);
-  s.last = today; s.best = Math.max(s.best, s.streak);
-  store.set("streakState", { last:s.last, streak:s.streak, freezes:s.freezes, best:s.best });
-  if (used) toast("Streak freeze used. Your " + s.streak + "-day streak is safe.");
-  else if (s.streak % 7 === 0){ toast(s.streak + " days! You earned a streak freeze."); haptics.streak(); }
+  const answered = Object.keys(myVotes).length, { state, used, earned } = answerOn(streakState(), today, answered);
+  store.set("streakState", { ...state, v: 2 });
+  if (used) toast("Streak freeze used. Your " + state.streak + "-day streak is safe.");
+  else if (earned){ toast(answered + " days answered. You earned a streak freeze."); haptics.streak(); }
 }
 
 function recapData(){
@@ -539,10 +536,15 @@ function onToday(r){
   renderNet(); clearTimeout(later); const wait = revealing - Date.now();
   if (wait > 0) later = setTimeout(renderDaily, wait); else renderDaily();
 }
+// The headline for a finished day: how your answer did, or what came out on top.
+function finalLine(c, o, mine){
+  if (mine) return "You said " + o[mine.choice] + ". " + verdictMain(c, mine.choice);
+  const lead = leader(c); return lead < 0 ? "It ended in a tie." : shares(c)[lead] > 50 ? "Most people said " + o[lead] + "." : o[lead] + " came out on top.";
+}
 function yesterdaySlide(){
   const [yq, yo] = qFor(today - 1), s = shell("yday", COLORS[(today + 7) % COLORS.length]), body = el("div", "sbody"), mine = myVotes[dayKey(today - 1)];
-  body.append(el("div", "kicker", "Yesterday's final verdict"), el("h2", "stext" + sizeClass(yq), yq));
   const yc = countsOf(yres.world), yt = sum(yc);
+  body.append(el("div", "kicker", "Yesterday's final verdict"), el("h2", "stext" + sizeClass(yq), yq), el("p", "sverdict", finalLine(yc, yo, mine)));
   const foot = el("div", "sfoot"); foot.append(el("span", "", num(yt) + (yt === 1 ? " answer" : " answers"))); foot.append(el("div", "sacts"));
   s.append(body, answers("yday", yo, shares(yc), mine ? mine.choice : -1, () => {}, false), foot);
   return s;
@@ -853,15 +855,14 @@ function renderMe(){
   const s = streakNow(), p = profile();
   $("meta").textContent = "No. " + (today + 1);
   $("streak").textContent = s.current;
-  $("streakNote").textContent = !Object.keys(myVotes).length ? "Answer today's question to start your streak."
-    : !myVotes[todayKey] && s.current > 0 ? "Answer today to keep it alive." + (s.freezes ? " " + s.freezes + " freeze" + (s.freezes > 1 ? "s" : "") + " saved." : "")
-    : s.freezes ? s.freezes + " streak freeze" + (s.freezes > 1 ? "s" : "") + " saved. A freeze covers one missed day." : "Answer every day. Seven in a row earns a streak freeze.";
+  $("streakNote").textContent = streakNote(streakState(), today, p.nAnswered);
   $("otype").textContent = p.type || "–";
   $("otypeNote").textContent = p.type ? "your opinion type" : "opinion type, " + (3 - p.nTyped) + " more to unlock";
   $("agree").textContent = p.judged ? p.maj + "/" + p.judged : "–";
   $("answered").textContent = p.nAnswered;
-  const box = $("badges"); box.innerHTML = "";
-  for (const [, label, test] of BADGES) box.append(el("span", test(p) ? "" : "off", label));
+  // Only badges you have. No locked ones to collect, and none for features that are switched off.
+  const earned = BADGES.filter(([, , test]) => test(p));
+  $("badges").replaceChildren(...earned.map(([, label]) => el("span", "", label))); $("badgesNote").hidden = earned.length > 0;
   const r = recapData(), rb = $("recapBody"); $("recap").hidden = !r || r.answered < 2; rb.innerHTML = "";
   if (r){ const row = (a, b) => { const d = el("div"); d.append(el("b", "", a), el("span", "", b)); rb.append(d); };
     row("Days answered", r.answered + " of 7"); if (r.known) row("With the majority", r.maj + " of " + r.known); row("Streak", r.s + (r.s === 1 ? " day" : " days"));
@@ -1015,7 +1016,7 @@ function daySlide(n, r){
   let lines;
   if (r === undefined) lines = ["Loading the verdict…"];
   else if (r === null) lines = ["Couldn't load the verdict.", "Check your connection and try again."];
-  else if (c){ const lead = leader(c), sh = shares(c); lines = [mine ? verdictMain(c, mine.choice) : lead < 0 ? "It ended in a tie." : sh[lead] > 50 ? "Most people said " + o[lead] + "." : o[lead] + " came out on top."]; }
+  else if (c) lines = [finalLine(c, o, mine)];
   else if (r.mode === "device") lines = [mine ? "You said " + o[mine.choice] + "." : "You didn't answer this one.", "Live results weren't switched on yet, so there's no verdict."];
   else if (!total) lines = ["Nobody answered this one on Verd."];
   else lines = ["Not enough answers for a verdict.", num(total) + (total === 1 ? " person" : " people") + " answered. A verdict needs " + num((r.min && r.min.world) || CONFIG.min.world) + "."];

@@ -148,6 +148,7 @@ How these were measured: Lighthouse 13.6, median of 3 runs, in two profiles. "De
 | 5. Calm first 30 seconds | 100 / 100 | 0.61 s / 0.25 s (LCP 1.10 / 0.43) | 100, and 0 axe issues on all 6 screens | 32 ms | 1–2 frames over 20 ms, only the tap's own frame | 30.8 + 9.0 KB | blank | no |
 | 6. Instant first paint | 100 / 100 | 0.63 s / 0.25 s (**LCP 0.63 / 0.25**, the same as first paint) | 100 | 32–40 ms | 0–1 frames over 20 ms | 30.1 + 11.2 KB | blank | no |
 | 7. Installable, works offline | 100 / 100 | 0.62 s / 0.25 s (LCP 0.62 / 0.25) | 100, and 0 axe issues on all 6 screens | 32 ms | 1–2 frames over 20 ms, only the tap's own frame | 30.6 + 11.6 KB (+1.2 KB `sw.js`, after load) | **works** | **yes** |
+| 8. Return loop | 100 / 100 | 0.62 s / 0.25 s (LCP 0.62 / 0.25) | 100 | 32–40 ms | 0–1 frames over 20 ms | 31.4 + 11.7 KB | works | yes |
 
 ### 1. Real backend
 
@@ -234,6 +235,29 @@ How these were measured: Lighthouse 13.6, median of 3 runs, in two profiles. "De
   - `tests/e2e-live.mjs` gained one (8 now): installed, opened with no signal, in live mode, the answer waits and reaches the database when the signal returns. All 54 tests pass.
 - **Numbers:** Lighthouse is 100 / 100 / 100 on both profiles, and first and largest paint are unchanged at 0.62 s and 0.25 s. The worker registers after the page has loaded, so it costs the first visit nothing. Code is 30.6 KB and the page 11.6 KB gzipped, plus 1.2 KB for `sw.js`.
 - **To check on your phone:** that the status bar turns white on Me in light mode. Apple has used the theme colour for the status bar since iOS 15, but I can't run iOS here.
+
+### 8. Return loop within the guardrails
+
+- **Streak freezes are easy to get.** Everyone starts with one, and every 5 days you answer earns another, in a row or not, up to 3. Before, they came only every 7 days in a row, up to 2. A freeze covers a missed day by itself, so there's nothing to remember.
+- **A lost streak is a fresh start.**
+  - It says "Fresh start. Your best is 9 days." Your best is kept, and so are your freezes.
+  - No streak line says lost, broke or don't. A unit test checks every one of them for guilt words.
+- **The line under your streak says what helps next,** like "Answer today to make it 4 days. If you can't, a freeze covers it." or "Answer 2 more days to earn a streak freeze."
+- **The streak rules moved to `core.js`,** so they're unit-tested: missed days, freezes used and earned, the cap, answering twice in a day, and your best. Streaks saved under the old rules get the starting freeze too.
+- **Badges: only the ones you have.** No greyed-out list to collect, and none for posting or comments, which are off on the public site. Before your first answer, it says "Answer today's question to earn your first badge."
+- **The payoff for coming back.** If you answered yesterday, yesterday's final verdict now says how your answer did: "You said Be invisible. 36% are on your side." A past question in search uses the same line.
+- **Why there's no "verdict unlocks tonight" line:** early on, with few people, a day might never reach the minimum, so "tonight" could be untrue. Instead:
+  - The locked slide says exactly how many more votes the verdict needs, and keeps your guess.
+  - The reveal plays the first time you see that day's verdict.
+  - The next day, yesterday's slide tells you how your answer did.
+- **Kept as they were:** the end of the feed shows when tomorrow's question drops and its topic (change 5), and the weekly recap is unchanged.
+- **No notifications, ever.** `tests/guardrails.mjs` reads every shipped file and fails if it finds a notification, push or app-icon badge API.
+- **Tests:** 4 new, and all 59 pass.
+  - `core`: 16 (+2, the streak rules and their wording).
+  - `device`: 5 (+1, Me with no locked badges and a streak line that helps).
+  - `live`: 9 (+1, yesterday's slide says how your answer did).
+  - `guardrails`: 1 (new).
+- **Numbers:** unchanged. Lighthouse 100 / 100 / 100, and the largest paint is 0.62 s / 0.25 s.
 
 ## Next single step
 

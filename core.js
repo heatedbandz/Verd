@@ -113,3 +113,42 @@ export function countdown(ms){
   return h ? h + "h " + m + "m" : m + "m";
 }
 export const inDays = k => k === 1 ? "tomorrow" : "in " + k + " days";
+
+// ---------- Streaks ----------
+// Days in a row you answered. Freezes cover missed days by themselves, and they're easy to get: everyone starts
+// with one and earns another for every 5 days answered (in a row or not), holding up to 3. Missing more days than
+// your freezes cover starts a fresh streak. Your best is kept, and nothing ever says you lost something.
+export const FREEZES = { start: 1, every: 5, max: 3 };
+export const NO_STREAK = { last: -99, streak: 0, freezes: FREEZES.start, best: 0 };
+const days = n => n + (n === 1 ? " day" : " days");
+
+// Where a streak stands on day `today`. s.last is the day number of your last answer.
+export function streakOn(s, today){
+  const gap = today - s.last - 1;   // days missed since your last answer, not counting today
+  const alive = s.last === today || (s.streak > 0 && gap <= s.freezes);
+  return { ...s, gap, alive, current: alive ? s.streak : 0 };
+}
+// Answering on `today`, your `answered`th day overall: the new state, the freezes that covered missed days, and
+// whether this answer earned a freeze.
+export function answerOn(s, today, answered){
+  if (s.last === today) return { state: s, used: 0, earned: false };
+  const now = streakOn(s, today), used = now.alive ? Math.max(0, now.gap) : 0, streak = now.alive ? s.streak + 1 : 1;
+  let freezes = s.freezes - used;
+  const earned = answered > 0 && answered % FREEZES.every === 0 && freezes < FREEZES.max;
+  if (earned) freezes += 1;
+  return { state: { last: today, streak, freezes, best: Math.max(s.best, streak) }, used, earned };
+}
+// The line under your streak: what helps next. A missed day never reads as a loss.
+export function streakNote(s, today, answered){
+  const st = streakOn(s, today);
+  if (!answered) return "Answer today's question to start your streak.";
+  if (st.best > 1 && (!st.alive || (st.last === today && st.streak === 1))) return "Fresh start. Your best is " + days(st.best) + ".";
+  if (!st.alive) return "Answer today's question to start a new streak.";
+  if (st.last !== today){
+    const spare = st.freezes - Math.max(0, st.gap);
+    return "Answer today to make it " + days(st.streak + 1) + "." + (spare > 0 ? " If you can't, a freeze covers it." : "");
+  }
+  if (st.freezes) return (st.freezes === 1 ? "1 streak freeze" : st.freezes + " streak freezes") + " saved. A freeze covers a missed day by itself.";
+  const k = FREEZES.every - answered % FREEZES.every;
+  return "Answer " + k + (k === 1 ? " more day" : " more days") + " to earn a streak freeze.";
+}

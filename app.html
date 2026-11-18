@@ -162,8 +162,7 @@ button{border:0;background:none;padding:0;cursor:pointer}
 .sec{display:flex;flex-direction:column;gap:var(--s3);border-top:1px solid var(--line);padding-top:var(--s6)}
 .sec h3{margin:0;font-size:var(--t-lg);font-weight:700;letter-spacing:-.02em}
 .tags{display:flex;flex-wrap:wrap;gap:var(--s2) var(--s4);font-size:var(--t-md);font-weight:600}
-.tags span.off{color:var(--muted);font-weight:400}
-.tags span:not(.off)::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-right:var(--s2);vertical-align:middle}
+.tags span::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-right:var(--s2);vertical-align:middle}
 .line{display:flex;gap:var(--s3);align-items:center}
 .field{background:var(--surface);border:0;border-radius:var(--r2);padding:var(--s3) var(--s4);min-height:var(--tap);width:100%;min-width:0}
 ::placeholder{color:var(--muted);opacity:1}
@@ -385,7 +384,7 @@ html.vt .page{animation:none}
         <div><b id="agree">–</b><small>with the majority</small></div>
         <div><b id="answered">0</b><small>questions answered</small></div>
       </div>
-      <div class="sec"><h3>Badges</h3><div class="tags" id="badges"></div></div>
+      <div class="sec"><h3>Badges</h3><div class="tags" id="badges"></div><p class="note" id="badgesNote" hidden>Answer today's question to earn your first badge.</p></div>
       <div class="sec" id="recap" hidden><h3>Your week</h3><div class="rowlist" id="recapBody"></div><div><button class="b2 soft" id="recapShare">Share my week</button></div></div>
       <div class="sec">
         <h3>Friends</h3>
@@ -567,6 +566,45 @@ function countdown(ms){
   return h ? h + "h " + m + "m" : m + "m";
 }
 const inDays = k => k === 1 ? "tomorrow" : "in " + k + " days";
+
+// ---------- Streaks ----------
+// Days in a row you answered. Freezes cover missed days by themselves, and they're easy to get: everyone starts
+// with one and earns another for every 5 days answered (in a row or not), holding up to 3. Missing more days than
+// your freezes cover starts a fresh streak. Your best is kept, and nothing ever says you lost something.
+const FREEZES = { start: 1, every: 5, max: 3 };
+const NO_STREAK = { last: -99, streak: 0, freezes: FREEZES.start, best: 0 };
+const days = n => n + (n === 1 ? " day" : " days");
+
+// Where a streak stands on day `today`. s.last is the day number of your last answer.
+function streakOn(s, today){
+  const gap = today - s.last - 1;   // days missed since your last answer, not counting today
+  const alive = s.last === today || (s.streak > 0 && gap <= s.freezes);
+  return { ...s, gap, alive, current: alive ? s.streak : 0 };
+}
+// Answering on `today`, your `answered`th day overall: the new state, the freezes that covered missed days, and
+// whether this answer earned a freeze.
+function answerOn(s, today, answered){
+  if (s.last === today) return { state: s, used: 0, earned: false };
+  const now = streakOn(s, today), used = now.alive ? Math.max(0, now.gap) : 0, streak = now.alive ? s.streak + 1 : 1;
+  let freezes = s.freezes - used;
+  const earned = answered > 0 && answered % FREEZES.every === 0 && freezes < FREEZES.max;
+  if (earned) freezes += 1;
+  return { state: { last: today, streak, freezes, best: Math.max(s.best, streak) }, used, earned };
+}
+// The line under your streak: what helps next. A missed day never reads as a loss.
+function streakNote(s, today, answered){
+  const st = streakOn(s, today);
+  if (!answered) return "Answer today's question to start your streak.";
+  if (st.best > 1 && (!st.alive || (st.last === today && st.streak === 1))) return "Fresh start. Your best is " + days(st.best) + ".";
+  if (!st.alive) return "Answer today's question to start a new streak.";
+  if (st.last !== today){
+    const spare = st.freezes - Math.max(0, st.gap);
+    return "Answer today to make it " + days(st.streak + 1) + "." + (spare > 0 ? " If you can't, a freeze covers it." : "");
+  }
+  if (st.freezes) return (st.freezes === 1 ? "1 streak freeze" : st.freezes + " streak freezes") + " saved. A freeze covers a missed day by itself.";
+  const k = FREEZES.every - answered % FREEZES.every;
+  return "Answer " + k + (k === 1 ? " more day" : " more days") + " to earn a streak freeze.";
+}
 
 
 // ---------- Settings ----------
@@ -807,22 +845,19 @@ function withTransition(update){
 }
 
 // ---------- Streaks with freezes ----------
-// You earn a streak freeze every 7 days in a row (hold up to 2). A missed day uses one automatically.
-function streakNow(){
-  const s = store.get("streakState", { last:-99, streak:0, freezes:0, best:0 });
-  const gap = today - s.last - 1; // days missed since last answer (ignoring today)
-  const alive = s.last === today || gap <= s.freezes;
-  return { ...s, alive, current: alive ? s.streak : 0, gap };
+// The rules live in core.js (streakOn, answerOn, streakNote). A streak saved under the old, stricter rules
+// (a freeze every 7 days in a row) gets the starting freeze too.
+function streakState(){
+  const s = store.get("streakState", null);
+  if (!s) return { ...NO_STREAK };
+  return s.v === 2 ? s : { ...s, freezes: Math.max(s.freezes || 0, FREEZES.start) };
 }
+const streakNow = () => streakOn(streakState(), today);
 function bumpStreak(){
-  const s = streakNow(); let used = 0;
-  if (s.last === today) return;
-  if (s.alive && s.last > -99){ used = Math.max(0, s.gap); s.freezes -= used; s.streak += 1; } else s.streak = 1;
-  if (s.streak % 7 === 0) s.freezes = Math.min(2, s.freezes + 1);
-  s.last = today; s.best = Math.max(s.best, s.streak);
-  store.set("streakState", { last:s.last, streak:s.streak, freezes:s.freezes, best:s.best });
-  if (used) toast("Streak freeze used. Your " + s.streak + "-day streak is safe.");
-  else if (s.streak % 7 === 0){ toast(s.streak + " days! You earned a streak freeze."); haptics.streak(); }
+  const answered = Object.keys(myVotes).length, { state, used, earned } = answerOn(streakState(), today, answered);
+  store.set("streakState", { ...state, v: 2 });
+  if (used) toast("Streak freeze used. Your " + state.streak + "-day streak is safe.");
+  else if (earned){ toast(answered + " days answered. You earned a streak freeze."); haptics.streak(); }
 }
 
 function recapData(){
@@ -1108,10 +1143,15 @@ function onToday(r){
   renderNet(); clearTimeout(later); const wait = revealing - Date.now();
   if (wait > 0) later = setTimeout(renderDaily, wait); else renderDaily();
 }
+// The headline for a finished day: how your answer did, or what came out on top.
+function finalLine(c, o, mine){
+  if (mine) return "You said " + o[mine.choice] + ". " + verdictMain(c, mine.choice);
+  const lead = leader(c); return lead < 0 ? "It ended in a tie." : shares(c)[lead] > 50 ? "Most people said " + o[lead] + "." : o[lead] + " came out on top.";
+}
 function yesterdaySlide(){
   const [yq, yo] = qFor(today - 1), s = shell("yday", COLORS[(today + 7) % COLORS.length]), body = el("div", "sbody"), mine = myVotes[dayKey(today - 1)];
-  body.append(el("div", "kicker", "Yesterday's final verdict"), el("h2", "stext" + sizeClass(yq), yq));
   const yc = countsOf(yres.world), yt = sum(yc);
+  body.append(el("div", "kicker", "Yesterday's final verdict"), el("h2", "stext" + sizeClass(yq), yq), el("p", "sverdict", finalLine(yc, yo, mine)));
   const foot = el("div", "sfoot"); foot.append(el("span", "", num(yt) + (yt === 1 ? " answer" : " answers"))); foot.append(el("div", "sacts"));
   s.append(body, answers("yday", yo, shares(yc), mine ? mine.choice : -1, () => {}, false), foot);
   return s;
@@ -1422,15 +1462,14 @@ function renderMe(){
   const s = streakNow(), p = profile();
   $("meta").textContent = "No. " + (today + 1);
   $("streak").textContent = s.current;
-  $("streakNote").textContent = !Object.keys(myVotes).length ? "Answer today's question to start your streak."
-    : !myVotes[todayKey] && s.current > 0 ? "Answer today to keep it alive." + (s.freezes ? " " + s.freezes + " freeze" + (s.freezes > 1 ? "s" : "") + " saved." : "")
-    : s.freezes ? s.freezes + " streak freeze" + (s.freezes > 1 ? "s" : "") + " saved. A freeze covers one missed day." : "Answer every day. Seven in a row earns a streak freeze.";
+  $("streakNote").textContent = streakNote(streakState(), today, p.nAnswered);
   $("otype").textContent = p.type || "–";
   $("otypeNote").textContent = p.type ? "your opinion type" : "opinion type, " + (3 - p.nTyped) + " more to unlock";
   $("agree").textContent = p.judged ? p.maj + "/" + p.judged : "–";
   $("answered").textContent = p.nAnswered;
-  const box = $("badges"); box.innerHTML = "";
-  for (const [, label, test] of BADGES) box.append(el("span", test(p) ? "" : "off", label));
+  // Only badges you have. No locked ones to collect, and none for features that are switched off.
+  const earned = BADGES.filter(([, , test]) => test(p));
+  $("badges").replaceChildren(...earned.map(([, label]) => el("span", "", label))); $("badgesNote").hidden = earned.length > 0;
   const r = recapData(), rb = $("recapBody"); $("recap").hidden = !r || r.answered < 2; rb.innerHTML = "";
   if (r){ const row = (a, b) => { const d = el("div"); d.append(el("b", "", a), el("span", "", b)); rb.append(d); };
     row("Days answered", r.answered + " of 7"); if (r.known) row("With the majority", r.maj + " of " + r.known); row("Streak", r.s + (r.s === 1 ? " day" : " days"));
@@ -1584,7 +1623,7 @@ function daySlide(n, r){
   let lines;
   if (r === undefined) lines = ["Loading the verdict…"];
   else if (r === null) lines = ["Couldn't load the verdict.", "Check your connection and try again."];
-  else if (c){ const lead = leader(c), sh = shares(c); lines = [mine ? verdictMain(c, mine.choice) : lead < 0 ? "It ended in a tie." : sh[lead] > 50 ? "Most people said " + o[lead] + "." : o[lead] + " came out on top."]; }
+  else if (c) lines = [finalLine(c, o, mine)];
   else if (r.mode === "device") lines = [mine ? "You said " + o[mine.choice] + "." : "You didn't answer this one.", "Live results weren't switched on yet, so there's no verdict."];
   else if (!total) lines = ["Nobody answered this one on Verd."];
   else lines = ["Not enough answers for a verdict.", num(total) + (total === 1 ? " person" : " people") + " answered. A verdict needs " + num((r.min && r.min.world) || CONFIG.min.world) + "."];

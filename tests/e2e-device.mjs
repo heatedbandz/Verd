@@ -94,3 +94,21 @@ test('search finds questions that are out, announces ones coming up, and a past 
   assert.deepEqual(errors, []);
   await ctx.close();
 });
+
+test('Me: only badges you have, and a streak line that says what helps next', async () => {
+  const { p, ctx, errors } = await open();
+  await p.click('#navMe'); await p.waitForTimeout(500);
+  assert.equal(await p.$$eval('#badges span', b => b.length), 0, 'no locked badges to collect');
+  assert.equal(await p.$eval('#badgesNote', e => e.hidden), false);
+  assert.equal(await p.innerText('#streakNote'), "Answer today's question to start your streak.");
+  await p.click('#navHome'); await p.waitForTimeout(400);
+  await p.click('.slide[data-id=daily] .ans'); await p.waitForTimeout(900);
+  await p.click('#navMe'); await p.waitForTimeout(500);
+  assert.deepEqual(await p.$$eval('#badges span', b => b.map(x => x.textContent)), ['First answer']);
+  assert.equal(await p.$eval('#badgesNote', e => e.hidden), true);
+  assert.equal(await p.innerText('#streak'), '1');
+  assert.equal(await p.innerText('#streakNote'), '1 streak freeze saved. A freeze covers a missed day by itself.');
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+

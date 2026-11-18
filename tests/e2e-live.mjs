@@ -185,6 +185,21 @@ test('with no connection a cached count still shows; with none cached there is a
   await ctx.close();
 });
 
+test("the next day, yesterday's final verdict says how your answer did", async () => {
+  const have = (await fake.pool.query('select count(*)::int as n from public.votes where day = $1', [yesterday])).rows[0].n;
+  for (let i = have; i < 12; i++) {
+    const id = (await fake.pool.query('insert into auth.users (id) values (gen_random_uuid()) returning id')).rows[0].id;
+    await fake.pool.query('insert into public.votes (day, user_id, choice, country) values ($1, $2, $3, $4)', [yesterday, id, i % 3 ? 0 : 1, 'US']);
+  }
+  const { p, ctx, errors } = await page({ es_myVotes: JSON.stringify({ [yesterday]: { choice: 1, country: 'US' } }) });
+  await p.waitForSelector('.slide[data-id=yday]');
+  const text = await p.innerText('.slide[data-id=yday]');
+  const options = await p.$$eval('.slide[data-id=yday] .ans .alabel', b => b.map(x => x.textContent));
+  assert.match(text, new RegExp("You said " + options[1] + "\\. \\S"), text);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
 test("a past question in search opens with the database's final verdict", async () => {
   const counts = (await fake.pool.query('select choice, count(*)::int as k from public.votes where day = $1 group by choice order by choice', [yesterday])).rows;
   const n = counts.reduce((a, r) => a + r.k, 0);

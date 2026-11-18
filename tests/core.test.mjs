@@ -2,7 +2,7 @@
 //   cd tests && node --test core.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { shares, leader, localLevel, dayState, promptLine, verdictMain, lockedLines, pickTeaser, guessLine, bucket, flavor, countdown, inDays } from '../core.js';
+import { shares, leader, localLevel, dayState, promptLine, verdictMain, lockedLines, pickTeaser, guessLine, bucket, flavor, countdown, inDays, NO_STREAK, streakOn, answerOn, streakNote } from '../core.js';
 
 const MIN = { world: 10, country: 30, state: 30, city: 30 };
 // Builds a results object the way the database sends it: counts are null below the minimum.
@@ -148,3 +148,57 @@ test('the countdown reads like a person would say it', () => {
   assert.equal(inDays(1), 'tomorrow');
   assert.equal(inDays(5), 'in 5 days');
 });
+
+test('streaks: freezes are easy to get, and cover a missed day by themselves', () => {
+  let s = { ...NO_STREAK }, r;
+  const answer = (day, n) => { r = answerOn(s, day, n); s = r.state; return r; };
+  assert.equal(s.freezes, 1, 'everyone starts with a freeze');
+  assert.equal(streakOn(s, 10).current, 0);
+  answer(10, 1); answer(11, 2);
+  assert.equal(streakOn(s, 11).current, 2);
+  assert.equal(streakOn(s, 12).current, 2, 'still alive the next day, before answering');
+  answer(13, 3);   // day 12 missed: the starting freeze covered it, with nothing to do
+  assert.equal(r.used, 1); assert.equal(s.streak, 3); assert.equal(s.freezes, 0);
+  answer(14, 4); answer(15, 5);
+  assert.ok(r.earned, 'a freeze for every 5 days answered'); assert.equal(s.freezes, 1); assert.equal(s.best, 5);
+  const again = answerOn(s, 15, 5);
+  assert.deepEqual(again.state, s, 'answering twice in a day changes nothing'); assert.equal(again.used, 0); assert.equal(again.earned, false);
+  // days answered count, not days in a row: the 10th answer earns one even after a fresh start
+  assert.equal(answerOn({ last: 2, streak: 1, freezes: 0, best: 6 }, 9, 10).state.freezes, 1);
+  // three is the most you hold
+  const full = answerOn({ last: 0, streak: 1, freezes: 3, best: 1 }, 1, 10);
+  assert.equal(full.earned, false); assert.equal(full.state.freezes, 3);
+});
+
+test('streaks: missing more days than your freezes is a fresh start that keeps your best, never a guilt trip', () => {
+  const s = { last: 20, streak: 9, freezes: 1, best: 9 };
+  assert.equal(streakOn(s, 22).alive, true, 'one missed day: covered');
+  assert.equal(streakOn(s, 23).alive, false, 'two missed days and one freeze: a fresh start');
+  const r = answerOn(s, 23, 10);
+  assert.equal(r.state.streak, 1); assert.equal(r.state.best, 9); assert.equal(r.used, 0, 'freezes are kept for the new streak');
+  assert.equal(r.state.freezes, 2, 'and the 10th day answered earned another');
+  const notes = [
+    streakNote(NO_STREAK, 5, 0),
+    streakNote({ last: 4, streak: 3, freezes: 1, best: 3 }, 5, 3),
+    streakNote({ last: 3, streak: 3, freezes: 1, best: 3 }, 5, 3),   // the freeze is already covering yesterday
+    streakNote({ last: 5, streak: 3, freezes: 0, best: 3 }, 5, 3),
+    streakNote({ last: 5, streak: 4, freezes: 0, best: 4 }, 5, 9),
+    streakNote({ last: 5, streak: 3, freezes: 2, best: 3 }, 5, 3),
+    streakNote(s, 23, 9),
+    streakNote(r.state, 23, 10),
+    streakNote({ last: 1, streak: 1, freezes: 0, best: 1 }, 5, 1)
+  ];
+  assert.deepEqual(notes, [
+    "Answer today's question to start your streak.",
+    "Answer today to make it 4 days. If you can't, a freeze covers it.",
+    'Answer today to make it 4 days.',
+    'Answer 2 more days to earn a streak freeze.',
+    'Answer 1 more day to earn a streak freeze.',
+    '2 streak freezes saved. A freeze covers a missed day by itself.',
+    'Fresh start. Your best is 9 days.',
+    'Fresh start. Your best is 9 days.',
+    "Answer today's question to start a new streak."
+  ]);
+  for (const n of notes) assert.doesNotMatch(n, /lost|lose|broke|ruin|gone|miss out|don't|!|shame|sad/i, n);
+});
+
