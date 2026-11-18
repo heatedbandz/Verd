@@ -147,6 +147,7 @@ How these were measured: Lighthouse 13.6, median of 3 runs, in two profiles. "De
 | 4. The reveal | 100 / 100 | 0.61 s / 0.25 s (LCP 1.09 / 0.43) | 100 | **40–56 ms** (live reveal: 16 ms vote, 32–40 ms guess) | **0–1 frames over 20 ms**, only the tap's own frame | 27.1 + 8.4 KB | blank | no |
 | 5. Calm first 30 seconds | 100 / 100 | 0.61 s / 0.25 s (LCP 1.10 / 0.43) | 100, and 0 axe issues on all 6 screens | 32 ms | 1–2 frames over 20 ms, only the tap's own frame | 30.8 + 9.0 KB | blank | no |
 | 6. Instant first paint | 100 / 100 | 0.63 s / 0.25 s (**LCP 0.63 / 0.25**, the same as first paint) | 100 | 32–40 ms | 0–1 frames over 20 ms | 30.1 + 11.2 KB | blank | no |
+| 7. Installable, works offline | 100 / 100 | 0.62 s / 0.25 s (LCP 0.62 / 0.25) | 100, and 0 axe issues on all 6 screens | 32 ms | 1–2 frames over 20 ms, only the tap's own frame | 30.6 + 11.6 KB (+1.2 KB `sw.js`, after load) | **works** | **yes** |
 
 ### 1. Real backend
 
@@ -204,6 +205,35 @@ How these were measured: Lighthouse 13.6, median of 3 runs, in two profiles. "De
 - **Numbers:** LCP now equals first paint: **0.63 s** on the harsh profile and **0.25 s** on the iPhone profile, down from 1.09 s and 0.43 s. Lighthouse normally simulates throttling; with real ("applied") throttling instead, first paint and largest paint are both 0.69 s and the code finishes loading at 1.44 s, so the question is on screen about 0.75 s before the app is ready. If the inline script ever fails, the skeleton from change 5 shows and the app draws as before.
 - **Tests:** every suite passes unchanged (`core` 14, `contrast` 5, now reading the palette from `index.html`, device 4, live 7, reveal 3). Also checked by script: posting, tabs and voting with no database; the claude.ai preview build; and an answer tapped while `app.js` was held back is saved once it arrives.
 - `app.js` stays a separate file, so the service worker in change 7 can cache it.
+
+### 7. Installable, and works offline
+
+- **Installs like an app.** `manifest.webmanifest` says standalone and portrait, and starts at `./`, so it works under GitHub Pages' `/Verd/` path. Icons: 192 and 512, a maskable one for Android, and a 180 px Apple touch icon with no see-through pixels (iOS would show black behind them). `tools/make-icons.mjs` draws them all from the favicon's V-and-dot mark, so the logo has one source.
+- **iPhone launch screens** for all 11 current iPhone screen sizes, from the SE to the 17 Pro Max and the Air: the mark, small and centred on the feed's black.
+  - One dark set serves both themes, not a light and a dark set as planned. The first screen you see, the feed, is dark in both themes, so a white launch screen in light mode would flash white right before a black feed.
+  - iOS only shows launch screens when the page has the `apple-mobile-web-app-capable` tag, even with a manifest, so it's there. The standard `mobile-web-app-capable` tag sits next to it, because Chrome warns without it.
+- **No white flash:** the launch screen, the manifest's background, the page background and the theme colour are all the feed's #0b0b0b. Then the question paints straight from the HTML (change 6).
+- **The status bar follows the screen.** Installed on an iPhone, the status bar takes the page's theme colour.
+  - It's black over the feed, a past question and a new post.
+  - Over Me and Search it's the page's own background: white or black with the phone's theme. It switches live if the phone's theme changes.
+- **Works offline.** `sw.js` keeps the page, the code, the manifest and the icons in one cache.
+  - Every launch is served from that cache at once, online or not.
+  - Then it checks the page and code in the background. If any of them changed, it downloads the whole set and swaps it in together. So a new page never runs with old code, and nothing needs a version number bumped by hand.
+  - A new release shows from the second launch after it's deployed, or at the reload when a new question drops.
+- **Leaves the rest alone.** It only answers for the app's own address.
+  - Requests to the database are never touched. Answers made offline wait in the outbox from change 1 and are sent when the signal is back.
+  - The site's other pages, like this plan and the audit, load normally.
+  - The claude.ai preview has no manifest, so it never registers the worker.
+- **Tests:** `tests/pwa.mjs` adds 6, and needs only Playwright:
+  - Chrome reports no installability errors, and the manifest parses clean.
+  - Every icon and launch screen the page names exists at its exact pixel size.
+  - After one visit, with the network off: the app opens, the question shows, an answer is saved, and it survives another offline launch.
+  - Offline, `PLAN.md` fails like any web page instead of turning into the app.
+  - A changed `app.js` is fetched in the background on one launch and runs on the next.
+  - The status bar colour over the feed and Me, in both themes, and when the phone switches theme.
+  - `tests/e2e-live.mjs` gained one (8 now): installed, opened with no signal, in live mode, the answer waits and reaches the database when the signal returns. All 54 tests pass.
+- **Numbers:** Lighthouse is 100 / 100 / 100 on both profiles, and first and largest paint are unchanged at 0.62 s and 0.25 s. The worker registers after the page has loaded, so it costs the first visit nothing. Code is 30.6 KB and the page 11.6 KB gzipped, plus 1.2 KB for `sw.js`.
+- **To check on your phone:** that the status bar turns white on Me in light mode. Apple has used the theme colour for the status bar since iOS 15, but I can't run iOS here.
 
 ## Next single step
 

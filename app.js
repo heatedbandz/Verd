@@ -794,7 +794,7 @@ $("pfile").onchange = async e => {
 };
 function openCompose(prefill){
   if (!ask.api){ toast("Posting opens soon."); return; }
-  cColor = Math.floor(Math.random() * COLORS.length); cScope = ask.scope; cPhotos = []; drawCompose(); $("compose").hidden = false;
+  cColor = Math.floor(Math.random() * COLORS.length); cScope = ask.scope; cPhotos = []; drawCompose(); $("compose").hidden = false; paintStatusBar();
   if (typeof prefill === "string") $("ptext").value = prefill; $("ptext").focus();
 }
 function drawCompose(){
@@ -813,7 +813,8 @@ function drawCompose(){
     : "People answer Yes or No. No names, phone numbers or anything mean about a real person.";
   if (backend && backend.mode === "device") $("cnote").textContent = "Only you can see your posts until Verd goes live. " + $("cnote").textContent;
 }
-$("cclose").onclick = () => { $("compose").hidden = true; };
+function closeCompose(){ $("compose").hidden = true; paintStatusBar(); }
+$("cclose").onclick = closeCompose;
 $("psend").onclick = async () => {
   let text = $("ptext").value.trim().replace(/\s+/g, " "); const pl = myPlace(), imgs = cPhotos.slice();
   if (imgs.length && !text) text = imgs.length === 2 ? "Which one?" : "Yes or no?";
@@ -826,7 +827,7 @@ $("psend").onclick = async () => {
   try{
     if (ask.scope !== item.scope){ ask.scope = item.scope; order = []; renderTop(); }
     jumpTo = item.id; if (imgs.length) await ask.api.photo(item.id, imgs); await ask.api.post(item); store.set("posted", true);
-    $("ptext").value = ""; $("compose").hidden = true; showPage("feed"); renderFeed(); toast("Posted."); checkBadges();
+    $("ptext").value = ""; closeCompose(); showPage("feed"); renderFeed(); toast("Posted."); checkBadges();
   }catch{ jumpTo = null; toast("Couldn't post. Check your connection and try again."); }
   $("psend").disabled = false;
 };
@@ -1000,11 +1001,11 @@ function dayRow(n, words, raw){
 let dayOpen = -1;
 function openDay(n){
   const key = dayKey(n), cached = store.get("res:" + key, null);
-  dayOpen = n; drawDay(n, cached || undefined); $("dayview").hidden = false;
+  dayOpen = n; drawDay(n, cached || undefined); $("dayview").hidden = false; paintStatusBar();
   if (!backend || !backend.results) return;
   backend.results(key, qFor(n)[1].length, myPlace()).then(r => { if (dayOpen === n) drawDay(n, r || null); }, () => { if (dayOpen === n && !cached) drawDay(n, null); });
 }
-function closeDay(){ dayOpen = -1; $("dayview").hidden = true; }
+function closeDay(){ dayOpen = -1; $("dayview").hidden = true; paintStatusBar(); }
 const drawDay = (n, r) => $("dayslot").replaceChildren(daySlide(n, r));
 // r: that day's results. undefined while they load, null if they couldn't be loaded.
 function daySlide(n, r){
@@ -1032,13 +1033,31 @@ $("q").onkeydown = e => { if (e.key === "Enter"){ remember($("q").value); $("q")
 $("qclear").onclick = () => { $("q").value = ""; renderSearch(); $("q").focus(); };
 $("qcancel").onclick = () => { $("q").value = ""; showPage("feed"); };
 
+// ---------- Works offline ----------
+// sw.js keeps Verd on the phone, so it opens with no connection and answers wait in the outbox (notes in sw.js).
+// Only the real site registers it: the claude.ai preview has no manifest.
+if ("serviceWorker" in navigator && document.querySelector('link[rel="manifest"]')){
+  const register = () => navigator.serviceWorker.register("sw.js").catch(() => {});
+  if (document.readyState === "complete") register(); else addEventListener("load", register);
+}
+
 // ---------- Navigation ----------
 function showPage(name){ withTransition(() => showPageNow(name)); }
+// Installed on an iPhone, the status bar takes the page's theme colour. It matches whatever fills the top of the
+// screen: black over the feed, a past question and a new post; the page's own background over Me and Search.
+const themeMeta = document.querySelector('meta[name="theme-color"]');
+function paintStatusBar(){
+  if (!themeMeta) return;
+  const paged = document.querySelector(".app").classList.contains("paged") && $("dayview").hidden && $("compose").hidden;
+  themeMeta.content = getComputedStyle(document.documentElement).getPropertyValue(paged ? "--bg" : "--feed-bg").trim();
+}
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", paintStatusBar);
 function showPageNow(name){
   $("me").hidden = name !== "me"; $("search").hidden = name !== "search"; document.querySelector(".app").classList.toggle("paged", name !== "feed");
   $("navHome").classList.toggle("on", name === "feed"); $("navSearch").classList.toggle("on", name === "search"); $("navMe").classList.toggle("on", name === "me");
   if (name === "search"){ renderSearch(); $("search").scrollTop = 0; setTimeout(() => $("q").focus(), 60); }
   if (name === "me"){ renderMe(); $("me").scrollTop = 0; }
+  paintStatusBar();
 }
 $("navSearch").onclick = () => showPage("search");
 $("navHome").onclick = () => { if ($("me").hidden && $("search").hidden) $("feed").scrollTo({ top: 0, behavior: "smooth" }); showPage("feed"); };
@@ -1053,7 +1072,7 @@ function tick(){
 }
 setInterval(tick, 30000);
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") tick(); });
-document.addEventListener("keydown", e => { if (e.key !== "Escape") return; if (!$("dayview").hidden) closeDay(); else if (!$("sheet").hidden) closeSheet(); else if (!$("compose").hidden) $("compose").hidden = true; });
+document.addEventListener("keydown", e => { if (e.key !== "Escape") return; if (!$("dayview").hidden) closeDay(); else if (!$("sheet").hidden) closeSheet(); else if (!$("compose").hidden) closeCompose(); });
 
 (async function start(){
   setupPlace(); renderTop(); renderFeed();

@@ -112,6 +112,29 @@ test('a vote with no signal waits in the outbox and syncs when back online', asy
   await ctx.close();
 });
 
+test('installed and opened with no signal: Verd still works live, and the answer is sent when the signal is back', async () => {
+  // This site serves app.js with the keys already in it, because the service worker caches what the server sends.
+  const keyed = await serveSite(8096, (path, body) => path !== '/app.js' ? body
+    : Buffer.from(body.toString().replace('supabaseUrl: ""', `supabaseUrl: "${fake.url}"`).replace('supabaseKey: ""', `supabaseKey: "${fake.anonKey}"`)));
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  try {
+    const p = await ctx.newPage(), errors = []; p.on('pageerror', e => errors.push(e.message));
+    await p.goto('http://localhost:8096/verd/'); await p.waitForSelector('.slide[data-id=end]');
+    await p.evaluate(async () => { await navigator.serviceWorker.ready; for (let i = 0; i < 50 && !navigator.serviceWorker.controller; i++) await new Promise(r => setTimeout(r, 100)); });
+    const before = (await dbVotes(today)).length;
+    await ctx.setOffline(true);
+    await p.reload(); await p.waitForSelector('.slide[data-id=end]');
+    assert.equal(await p.$eval('#netText', e => e.textContent), 'Offline');
+    await tap(p); await p.waitForTimeout(800);
+    assert.match(await p.evaluate(() => document.querySelector('.slide[data-id=daily]').innerText), /It counts as soon as you're back online\./);
+    assert.equal((await dbVotes(today)).length, before);
+    await ctx.setOffline(false);
+    await p.waitForFunction(() => JSON.parse(localStorage.getItem('es_outbox') || '[]').length === 0, null, { timeout: 5000 });
+    assert.equal((await dbVotes(today)).length, before + 1, 'the answer reached the database');
+    assert.deepEqual(errors, []);
+  } finally { await ctx.close(); keyed.close(); }
+});
+
 test("answers saved on the phone before launch are copied once, with today's vote", async () => {
   const local = { [yesterday]: { choice: 1, country: 'US' } };
   const { p, ctx } = await page({ es_myVotes: JSON.stringify(local) });
