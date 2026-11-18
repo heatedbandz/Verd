@@ -332,15 +332,34 @@ How these were measured: Lighthouse 13.6, median of 3 runs, in two profiles. "De
     - A vote from someone under 13 stores no state or city, and they get no suggestion box. Someone older stores both.
 - **Numbers:** Lighthouse 100 / 100 / 100. The code grew 1.1 KB gzipped.
 
+## Live since 2026-11-18
+
+**Verd went live on 2026-11-18 at 1:51 PM Pacific.** [heatedbandz.github.io/Verd](https://heatedbandz.github.io/Verd/) now uses Verd's Supabase project, so everyone sees the same real results.
+
+- **Setup:** the steps from the last plan are done. `setup.sql` is installed, anonymous sign-ins are on, and the Project URL and publishable key are in `CONFIG` at the top of `app.js`.
+- **The proof that the public key is safe:** `.github/workflows/live-check.yml` runs on GitHub after every change to `app.js`, `setup.sql` or the checks. You can also start it from **Actions → Live database check → Run workflow**.
+  - `tests/live-rls.mjs` attacks the real project with the public key, signed out and signed in, and all 42 checks must be refused. On launch day it passed before publishing, and again on the published version.
+  - `tests/live-smoke.mjs` then opens the app in Chromium against the real database without answering. It must run live, get today's count, make no account just by looking, and log no errors. All 6 checks passed.
+  - Before launch, the first runs found that `setup.sql` hadn't run and anonymous sign-ins were off. Nothing was published until both were fixed and every check passed.
+- **What the checks leave behind:** neither one casts a vote. To test what a signed-in person can't do, `live-rls` signs in once per run. That leaves one empty anonymous user marked `verd_check` in **Authentication → Users**, with no votes and no profile. Verd's numbers only count votes, so these never show up.
+  - The two launch-day runs before this change signed in twice each, without the mark. So the Users list also has 4 unmarked empty users from 2026-11-18.
+- **Local tests never touch the real database:**
+  - `tests/serve.mjs` blanks its settings for every local test.
+  - `build.sh` blanks them for the claude.ai preview.
+  - `tests/e2e-live.mjs` refuses to run unless `app.js` points at the stand-in.
+- **What changed for people on the site:**
+  - Votes and results are shared. The first vote signs in anonymously, and just looking makes no account.
+  - Answers a phone saved on earlier days, from 2026-11-17 on, are copied to the database once, at that first vote. They are real answers to those days' questions.
+  - Posting from the phone is off on the public site, as section 10 says, until accounts, reports and moderation exist.
+  - Friends added before launch are asked for a new invite link, because their old codes only existed on the phone.
+  - **Returning visitors:** the first visit after the update still shows the old version while the new one downloads, so reload once.
+
 ## Next single step
 
-**Ask a parent to make Verd's free database, then send me two values.** It takes about 10 minutes, easiest on a computer. Use a parent's account, like Verd's other accounts.
+**Answer today's question on your iPhone, then send your invite link to three friends.** It takes about two minutes, and it's the first real test of Verd with other people.
 
-1. Go to [supabase.com](https://supabase.com), sign in, and press **New project**. Name it `verd`, pick the region nearest you, and let it make the database password. You won't need it again.
-2. Open **SQL Editor**, press **New query**, paste all of [`setup.sql`](setup.sql), and press **Run**. It should end with "Success. No rows returned".
-   - If Supabase warns about a destructive operation, run it anyway. Those lines only remove tables from an old test version, and a new project has none.
-3. Open **Authentication → Sign In / Providers**, turn on **Allow anonymous sign-ins**, and press **Save**.
-4. Press **Connect** at the top of the project, or open **Settings → API Keys**. Copy the **Project URL** and the **publishable key**, which starts with `sb_publishable_`.
-5. Send me those two values. Both are safe to share: the key is meant to be public, and `setup.sql` locks everything else.
+1. Open [heatedbandz.github.io/Verd](https://heatedbandz.github.io/Verd/). If it still looks like before, reload once.
+2. Answer today's question.
+3. Tap **Me**. Under **Friends**, press **Invite** and send the link to three friends.
 
-Then I put them in `app.js` and run `tests/live-rls.mjs` against the real project. That proves the public key can't read raw votes, and once it passes, live results go on at [heatedbandz.github.io/Verd](https://heatedbandz.github.io/Verd/).
+The verdict needs 10 answers before it shows percentages. Until then Verd shows the true count.

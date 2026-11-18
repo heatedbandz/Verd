@@ -1,5 +1,6 @@
 // Attacks the REAL Supabase project over HTTPS with the public key, like anyone on the internet could.
-// Every check must be denied. It casts no votes, so real results stay clean.
+// Every check must be denied. It casts no votes, so real results stay clean. It signs in once, as one
+// anonymous user marked verd_check, with no votes and no profile, so a run is easy to tell apart from people.
 //
 //   node tests/live-rls.mjs        checks the project app.js uses (GitHub runs it after every change)
 //   SUPABASE_URL=https://xxxx.supabase.co SUPABASE_KEY=sb_publishable_... node tests/live-rls.mjs
@@ -18,7 +19,7 @@ const today = new Date().toISOString().slice(0, 10);
 
 let signInError = '';
 async function signIn() {
-  const r = await fetch(url + '/auth/v1/signup', { method: 'POST', headers: h(), body: JSON.stringify({ data: {} }) });
+  const r = await fetch(url + '/auth/v1/signup', { method: 'POST', headers: h(), body: JSON.stringify({ data: { verd_check: true } }) });
   const b = await r.json().catch(() => ({}));
   if (!r.ok) { signInError = r.status + ' ' + JSON.stringify(b).slice(0, 160); return null; }
   return b.access_token;
@@ -60,9 +61,9 @@ for (const [fn, args] of [['cast_vote', { d: today, c: 0, n: 2 }], ['my_profile'
   check(denied(r) || r.status === 400, `anon cannot call ${fn}`, `${r.status} ${(await r.text()).slice(0, 120)}`);
 }
 
-// No peeking: someone who hasn't voted today sees no counts, signed in or not.
-const fresh = user && await signIn();
-for (const [who, token] of fresh ? [['anon', null], ['fresh user', fresh]] : [['anon', null]]) {
+// No peeking: someone who hasn't voted today sees no counts, signed in or not. The signed-in user above
+// hasn't voted (the vote it tried was refused), so it is that person; it would see counts if that vote had landed.
+for (const [who, token] of user ? [['anon', null], ['signed-in user who has not voted', user]] : [['anon', null]]) {
   const r = await fetch(`${url}/rest/v1/rpc/get_results`, { method: 'POST', headers: h(token), body: JSON.stringify({ d: today, n: 2, cc: 'US' }) });
   const b = await r.json().catch(() => null);
   check(r.ok && b && b.visible === false && b.world.counts === null, `${who} cannot peek at today's results`, `${r.status} ${JSON.stringify(b).slice(0, 160)}`);
