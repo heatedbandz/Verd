@@ -1,0 +1,26 @@
+name: Live database check
+# Attacks Verd's real Supabase project with the public key, like anyone on the internet could: every attack
+# must be denied. Then opens the app against it without answering. No step casts a vote.
+on:
+  push:
+    paths: [app.js, setup.sql, tests/live-rls.mjs, tests/live-smoke.mjs, tests/serve.mjs, .github/workflows/live-check.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  attack:
+    name: The public key can't read raw votes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: node --version && node tests/live-rls.mjs
+  smoke:
+    name: The app runs live with no errors
+    needs: attack
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - working-directory: tests
+        run: npm install --no-save playwright@1.63.0 && npx playwright install --with-deps chromium
+      - working-directory: tests
+        run: node live-smoke.mjs

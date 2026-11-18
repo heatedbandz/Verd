@@ -1,6 +1,6 @@
 // Opens Verd in Chromium against the REAL database without answering, so nothing is stored.
 // Passes when the app runs live, the database answers today's count, no account is made just by looking,
-// and nothing logs an error.
+// and nothing logs an error. GitHub runs it after every change (.github/workflows/live-check.yml).
 //
 //   cd tests && node live-smoke.mjs       (needs Playwright with Chromium, and a network that reaches the project)
 import { createRequire } from 'node:module';

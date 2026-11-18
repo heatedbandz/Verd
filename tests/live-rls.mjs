@@ -1,7 +1,7 @@
 // Attacks the REAL Supabase project over HTTPS with the public key, like anyone on the internet could.
 // Every check must be denied. It casts no votes, so real results stay clean.
 //
-//   node tests/live-rls.mjs        checks the project app.js uses
+//   node tests/live-rls.mjs        checks the project app.js uses (GitHub runs it after every change)
 //   SUPABASE_URL=https://xxxx.supabase.co SUPABASE_KEY=sb_publishable_... node tests/live-rls.mjs
 // (SUPABASE_ANON_KEY works too, for an older project's anon public key.)
 import { readFileSync } from 'node:fs';

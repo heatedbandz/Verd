@@ -3,7 +3,7 @@ import { sum, pct, num, countsOf, shares, leader, dayState, promptLine, verdictM
 // ---------- Settings ----------
 // Verd's Supabase project: its Project URL and publishable key (the project's Connect button, or Settings > API Keys).
 // The key is meant to be public. setup.sql locks the database so the key can only call safe functions, and
-// tests/live-rls.mjs proves it against the real project.
+// tests/live-rls.mjs proves it against the real project on GitHub after every change (.github/workflows/live-check.yml).
 // Leave both empty and Verd runs on the phone alone, as it did before launch.
 const CONFIG = {
   supabaseUrl: "https://zfphqlavepncdoihiugu.supabase.co",

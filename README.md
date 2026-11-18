@@ -10,5 +10,6 @@
 - `tests/` has the database attack tests, the browser tests and the live checks. See `PLAN.md` for what each proves.
   - The local tests never reach the real database: `tests/serve.mjs` blanks its settings, and the claude.ai preview keeps its own votes.
   - `node tests/live-rls.mjs` attacks the real database with the public key, and every attack must be denied. `node tests/live-smoke.mjs` opens the app against it without answering. Neither stores anything.
+  - `.github/workflows/live-check.yml` runs both on GitHub after every change to the app, the database or the checks.
 - `setup.sql` creates the Supabase database.
 - `build.sh` only makes `app.html`, a single-file copy for the claude.ai preview. The website doesn't need it.
