@@ -12,6 +12,9 @@ body = re.sub(r'<script type="module" src="app.js"></script>\n?', '', body)
 # core.js and app.js become one inline module: drop the import line and the export keywords.
 core = re.sub(r'^export ', '', open('core.js').read(), flags=re.M)
 app = re.sub(r'^import [^\n]*from "\./core\.js";\n', '', open('app.js').read(), flags=re.M)
+# The preview keeps its own shared votes in claude.ai, never the real database: blank its settings.
+app = re.sub(r'supabaseUrl: "[^"]*"', 'supabaseUrl: ""', app); app = re.sub(r'supabaseKey: "[^"]*"', 'supabaseKey: ""', app)
+assert 'supabase.co' not in app, 'the preview must not carry the real database settings'
 assert 'import ' not in app.split('\n', 1)[0], 'app.js still imports something build.sh does not inline'
 decl = lambda src: set(re.findall(r'^(?:export )?(?:const|let|var|(?:async )?function\*?|class) (\w+)', src, re.M))
 clash = decl(core) & decl(app)

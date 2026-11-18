@@ -25,6 +25,7 @@ async function page(init = {}, hash = '') {
   await ctx.route('**/app.js', async route => {
     const r = await route.fetch(); let js = await r.text();
     js = js.replace('supabaseUrl: ""', `supabaseUrl: "${fake.url}"`).replace('supabaseKey: ""', `supabaseKey: "${fake.anonKey}"`);
+    if (!js.includes(`supabaseUrl: "${fake.url}"`)) throw new Error('app.js is not pointed at the stand-in database');
     await route.fulfill({ response: r, body: js });
   });
   if (Object.keys(init).length) await ctx.addInitScript(items => { if (!sessionStorage.getItem('seeded')) { for (const [k, v] of Object.entries(items)) localStorage.setItem(k, v); sessionStorage.setItem('seeded', '1'); } }, init);

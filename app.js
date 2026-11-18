@@ -1,12 +1,13 @@
 import { sum, pct, num, countsOf, shares, leader, dayState, promptLine, verdictMain, lockedLines, pickTeaser, flavor, GUESSES, guessLine, countdown, inDays, FREEZES, NO_STREAK, streakOn, answerOn, streakNote } from "./core.js";
 
 // ---------- Settings ----------
-// To go live: paste the Supabase Project URL and publishable key (the project's Connect button, or
-// Settings > API Keys). Older projects call it the anon public key; both work.
-// The key is meant to be public; setup.sql locks the database so it can only call safe functions.
+// Verd's Supabase project: its Project URL and publishable key (the project's Connect button, or Settings > API Keys).
+// The key is meant to be public. setup.sql locks the database so the key can only call safe functions, and
+// tests/live-rls.mjs proves it against the real project.
+// Leave both empty and Verd runs on the phone alone, as it did before launch.
 const CONFIG = {
-  supabaseUrl: "",
-  supabaseKey: "",
+  supabaseUrl: "https://zfphqlavepncdoihiugu.supabase.co",
+  supabaseKey: "sb_publishable_Ue0OIDULo5ly2vT1FBgcjA_iWX-uuBv",
   siteUrl: "https://heatedbandz.github.io/Verd/",   // GitHub Pages paths are case-sensitive: the repo is "Verd"
   // Minimum votes before a split is shown. The live database has its own copy (app_config);
   // these are only used by the claude.ai preview, which has no database to ask.

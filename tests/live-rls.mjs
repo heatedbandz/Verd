@@ -1,10 +1,14 @@
 // Attacks the REAL Supabase project over HTTPS with the public key, like anyone on the internet could.
 // Every check must be denied. It casts no votes, so real results stay clean.
 //
+//   node tests/live-rls.mjs        checks the project app.js uses
 //   SUPABASE_URL=https://xxxx.supabase.co SUPABASE_KEY=sb_publishable_... node tests/live-rls.mjs
 // (SUPABASE_ANON_KEY works too, for an older project's anon public key.)
-const url = (process.env.SUPABASE_URL || '').replace(/\/+$/, ''), key = process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY || '';
-if (!url || !key) { console.error('Set SUPABASE_URL and SUPABASE_KEY'); process.exit(2); }
+import { readFileSync } from 'node:fs';
+const app = readFileSync(new URL('../app.js', import.meta.url), 'utf8'), setting = k => (app.match(new RegExp(k + ': "([^"]*)"')) || [])[1] || '';
+const url = (process.env.SUPABASE_URL || setting('supabaseUrl')).replace(/\/+$/, ''), key = process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY || setting('supabaseKey');
+if (!url || !key) { console.error('Set SUPABASE_URL and SUPABASE_KEY, or put them in app.js'); process.exit(2); }
+console.log('Checking ' + url + '\n');
 
 let failed = 0;
 const check = (ok, what, detail = '') => { console.log((ok ? 'PASS ' : 'FAIL ') + what + (ok ? '' : '  ' + detail)); if (!ok) failed++; };
@@ -34,6 +38,13 @@ for (const [who, token] of [['anon', null], ['signed-in user', user]]) {
   }
   const helper = await fetch(`${url}/rest/v1/rpc/cfg`, { method: 'POST', headers: h(token), body: JSON.stringify({ k: 'min_world' }) });
   check(helper.status >= 400, `${who} cannot call private helpers`, String(helper.status));
+}
+
+// The vote function is installed, and refuses an answer that doesn't exist before it writes anything.
+{
+  const r = await fetch(`${url}/rest/v1/rpc/cast_vote`, { method: 'POST', headers: h(user), body: JSON.stringify({ d: today, c: 9, n: 2 }) });
+  const text = await r.text();
+  check(r.status === 400 && /bad answer/.test(text), 'a signed-in user cannot vote for an answer that does not exist', `${r.status} ${text.slice(0, 120)}`);
 }
 
 // Personal functions need a session.

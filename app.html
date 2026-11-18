@@ -623,9 +623,10 @@ function streakNote(s, today, answered){
 
 
 // ---------- Settings ----------
-// To go live: paste the Supabase Project URL and publishable key (the project's Connect button, or
-// Settings > API Keys). Older projects call it the anon public key; both work.
-// The key is meant to be public; setup.sql locks the database so it can only call safe functions.
+// Verd's Supabase project: its Project URL and publishable key (the project's Connect button, or Settings > API Keys).
+// The key is meant to be public. setup.sql locks the database so the key can only call safe functions, and
+// tests/live-rls.mjs proves it against the real project.
+// Leave both empty and Verd runs on the phone alone, as it did before launch.
 const CONFIG = {
   supabaseUrl: "",
   supabaseKey: "",
