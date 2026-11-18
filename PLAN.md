@@ -291,6 +291,10 @@ How these were measured: Lighthouse 13.6, median of 3 runs, in two profiles. "De
     - Before launch, their line used to promise "Matches start when live results do." It now says "When Verd goes live, swap new invite links to compare.", and the invite toast no longer promises a comparison.
     - After launch, their line says "Added before Verd went live. Send them your new invite link." The stand-in codes are never sent to the database.
   - **Tests:** the `device` invite test now removes a friend, and a new `live` test covers both fixes. All 67 pass.
+  - **Share and invite links.** The public site is at `heatedbandz.github.io/Verd/`, with a capital V (GitHub confirms that address for the live deployment). GitHub Pages paths are case-sensitive, and every share and invite link pointed at `/verd/`, so they could have opened a 404 page.
+    - On the site, links now use the address the page was opened at, so they always match.
+    - The claude.ai preview points at `/Verd/`.
+    - A new `device` test opens the real address and checks the invite link. All 68 pass.
 
 ### 10. Teen safety and the posting gate
 

@@ -169,3 +169,18 @@ test('state and city wait for one neutral age question, and under 13 they are ne
   }
 });
 
+test('share and invite links use the address the public site was opened at', async () => {
+  const site = 'https://heatedbandz.github.io/Verd/';
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block', permissions: ['clipboard-read', 'clipboard-write'] });
+  // Serve the local copy at the real address. GitHub Pages paths are case-sensitive, and the repo is "Verd".
+  await ctx.route(site + '**', async route => route.fulfill({ response: await route.fetch({ url: base + route.request().url().slice(site.length) }) }));
+  const p = await ctx.newPage(), errors = [];
+  p.on('pageerror', e => errors.push(e.message)); p.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+  await p.goto(site); await p.waitForSelector('.slide[data-id=end]');
+  await p.click('#navMe'); await p.waitForTimeout(300); await p.click('#invite'); await p.waitForTimeout(300);
+  const link = await p.evaluate(() => navigator.clipboard.readText());
+  assert.match(link, /\shttps:\/\/heatedbandz\.github\.io\/Verd\/#f=[A-Z2-9]{6}$/, link);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+

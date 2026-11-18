@@ -7,7 +7,7 @@ import { sum, pct, num, countsOf, shares, leader, dayState, promptLine, verdictM
 const CONFIG = {
   supabaseUrl: "",
   supabaseKey: "",
-  siteUrl: "https://heatedbandz.github.io/verd/",
+  siteUrl: "https://heatedbandz.github.io/Verd/",   // GitHub Pages paths are case-sensitive: the repo is "Verd"
   // Minimum votes before a split is shown. The live database has its own copy (app_config);
   // these are only used by the claude.ai preview, which has no database to ask.
   min: { world: 10, country: 30, state: 30, city: 30, friends: 3 }
@@ -761,7 +761,10 @@ async function copyOrShow(text, okMsg){
 // ---------- Share: a result card image, through the share sheet ----------
 // The card says how big your side is, never which side won, so friends still have to answer to find out.
 const FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
-const siteUrl = () => CONFIG.siteUrl || location.href.split("#")[0].split("?")[0];
+// Share and invite links. On the public site they use the address the page was opened at, so they always work;
+// anywhere else (the claude.ai preview, a local copy) they point at the public site.
+const siteUrl = () => /(^|\.)github\.io$/.test(location.hostname) ? location.origin + location.pathname.replace(/[^/]*$/, "")
+  : CONFIG.siteUrl || location.href.split("#")[0].split("?")[0];
 function shareLines(){
   const mine = myVotes[todayKey], counts = todayState() === "revealed" ? countsOf(res.world) : null;
   if (counts) return ["I'm with " + shares(counts)[mine.choice] + "% of " + num(sum(counts)) + " people.", "Which side are you on?"];
