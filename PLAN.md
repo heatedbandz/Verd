@@ -151,6 +151,7 @@ How these were measured: Lighthouse 13.6, median of 3 runs, in two profiles. "De
 | 8. Return loop | 100 / 100 | 0.62 s / 0.25 s (LCP 0.62 / 0.25) | 100 | 32–40 ms | 0–1 frames over 20 ms | 31.4 + 11.7 KB | works | yes |
 | 9. Friends and rivalries | 100 / 100 | 0.67 s / 0.25 s (LCP 0.67 / 0.25) | 100, and 0 axe issues on the board and Me | 40–48 ms | 0–2 frames over 20 ms | 33.5 + 11.9 KB | works | yes |
 | 10. Teen safety and the posting gate | 100 / 100 | 0.63 s / 0.25 s (LCP 0.63 / 0.25) | 100, and 0 axe issues on all 3 states of the age question, in both themes | 40–48 ms | 1–2 frames over 20 ms | 34.5 + 12.0 KB | works | yes |
+| **Final, with the launch fixes** | **100 / 100** | **0.62 s / 0.25 s** (LCP 0.62 / 0.25) | **100**, and 0 axe issues and no tap target under 44 pt on all 6 screens, in both themes | **32–40 ms** | **0 frames over 20 ms** (worst 17 ms) | 35.2 + 12.1 KB (+1.2 KB `sw.js`), against a 120 KB budget | **works** | **yes** |
 
 ### 1. Real backend
 
@@ -333,4 +334,13 @@ How these were measured: Lighthouse 13.6, median of 3 runs, in two profiles. "De
 
 ## Next single step
 
-*(written at the end of the session)*
+**Ask a parent to make Verd's free database, then send me two values.** It takes about 10 minutes, easiest on a computer. Use a parent's account, like Verd's other accounts.
+
+1. Go to [supabase.com](https://supabase.com), sign in, and press **New project**. Name it `verd`, pick the region nearest you, and let it make the database password. You won't need it again.
+2. Open **SQL Editor**, press **New query**, paste all of [`setup.sql`](setup.sql), and press **Run**. It should end with "Success. No rows returned".
+   - If Supabase warns about a destructive operation, run it anyway. Those lines only remove tables from an old test version, and a new project has none.
+3. Open **Authentication → Sign In / Providers**, turn on **Allow anonymous sign-ins**, and press **Save**.
+4. Press **Connect** at the top of the project, or open **Settings → API Keys**. Copy the **Project URL** and the **publishable key**, which starts with `sb_publishable_`.
+5. Send me those two values. Both are safe to share: the key is meant to be public, and `setup.sql` locks everything else.
+
+Then I put them in `app.js` and run `tests/live-rls.mjs` against the real project. That proves the public key can't read raw votes, and once it passes, live results go on at [heatedbandz.github.io/Verd](https://heatedbandz.github.io/Verd/).

@@ -182,6 +182,8 @@ button{border:0;background:none;padding:0;cursor:pointer}
 .rowlist>div:first-child{border-top:0}
 .rowlist b{font-weight:600}
 .rowlist span{color:var(--muted);text-align:right}
+#flist span{flex:1}
+.rowlist .fx{flex:none;align-self:center;min-width:var(--tap);min-height:var(--tap);margin:calc(var(--s3) * -1) calc(var(--s2) * -1) calc(var(--s3) * -1) calc(var(--s3) * -1);color:var(--muted);font-size:var(--t-2xl);line-height:1}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:var(--s3)}
 
 /* ---------- Compose ---------- */
@@ -405,8 +407,12 @@ html.vt .page{animation:none}
       <div class="sec">
         <h3>Your place</h3>
         <select class="field" id="country" aria-label="Country"></select>
-        <div class="grid2"><input class="field" id="mystate" maxlength="40" placeholder="State" aria-label="State or region"><input class="field" id="mycity" maxlength="40" placeholder="City" aria-label="City"></div>
-        <p class="note">Only used to show you posts from people near you.</p>
+        <div id="ageAsk">
+          <p class="note">To add your state and city, pick the month and year you were born. It stays on this phone.</p>
+          <div class="grid2"><select class="field" id="bmonth" aria-label="Month you were born"></select><select class="field" id="byear" aria-label="Year you were born"></select></div>
+        </div>
+        <div class="grid2" id="placeFields" hidden><input class="field" id="mystate" maxlength="40" placeholder="State" aria-label="State or region"><input class="field" id="mycity" maxlength="40" placeholder="City" aria-label="City"></div>
+        <p class="note" id="placeNote">Used to compare answers with people near you. Never your exact location.</p>
       </div>
       <div class="sec" id="suggest" hidden>
         <h3>Suggest tomorrow's question</h3>
@@ -617,12 +623,13 @@ function streakNote(s, today, answered){
 
 
 // ---------- Settings ----------
-// To go live: paste the Supabase Project URL and anon public key (Project Settings > API).
-// The anon key is meant to be public; setup.sql locks the database so it can only call safe functions.
+// To go live: paste the Supabase Project URL and publishable key (the project's Connect button, or
+// Settings > API Keys). Older projects call it the anon public key; both work.
+// The key is meant to be public; setup.sql locks the database so it can only call safe functions.
 const CONFIG = {
   supabaseUrl: "",
   supabaseKey: "",
-  siteUrl: "https://heatedbandz.github.io/verd/",
+  siteUrl: "https://heatedbandz.github.io/Verd/",   // GitHub Pages paths are case-sensitive: the repo is "Verd"
   // Minimum votes before a split is shown. The live database has its own copy (app_config);
   // these are only used by the claude.ai preview, which has no database to ask.
   min: { world: 10, country: 30, state: 30, city: 30, friends: 3 }
@@ -681,9 +688,10 @@ const backends = {
       return session.at;
     }
     // needAuth: create a session if there is none (voting). Otherwise use it only if it exists.
+    // With no session the key goes only in apikey: a publishable key isn't a token, so it never goes in Authorization.
     async function rpc(name, args, needAuth, retried){
-      const t = needAuth || session ? await (pending ||= token().finally(() => { pending = null; })) : key;
-      const r = await fetch(base + "/rest/v1/rpc/" + name, { method: "POST", headers: { apikey: key, Authorization: "Bearer " + t, "Content-Type": "application/json" }, body: JSON.stringify(args) });
+      const t = needAuth || session ? await (pending ||= token().finally(() => { pending = null; })) : null;
+      const r = await fetch(base + "/rest/v1/rpc/" + name, { method: "POST", headers: { apikey: key, ...(t ? { Authorization: "Bearer " + t } : {}), "Content-Type": "application/json" }, body: JSON.stringify(args) });
       const body = await r.json().catch(() => null);
       if (r.status === 401 && session && !retried){ session = null; store.set("sb", null); return rpc(name, args, needAuth, true); }
       if (!r.ok){ const e = new Error((body && body.message) || "rpc " + r.status); e.status = r.status; throw e; }
@@ -713,7 +721,7 @@ const backends = {
     }
     // Your friend list lives on this phone. The database gets a copy once you have an account, so a friend
     // match can check that you both added each other. No account is made just for this.
-    function syncFriends(){ if (session) rpc("set_friends", { codes: store.get("friends", []) }, true).catch(() => {}); }
+    function syncFriends(){ if (session) rpc("set_friends", { codes: liveFriends() }, true).catch(() => {}); }
     // Answers this phone saved before the database existed, copied once (today's goes through the outbox).
     async function importLocal(){
       if (store.get("imported", false)) return;
@@ -983,16 +991,41 @@ function guessCountry(){
   for (const l of langs){ const m = /-([A-Z]{2})$/i.exec(l); if (m && COUNTRIES[m[1].toUpperCase()]) return m[1].toUpperCase(); }
   return "XX";
 }
-const myPlace = () => ({ city: store.get("city", ""), state: store.get("state", ""), country: guessCountry() });
+// Your place: country for everyone; state and city only once you're known to be 13 or older (see ageOk).
+const myPlace = () => { const ok = ageOk(); return { city: ok ? store.get("city", "") : "", state: ok ? store.get("state", "") : "", country: guessCountry() }; };
+// ---------- Age: one neutral question before state and city ----------
+// A child's city counts as personal information, so state and city are only kept and sent for people 13 and older.
+// The question doesn't hint at the cut-off, the answer stays on this phone, and once given it can't be changed here.
+const bornAt = () => { const m = /^(\d{4})-(\d{2})$/.exec(store.get("born", "")); return m ? +m[1] * 12 + (+m[2] - 1) : null; };
+// The day isn't asked, so the month of the 13th birthday still counts as 12.
+function ageOk(){ const b = bornAt(), now = new Date(); return b != null && now.getFullYear() * 12 + now.getMonth() - b > 13 * 12; }
+// Someone who said they're under 13: country only, and no suggestions, the one place where words someone writes reach the server.
+const under13 = () => bornAt() != null && !ageOk();
+const canSuggest = () => !!(backend && backend.suggest) && !under13();
 const friends = () => store.get("friends", []);
 // First names from invite links. They're kept on this phone only.
 const nick = c => store.get("nicks", {})[c] || "";
 function saveFriends(list){ store.set("friends", list); if (backend && backend.setFriends) backend.setFriends(); }
+// Where each friend was added. A code added before Verd went live is a stand-in that doesn't exist in the database,
+// so that friend is asked for a new link, and the stand-in is never sent there.
+function addedIn(c){ return store.get("addedIn", {})[c] || "device"; }
+// An invite can open before the backend is picked, but whether Verd is live is known from the start.
+const modeNow = () => backend ? backend.mode : LIVE ? "live" : "device";
+function liveFriends(){ return friends().filter(c => addedIn(c) === "live"); }
+function addFriend(c){ store.set("addedIn", { ...store.get("addedIn", {}), [c]: modeNow() }); saveFriends([...friends().filter(x => x !== c), c]); }
+function removeFriend(c){
+  const name = nick(c) || c, nicks = store.get("nicks", {}), added = store.get("addedIn", {});
+  delete nicks[c]; delete added[c]; store.set("nicks", nicks); store.set("addedIn", added);
+  saveFriends(friends().filter(x => x !== c));
+  toast("Removed " + name + ". To add them back, use " + c + "."); renderFriends();
+}
 // Your friend code. Codes from the database and stand-in codes from before it existed are kept apart,
 // so an invite never carries a code that won't work.
 const myCode = () => store.get("myCode:" + (backend ? backend.mode : ""), "");
 const ownCode = c => c === codeFrom(voterId()) || ["live", "preview"].some(m => store.get("myCode:" + m, "") === c);
 const SCOPES = [["world","World"],["country","Country"],["state","State"],["city","City"],["friends","Friends"]];
+// Under 13 there's no state or city, so those tabs and audiences aren't offered.
+const scopes = () => under13() ? SCOPES.filter(([k]) => k !== "state" && k !== "city") : SCOPES;
 // Slide colours: violet, crimson, green, ink, blue, pink, rust, teal. Each is dark enough that white text passes
 // WCAG AA (4.5:1) on both ends of its gradient, under the sheen. tests/contrast.mjs checks every pair (#verd-data).
 const COLORS = DATA.colors;
@@ -1292,7 +1325,7 @@ function renderTop(){
   const box = $("scopes"), show = !!ask.api && ask.posts.some(p => visible(p, true));
   if (!show) ask.scope = "world";
   box.hidden = !show; box.innerHTML = ""; if (!show) return;
-  SCOPES.forEach(([k, l]) => { const b = el("button", "scope" + (k === ask.scope ? " on" : ""), l); b.setAttribute("role", "tab"); b.setAttribute("aria-selected", k === ask.scope);
+  scopes().forEach(([k, l]) => { const b = el("button", "scope" + (k === ask.scope ? " on" : ""), l); b.setAttribute("role", "tab"); b.setAttribute("aria-selected", k === ask.scope);
     b.onclick = () => { ask.scope = k; order = []; renderTop(); renderFeed(); $("feed").scrollTop = 0; }; box.append(b); });
 }
 
@@ -1350,7 +1383,10 @@ async function copyOrShow(text, okMsg){
 // ---------- Share: a result card image, through the share sheet ----------
 // The card says how big your side is, never which side won, so friends still have to answer to find out.
 const FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
-const siteUrl = () => CONFIG.siteUrl || location.href.split("#")[0].split("?")[0];
+// Share and invite links. On the public site they use the address the page was opened at, so they always work;
+// anywhere else (the claude.ai preview, a local copy) they point at the public site.
+const siteUrl = () => /(^|\.)github\.io$/.test(location.hostname) ? location.origin + location.pathname.replace(/[^/]*$/, "")
+  : CONFIG.siteUrl || location.href.split("#")[0].split("?")[0];
 function shareLines(){
   const mine = myVotes[todayKey], counts = todayState() === "revealed" ? countsOf(res.world) : null;
   if (counts) return ["I'm with " + shares(counts)[mine.choice] + "% of " + num(sum(counts)) + " people.", "Which side are you on?"];
@@ -1478,7 +1514,7 @@ function drawCompose(){
   const sw = $("swatches"); sw.innerHTML = "";
   COLORS.forEach((c, i) => { const b = el("button", "sw" + (i === cColor ? " on" : "")); b.style.background = c[0]; b.setAttribute("aria-label", "Color " + (i + 1)); b.onclick = () => { cColor = i; drawCompose(); }; sw.append(b); });
   const au = $("aud"); au.innerHTML = "";
-  SCOPES.forEach(([k, l]) => { const b = el("button", k === cScope ? "on" : "", l); b.disabled = cPhotos.length > 0 && k !== "friends"; b.onclick = () => { cScope = k; drawCompose(); }; au.append(b); });
+  scopes().forEach(([k, l]) => { const b = el("button", k === cScope ? "on" : "", l); b.disabled = cPhotos.length > 0 && k !== "friends"; b.onclick = () => { cScope = k; drawCompose(); }; au.append(b); });
   const th = $("thumbs"); th.innerHTML = "";
   cPhotos.forEach((src, i) => { const t = el("div", "thumb"), im = el("img"); im.src = src; im.alt = "Photo " + (i + 1); const x = el("button"); x.append(el("span", "", "×")); x.setAttribute("aria-label", "Remove photo"); x.onclick = () => { cPhotos.splice(i, 1); drawCompose(); }; t.append(im, x); th.append(t); });
   if (cPhotos.length < 2){ const a = el("button", "addp"); a.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>'; a.setAttribute("aria-label", "Add a photo"); a.onclick = () => $("pfile").click(); th.append(a); }
@@ -1552,25 +1588,26 @@ function showCode(){
 // A match needs you both to have added each other, and 3 past questions you both answered.
 let friendsCall = 0;
 async function renderFriends(){
-  const fl = friends(), box = $("flist"), call = ++friendsCall, live = !!backend && backend.mode === "live";
+  const fl = friends(), box = $("flist"), call = ++friendsCall, live = !!backend && backend.mode === "live", old = c => live && addedIn(c) !== "live";
   // by: undefined while loading, null when it can't be checked yet, else the matches by code
   const draw = (by, failed) => {
     box.innerHTML = "";
     fl.map(c => { const r = by && by[c]; return { c, r, m: r && r.agree !== null && r.shared ? pct(r.agree, r.shared) : null }; })
       .sort((a, b) => (b.m ?? -1) - (a.m ?? -1))
       .forEach(({ c, r, m }) => {
-        const t = failed ? "" : by === undefined ? "Loading"
-          : by === null ? (live ? "Matches start after your first answer." : "Matches start when live results do.")
+        const t = old(c) ? "Added before Verd went live. Send them your new invite link." : failed ? "" : by === undefined ? "Loading"
+          : by === null ? (live ? "Matches start after your first answer." : "When Verd goes live, swap new invite links to compare.")
           : !r ? (live ? "Shows once they add you too." : "No shared answers yet")
           : m === null ? (r.shared ? r.shared + " shared " + (r.shared === 1 ? "answer" : "answers") + " so far" : "No shared answers yet")
           : (m >= 80 ? "Same brain, " : m <= 30 ? "Opposites, " : "") + m + "% match";
-        const d = el("div"); d.append(el("b", "", nick(c) ? nick(c) + " · " + c : c), el("span", by === undefined && !failed ? "sk" : "", t)); box.append(d); });
+        const d = el("div"), x = el("button", "fx", "×"); x.setAttribute("aria-label", "Remove " + (nick(c) || c)); x.onclick = () => removeFriend(c);
+        d.append(el("b", "", nick(c) ? nick(c) + " · " + c : c), el("span", by === undefined && !failed && !old(c) ? "sk" : "", t), x); box.append(d); });
     if (failed) box.append(el("p", "note", "Couldn't load your matches. Check your connection."));
   };
   if (!fl.length){ box.innerHTML = ""; return; }
   draw(undefined);
   let rows = null, failed = false;
-  try{ if (backend) rows = await backend.friendMatch(fl); }catch{ failed = true; }
+  try{ if (backend) rows = await backend.friendMatch(live ? liveFriends() : fl); }catch{ failed = true; }
   if (call === friendsCall) draw(rows ? Object.fromEntries(rows.map(r => [r.code, r])) : null, failed);
 }
 $("recapShare").onclick = () => { const r = recapData(), p = profile(); if (!r) return;
@@ -1599,14 +1636,15 @@ function takeInvite(){
   if (ownCode(code)){ toast("That's your own invite link."); return; }
   const name = cleanName(h.get("n"));
   if (name) store.set("nicks", { ...store.get("nicks", {}), [code]: name });
-  if (!friends().includes(code)) saveFriends([...friends(), code]);
-  toast("Added " + (name || "your friend") + ". Send your link back so you can compare.");
+  addFriend(code);
+  // Before Verd is live there's nothing to compare yet, so the toast doesn't promise it.
+  toast("Added " + (name || "your friend") + "." + (modeNow() !== "device" ? " Send your link back so you can compare." : ""));
   if (!$("me").hidden) renderMe();
 }
 addEventListener("hashchange", takeInvite);
 $("fform").onsubmit = e => { e.preventDefault(); const c = $("fcode").value.trim().toUpperCase(), me = $("mycode").textContent;
   if (!/^[A-Z0-9]{6}$/.test(c)){ toast("Friend codes are 6 letters and numbers."); return; } if (c === me || ownCode(c)){ toast("That's your own code."); return; }
-  if (!friends().includes(c)) saveFriends([...friends(), c]); $("fcode").value = ""; toast("Friend added."); checkBadges(); renderMe(); order = []; renderFeed(); };
+  addFriend(c); $("fcode").value = ""; toast("Friend added."); checkBadges(); renderMe(); order = []; renderFeed(); };
 function setupPlace(){
   const sel = $("country");
   Object.entries(COUNTRIES).sort((a, b) => a[0] === "XX" ? 1 : b[0] === "XX" ? -1 : a[1].localeCompare(b[1])).forEach(([cc, name]) => sel.add(new Option(flag(cc) + "  " + name, cc)));
@@ -1615,6 +1653,25 @@ function setupPlace(){
   sel.onchange = () => { store.set("country", sel.value); changed(); };
   $("mycity").onchange = () => { store.set("city", $("mycity").value.trim()); changed(); };
   $("mystate").onchange = () => { store.set("state", $("mystate").value.trim()); changed(); };
+  // The age question: month and year, nothing chosen until you choose.
+  const pick = (s, label) => { const o = new Option(label, "", true, true); o.disabled = true; s.add(o); };
+  pick($("bmonth"), "Month"); pick($("byear"), "Year");
+  ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+    .forEach((m, i) => $("bmonth").add(new Option(m, String(i + 1).padStart(2, "0"))));
+  for (let y = new Date().getFullYear(); y >= 1920; y--) $("byear").add(new Option(String(y), String(y)));
+  $("bmonth").onchange = $("byear").onchange = () => {
+    if (!$("bmonth").value || !$("byear").value) return;
+    store.set("born", $("byear").value + "-" + $("bmonth").value);
+    if (!ageOk()){ store.set("state", ""); store.set("city", ""); $("mystate").value = $("mycity").value = ""; if (ask.scope === "state" || ask.scope === "city") ask.scope = "world"; }
+    drawPlace(); renderTop(); changed();
+  };
+  drawPlace();
+}
+function drawPlace(){
+  const asked = bornAt() != null, ok = ageOk();
+  $("ageAsk").hidden = asked; $("placeFields").hidden = !ok; if (under13()) $("suggest").hidden = true;
+  $("placeNote").textContent = asked && !ok ? "State and city are for people 13 and older, so Verd only uses your country."
+    : "Used to compare answers with people near you. Never your exact location.";
 }
 
 // ---------- Search ----------
@@ -1692,7 +1749,7 @@ function renderSearch(){
     e.append(el("h2", "", found ? "Got a take on " + raw.trim() + "?" : "Nothing on “" + raw.trim() + "” yet."));
     // Posting is off on the public site, so there the next step is suggesting it as a question for everyone.
     const act = ask.api ? ["Start a debate", found ? "Put it up and let people decide." : "Be the first. Ask it and let people decide.", () => { remember(raw); openCompose(topic ? "" : asQuestion(raw)); }]
-      : backend && backend.suggest ? ["Suggest it as a daily question", "Good ones become the question for everyone.", () => { remember(raw); suggestFrom(topic ? "" : asQuestion(raw)); }] : null;
+      : canSuggest() ? ["Suggest it as a daily question", "Good ones become the question for everyone.", () => { remember(raw); suggestFrom(topic ? "" : asQuestion(raw)); }] : null;
     if (act){ const go = el("button", "b2", act[0]); go.onclick = act[2]; e.append(el("p", "note", act[1]), go); }
   }
   box.append(e);
@@ -1798,7 +1855,7 @@ document.addEventListener("keydown", e => { if (e.key !== "Escape") return; if (
     ask.api.watch((posts, mv, mr) => { ask.posts = posts; ask.myVotes = { ...mv, ...ask.myVotes }; ask.myReports = { ...mr, ...ask.myReports }; checkFlips(); renderTop(); renderFeed(); if (sheetPost) renderSheet(); if (!$("search").hidden) renderSearch(); });
   }
   if (backend.suggest){
-    $("suggest").hidden = false;
+    $("suggest").hidden = !canSuggest();
     $("sform").onsubmit = async e => { e.preventDefault();
       const q = $("sq").value.trim(), a = $("sa").value.split(",").map(s => s.trim()).filter(Boolean);
       if (a.length < 2 || a.length > 4){ toast("Give 2 to 4 answers, separated by commas."); return; }
