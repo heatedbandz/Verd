@@ -1,0 +1,13 @@
+{
+  "name": "verd-tests",
+  "private": true,
+  "type": "module",
+  "description": "Database and RLS tests. Not needed to run the website.",
+  "scripts": {
+    "db": "node db.test.mjs",
+    "live": "node live-rls.mjs"
+  },
+  "dependencies": {
+    "pg": "^8.13.0"
+  }
+}

@@ -136,7 +136,19 @@ Sizes: **S** is under 2 hours, **M** is half a day, **L** is a day or more.
 
 ## Results
 
-*(filled in as each change lands)*
+How these were measured: Lighthouse 13.6, median of 3 runs, in two profiles. "Default" is Lighthouse's harsh mobile profile (slow 4G, 4× CPU slowdown). "iPhone" is an iPhone-class profile (60 ms round trip, 9 Mbps, no CPU slowdown, 390 × 844 at 3×). INP and frame numbers come from a Playwright run at 390 px with a 4× CPU slowdown that votes, reveals and switches tabs. Sizes are gzip -9.
+
+| After | Perf default / iPhone | FCP default / iPhone | A11y | INP (4× CPU) | Worst reveal frame | JS + HTML/CSS gz | Offline | Install |
+|---|---|---|---|---|---|---|---|---|
+| Baseline | 99 / 100 | 1.57 s / 0.64 s | 96 | 80–120 ms | 33 ms | 18.8 + 5.0 KB (+30 KB font) | blank | no |
+| 1. Real backend | 100 / 100 | 1.40 s / 0.59 s | 96 | 56–72 ms | 17–33 ms | 21.0 + 7.2 KB (+30 KB font) | blank | no |
+
+### 1. Real backend
+
+- **Database attack tests** (`tests/db.test.mjs`, real Postgres 16 with `setup.sql` loaded twice): **14 of 14 pass.** As `anon` and as a signed-in user, every table read and write is denied; RLS returns 0 rows even if a grant slips in; private helpers can't be called; a second vote is rejected by the primary key; today's counts stay hidden until you vote; splits under the minimum come back empty and roll up; results contain no user ids; friend match, import, rivalry board and suggestion rules hold.
+- **App tests** (`tests/e2e-live.mjs`, the real `index.html` + `app.js` in Chromium against a stand-in for Supabase's HTTP API): **5 of 5 pass.** Looking creates no account; the first vote signs in anonymously and stores exactly one row; the app's own token is refused on every raw table; an offline vote waits in the outbox and syncs when the signal returns; old answers on the phone are copied once; percentages appear only after 10 votes; the friend code comes from the server.
+- **The public-key attack** (`tests/live-rls.mjs`, the test you asked for): it signs in with only the public anon key and tries to read, insert, change and delete raw votes, read every other table, call private helpers, call personal functions without a session, and peek at today's results. Against the stand-in API it makes **35 of 35 checks pass**. It is ready to run against the real project the moment keys exist.
+- **Lighthouse and size:** unchanged in practice. `app.js` grew 2.2 KB gz for the database client, outbox and import. The default profile's FCP improved because the code now loads as a deferred module.
 
 ## Next single step
 
