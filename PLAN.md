@@ -407,7 +407,11 @@ How these were measured: Lighthouse 13.6, median of 3 runs, in two profiles. "De
 
 **A parent sets up sign-in and becomes the moderator.** It takes about 20 minutes on a computer. Posting opens the moment it's done, and nothing changes on the site before that.
 
-1. **Run the new `setup.sql`.** Open [setup.sql on GitHub](https://github.com/heatedbandz/Verd/blob/main/setup.sql) and press the copy button. Then in Supabase go to **SQL Editor → New query**, paste, and press **Run**. It keeps every vote.
+1. **Run the new `setup.sql`.** It keeps every vote.
+   - Open [a new query in Verd's Supabase project](https://supabase.com/dashboard/project/zfphqlavepncdoihiugu/sql/new). It must be empty.
+   - Open [setup.sql on GitHub](https://github.com/heatedbandz/Verd/blob/main/setup.sql) and press its copy button (two squares, top right of the file).
+   - Paste into the empty query and press **Run**.
+   - It worked if the result says **Verd is set up, with posting**. If it says "Success. No rows returned", an older copy ran (for example one still open in the SQL Editor from launch day).
 2. **Make a Google sign-in client.** Open the [Google Cloud console](https://console.cloud.google.com/auth/overview), signed in as the parent.
    - Create a project called Verd if asked.
    - **Branding:** app name Verd and a support email.

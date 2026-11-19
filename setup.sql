@@ -1,7 +1,8 @@
 -- Verd database for Supabase.
 --
 -- How to install (about 5 minutes, works from a phone):
---   1. Supabase dashboard > SQL Editor > New query. Paste this whole file. Press Run.
+--   1. Supabase dashboard > SQL Editor > New query. Paste this whole file. Press Run. The result should say
+--      "Verd is set up, with posting". "Success. No rows returned" means an older copy of this file ran.
 --   2. Authentication > Sign In / Providers > turn on "Allow anonymous sign-ins". Save.
 --   3. Press Connect (or Settings > API Keys): copy the Project URL and the publishable key
 --      (sb_publishable_..., called the anon public key on older projects) into CONFIG in app.js.
@@ -1110,3 +1111,9 @@ grant execute on function public.delete_mine(text, bigint) to authenticated;
 grant execute on function public.review_queue() to authenticated;
 grant execute on function public.review_item(text, bigint, text, text) to authenticated;
 grant execute on function public.ban_author(text, bigint, int, text) to authenticated;
+
+-- ---------- Done ----------
+-- Tells the API about these functions straight away, then says which version just ran: the SQL Editor shows this
+-- line as the result. "Success. No rows returned" instead means an older copy of this file ran.
+notify pgrst, 'reload schema';
+select 'Verd is set up, with posting (setup.sql of 2026-11-19)' as result;
