@@ -17,7 +17,9 @@ const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, se
 const p = await ctx.newPage(), errors = [], calls = [];
 p.on('pageerror', e => errors.push(e.message));
 p.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
-p.on('response', r => { if (/\.supabase\.co\//.test(r.url())) calls.push(r.request().method() + ' ' + new URL(r.url()).pathname + ' ' + r.status()); });
+const failedLoads = [];   // what a "Failed to load resource" error was about: method, path (never the query) and status
+p.on('response', r => { const what = r.request().method() + ' ' + new URL(r.url()).pathname + ' ' + r.status();
+  if (/\.supabase\.co\//.test(r.url())) calls.push(what); if (r.status() >= 400) failedLoads.push(what); });
 await p.goto('http://localhost:8099/verd/');
 await p.waitForFunction(() => /^Live/.test(document.getElementById('mode').textContent), null, { timeout: 15000 }).catch(() => {});
 await p.waitForTimeout(4000);
@@ -28,7 +30,7 @@ check(!calls.some(c => /\/auth\/v1\/signup/.test(c)), 'no account is made just b
 const daily = await p.innerText('.slide[data-id=daily]');
 check(/Be the first to answer today\.|so far\. Be one of the first 50 to vote\.|answered\. Tap to see the verdict\./.test(daily), "today's question shows the live count line", daily.replace(/\s+/g, ' ').slice(0, 160));
 check(!/Couldn't load|Can't connect/.test(await p.innerText('body')), 'no error state on screen');
-check(errors.length === 0, 'no console errors', errors.join(' | '));
+check(errors.length === 0, 'no console errors', errors.join(' | ') + (failedLoads.length ? '  [failed: ' + failedLoads.join(', ') + ']' : ''));
 
 await browser.close(); server.close();
 console.log(failed ? `\n${failed} check(s) FAILED` : '\nAll checks passed: Verd runs live against its database.');
