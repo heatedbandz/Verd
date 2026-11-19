@@ -298,8 +298,12 @@ test("a past question in search opens with the database's final verdict", async 
   const { p, ctx, errors } = await page();
   await p.click('#navSearch'); await p.waitForTimeout(400);
   assert.match(await p.innerText('#sres'), /See the verdict/);
-  const rows = await p.$$('#sres .res'); await rows[rows.length - 1].click(); await p.waitForTimeout(900);
+  // The list gains a day every day, so find yesterday by its number rather than its place in the list.
+  const start = await p.evaluate(() => JSON.parse(document.getElementById('verd-data').textContent).start);
+  const no = Math.round((Date.parse(yesterday) - Date.parse(start)) / 864e5) + 1;
+  await p.locator('#sres .res', { has: p.locator('.mini', { hasText: new RegExp('^No\\.' + no + '$') }) }).click(); await p.waitForTimeout(900);
   const text = await p.innerText('#dayview');
+  assert.ok(text.startsWith('No. ' + no + ' · '), 'opened the wrong day: ' + text);
   if (n >= 10) assert.match(text, /\d+%/);
   else if (n) { assert.match(text, /Not enough answers for a verdict\./); assert.ok(text.includes(n + (n === 1 ? ' person' : ' people') + ' answered. A verdict needs 10.'), text); }
   else assert.match(text, /Nobody answered this one on Verd\./);

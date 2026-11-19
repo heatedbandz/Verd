@@ -184,3 +184,29 @@ test('share and invite links use the address the public site was opened at', asy
   await ctx.close();
 });
 
+
+test('on a computer the app sits in a phone-sized frame that fills the window, even when extensions add to the page', async () => {
+  // Browser extensions (password managers, writing helpers) put their own elements into <body>, often one before the
+  // app and one after. When <body> centred the app as a grid, each one took a share of the height and the frame
+  // shrank to a third, with the question running into the logo. A window under 560 x 700 gets the phone layout.
+  for (const [w, h] of [[1512, 950], [1440, 900], [1280, 720], [1920, 1080], [500, 800]]) for (const added of [false, true]){
+    const ctx = await browser.newContext({ viewport: { width: w, height: h }, serviceWorkers: 'block' });
+    if (added) await ctx.addInitScript(() => document.addEventListener('DOMContentLoaded', () => {
+      document.body.prepend(document.createElement('ext-before')); document.body.append(document.createElement('ext-after'));
+    }));
+    const p = await ctx.newPage(), errors = [], at = `${w}x${h}${added ? ' with extension elements' : ''}`;
+    p.on('pageerror', e => errors.push(e.message)); p.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+    await p.goto(base); await p.waitForSelector('.slide[data-id=end]');
+    assert.equal(await p.$$eval('body > ext-before, body > ext-after', e => e.length), added ? 2 : 0);
+    const box = await p.$eval('.app', e => { const r = e.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; });
+    const framed = w >= 560 && h >= 700, fw = framed ? 420 : Math.min(480, w), fh = framed ? Math.min(860, h - 48) : h;
+    assert.deepEqual(box, { x: (w - fw) / 2, y: (h - fh) / 2, w: fw, h: fh }, at + ': the app is not the size it should be, or not centred');
+    // Today's question has room: it starts below the logo, and its answers end above the bar at the bottom.
+    const r = await p.evaluate(() => { const b = s => document.querySelector(s).getBoundingClientRect();
+      return { logo: b('.top .brand').bottom, question: b('.slide[data-id=daily] .stext').top, answers: b('.slide[data-id=daily] .answers').bottom, nav: b('.nav').top }; });
+    assert.ok(r.question > r.logo, at + ': the question runs into the logo');
+    assert.ok(r.answers < r.nav, at + ': the answers run into the bar at the bottom');
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  }
+});

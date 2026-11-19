@@ -329,9 +329,10 @@ button{border:0;background:none;padding:0;cursor:pointer}
 .peek span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* ---------- Bigger screens: show the phone-sized app in a frame ---------- */
+/* Centred against the window itself, not as a grid item of the page body: browser extensions (password managers,
+   writing helpers) add their own elements to the body, and each one became another grid row with a share of the height. */
 @media (min-width:560px) and (min-height:700px){
-  body{display:grid;place-items:center}
-  .app{width:420px;height:min(860px,calc(100% - 48px));border-radius:var(--r6);overflow:hidden;box-shadow:0 0 0 1px #262626,var(--sh3)}
+  .app{position:absolute;inset:0;margin:auto;width:420px;height:min(860px,calc(100% - 48px));border-radius:var(--r6);overflow:hidden;box-shadow:0 0 0 1px #262626,var(--sh3)}
 }
 /* View Transitions (Safari 18+, Chrome) cross-fade tabs and the reveal; the page rise is the fallback. */
 ::view-transition-old(root),::view-transition-new(root){animation-duration:var(--dur-2);animation-timing-function:var(--ease-out)}

@@ -383,6 +383,17 @@ How these were measured: Lighthouse 13.6, median of 3 runs, in two profiles. "De
   - `live`: 22. New: the stand-in Supabase now has Google sign-in with PKCE. The tests cover closed until there's a moderator; under 13 is never sent to sign in; age first, then Google, then a post that waits for review; the moderator approves from Me; others judge, see the split and report; comments wait too; a Google account that already has Verd; manual linking off; Google off means no posts are even fetched.
   - `live-rls`: 30 new checks on the real database. They're skipped until the new `setup.sql` is installed, and none of them writes anything.
 
+## Fixed: the app on a computer (2026-11-19)
+
+**On a computer, Verd showed as a short card with the question running into the logo.** It now fills the window's height again.
+
+- **Why:** on a big screen the app sits in a phone-sized frame, and `<body>` centred it as a grid. Browser extensions (password managers, writing helpers) add their own elements to `<body>`, and each one became another grid row with its own share of the height. With one before the app and one after, the frame shrank to a third of the window.
+- **Fix:** the frame is centred against the window itself, so nothing else on the page can change its size. Phones keep the full-screen layout, because the frame only shows in windows at least 560 wide and 700 tall.
+- **Tests:** 1 new, and all 90 pass.
+  - `e2e-device` opens Verd at four computer sizes and a narrow window, with and without extension elements. It checks the frame's size and place, and that today's question clears the logo and the bottom bar. On the old layout it fails at 1512 × 950 (a 14-inch MacBook) with the same squashed card as the screenshot.
+  - An older check in `e2e-live` clicked the last past question in search. Once there were two past days, that wasn't yesterday any more, so it now finds yesterday by its number.
+- **Returning visitors:** reload twice. The first reload downloads the new version in the background.
+
 ## Next single step
 
 **A parent sets up sign-in and becomes the moderator.** It takes about 20 minutes on a computer. Posting opens the moment it's done, and nothing changes on the site before that.
