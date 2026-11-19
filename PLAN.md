@@ -389,10 +389,19 @@ How these were measured: Lighthouse 13.6, median of 3 runs, in two profiles. "De
 
 - **Why:** on a big screen the app sits in a phone-sized frame, and `<body>` centred it as a grid. Browser extensions (password managers, writing helpers) add their own elements to `<body>`, and each one became another grid row with its own share of the height. With one before the app and one after, the frame shrank to a third of the window.
 - **Fix:** the frame is centred against the window itself, so nothing else on the page can change its size. Phones keep the full-screen layout, because the frame only shows in windows at least 560 wide and 700 tall.
-- **Tests:** 1 new, and all 90 pass.
-  - `e2e-device` opens Verd at four computer sizes and a narrow window, with and without extension elements. It checks the frame's size and place, and that today's question clears the logo and the bottom bar. On the old layout it fails at 1512 × 950 (a 14-inch MacBook) with the same squashed card as the screenshot.
-  - An older check in `e2e-live` clicked the last past question in search. Once there were two past days, that wasn't yesterday any more, so it now finds yesterday by its number.
 - **Returning visitors:** reload twice. The first reload downloads the new version in the background.
+
+### The setup, done in another order
+
+**The live check for that fix found Google sign-in switched on in Supabase while the posting part of `setup.sql` (step 1) wasn't installed.** The site then asked the database for posts every minute and got "no such function" each time. It also showed **Sign in with Google**, though the database couldn't keep an account's age or posts yet.
+
+- **Now:** the site asks for posts once per visit. If they aren't there, sign-in stays hidden and nothing asks again. Everything else is the usual daily question. Sign-in shows up by itself once step 1 is done, so the steps work in any order.
+- **The live check:** `live-smoke` now names the address behind any "failed to load" error. In this half-done state it prints a note that step 1 is still to do, instead of failing. It still fails if posts are asked for more than once, or if sign-in shows.
+
+**Tests:** 2 new, and all 91 pass.
+- `e2e-device` opens Verd at four computer sizes and a narrow window, with and without extension elements. It checks the frame's size and place, and that today's question clears the logo and the bottom bar. On the old layout it fails at 1512 × 950 (a 14-inch MacBook) with the same squashed card as the screenshot.
+- `e2e-live` takes `get_posts` away with Google on. There's no sign-in, posts are asked for once, and coming back to the tab doesn't ask again. On the old `app.js` it fails because sign-in shows.
+- An older check in `e2e-live` clicked the last past question in search. Once there were two past days, that wasn't yesterday any more, so it now finds yesterday by its number.
 
 ## Next single step
 

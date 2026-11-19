@@ -502,3 +502,27 @@ test('with Google sign-in switched off, the site is just the daily question: no 
     await ctx.close();
   } finally { fake.setGoogle(true); }
 });
+
+test('Google switched on before the posting part of setup.sql: no sign-in yet, and posts are asked for once, not on a timer', async () => {
+  // The setup done in another order. Until get_posts exists, the database can't keep an account's age or posts.
+  await fake.pool.query('alter function public.get_posts rename to get_posts_off');
+  try {
+    fake.calls.length = 0;
+    const asked = () => fake.calls.filter(c => c === 'POST /rest/v1/rpc/get_posts').length;
+    const { p, ctx, errors } = await page({ es_born: JSON.stringify(yearsAgo(40, '03')) });
+    await p.waitForTimeout(600);
+    assert.equal(asked(), 1, fake.calls.join(', '));
+    assert.equal(await p.$eval('#navPlus', e => e.hidden), true);
+    await p.click('#navMe'); await p.waitForTimeout(300);
+    assert.equal(await p.$eval('#account', e => e.hidden), true, 'sign-in shows before the database can keep an account');
+    // Coming back to the tab asks again when posts exist. Here it doesn't.
+    await p.evaluate(() => document.dispatchEvent(new Event('visibilitychange'))); await p.waitForTimeout(400);
+    assert.equal(asked(), 1, 'asked for posts again: ' + fake.calls.join(', '));
+    // Everything else is the usual daily question, with no error on screen.
+    await p.click('#navHome'); await p.waitForTimeout(300);
+    assert.ok((await p.$$('.slide[data-id=daily] .ans:not(:disabled)')).length >= 2, 'today\'s answers are not there to tap');
+    assert.doesNotMatch(await p.innerText('body'), /Couldn't load|Can't connect/);
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  } finally { await fake.pool.query('alter function public.get_posts_off rename to get_posts'); }
+});

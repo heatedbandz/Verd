@@ -813,7 +813,9 @@ const backends = {
     // Posts and comments come back the way the screens expect them. "@me" stands for you; a mutual friend's
     // posts and comments carry their code; everyone else is nobody in particular.
     function askLive(){
-      let cb = null, open = false, loading = null;
+      // missing: get_posts isn't in the database yet (Google switched on before the posting part of setup.sql).
+      // One quiet answer of "no such function" is enough: no asking again on a timer, and sign-in stays hidden.
+      let cb = null, open = false, loading = null, missing = false;
       const num = id => Number(String(id).slice(1));
       const what = id => String(id)[0] === "c" ? "comment" : "post";
       const asPost = (p, pl) => ({
@@ -824,13 +826,14 @@ const backends = {
         comments: p.comments.map(c => ({ id: "c" + c.id, post: "p" + p.id, author: c.mine ? "@me" : c.code || null, text: c.body, side: c.side, t: c.t, reports: 0, status: c.status || "approved" }))
       });
       function load(){
+        if (missing) return Promise.resolve();
         return loading ||= (async () => {
           try{
             const pl = myPlace(), r = await rpc("get_posts", placeArgs(pl)), mv = {};
             open = !!r.open;
             for (const p of r.posts) if (p.my_vote) mv["p" + p.id] = p.my_vote;
             if (cb) cb(r.posts.map(p => asPost(p, pl)), mv, {});
-          }catch{} finally { loading = null; }
+          }catch(e){ if (e.status === 404) missing = true; } finally { loading = null; }
         })();
       }
       document.addEventListener("visibilitychange", () => { if (cb && document.visibilityState === "visible") load(); });
@@ -838,6 +841,7 @@ const backends = {
       return {
         me: "@me", live: true,
         get open(){ return open; },
+        get missing(){ return missing; },
         watch(f){ cb = f; load(); },
         refresh: load,
         async post(item){ const r = await rpc("create_post", { body: item.text, color: item.color, scope: item.scope, ...placeArgs(myPlace()) }, true); await load(); return "p" + r.id; },
@@ -2157,16 +2161,20 @@ document.addEventListener("keydown", e => { if (e.key !== "Escape") return; if (
   if (backend.ask && !backend.ask.live) watchPosts();
   // On the live site, posts load only once Google sign-in is switched on. Until then the site is exactly the
   // daily question; after that, posting itself opens when Verd has a moderator (the database decides).
+  // Google on before the posting part of setup.sql is installed (the setup done in another order): the first
+  // load finds no get_posts, so sign-in stays hidden until the database can keep an account.
   if (backend.authSettings) (async () => {
     const s = await backend.authSettings(); signInReady = !!(s && s.external && s.external.google);
-    if (signInReady) watchPosts();
+    if (signInReady){ watchPosts(); await backend.ask.refresh(); if (backend.ask.missing){ signInReady = false; $("navPlus").hidden = true; } }
     renderEnd(); if (!$("me").hidden) renderAccount();
     if (signedIn === "ok"){
       toast("Signed in."); showCode();
       const then = store.get("afterSignIn", "me"); store.set("afterSignIn", null);
-      if (ask.api) await ask.api.refresh();
-      const ok = await gate(then);
-      if (then === "me") showPage("me"); else if (ok) resume(then);
+      if (signInReady){
+        await ask.api.refresh();
+        const ok = await gate(then);
+        if (then === "me") showPage("me"); else if (ok) resume(then);
+      }
     } else if (signedIn === "failed") toast("Signing in didn't finish. Try again.");
   })();
   if (backend.suggest){
