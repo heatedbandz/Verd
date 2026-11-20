@@ -212,6 +212,10 @@ button{border:0;background:none;padding:0;cursor:pointer}
 #ptext{flex:1;min-height:0;background:none;border:0;resize:none;color:var(--on-color);font-weight:800;font-size:var(--t-display-m);letter-spacing:-.04em;line-height:1.06;padding:0;outline:none}
 #ptext::placeholder{color:rgba(255,255,255,.8)}
 .clabel{font-size:var(--t-sm);font-weight:600;margin-bottom:var(--s2)}
+.opts{display:grid;grid-template-columns:1fr 1fr;gap:var(--s3)}
+.opts input{min-width:0;min-height:var(--tap);border:0;border-radius:var(--r2);padding:var(--s3) var(--s4);background:rgba(0,0,0,.22);color:var(--on-color);font-weight:700;font-size:var(--t-base)}
+.opts input::placeholder{color:rgba(255,255,255,.85)}
+.ohint{margin-top:var(--s2);font-size:var(--t-sm);opacity:.9}
 .swatches{display:grid;grid-template-columns:repeat(8,1fr)}
 .sw{height:var(--tap);padding:5px;background-clip:content-box!important;border-radius:var(--r2);box-shadow:none}
 .sw.on{outline:3px solid var(--on-color);outline-offset:-3px}
@@ -490,6 +494,7 @@ html.vt .page{animation:none}
       <div class="cbar"><button class="x" id="cclose" aria-label="Close">×</button><button class="post" id="psend">Post</button></div>
       <textarea id="ptext" maxlength="140" placeholder="What do you want a verdict on?" aria-label="Your post"></textarea>
       <div id="photoRow"><div class="clabel">Photos (optional, up to 2)</div><div class="thumbs" id="thumbs"></div><input type="file" id="pfile" accept="image/*" multiple hidden></div>
+      <div id="optRow"><div class="clabel">Answers</div><div class="opts"><input id="opta" maxlength="30" placeholder="Yes" aria-label="First answer" autocomplete="off" enterkeyhint="next"><input id="optb" maxlength="30" placeholder="No" aria-label="Second answer" autocomplete="off" enterkeyhint="done"></div><div class="ohint">Leave empty for Yes or No, or write your own, like Lamborghini and Ferrari.</div></div>
       <div id="colorRow"><div class="clabel">Color</div><div class="swatches" id="swatches"></div></div>
       <div><div class="clabel">Who decides</div><div class="aud" id="aud"></div></div>
       <p class="cnote" id="cnote"></p>
@@ -849,7 +854,7 @@ const backends = {
       const num = id => Number(String(id).slice(1));
       const what = id => String(id)[0] === "c" ? "comment" : "post";
       const asPost = (p, pl) => ({
-        id: "p" + p.id, text: p.body, color: p.color, cat: catOf(p.body), scope: p.scope, country: p.country,
+        id: "p" + p.id, text: p.body, color: p.color, cat: catOf(p.body), scope: p.scope, country: p.country, opts: p.a && p.b ? [p.a, p.b] : null,
         state: p.scope === "state" || p.scope === "city" ? pl.state : "", city: p.scope === "city" ? pl.city : "",
         t: p.t, author: p.mine ? "@me" : p.code || null, yes: p.yes, no: p.no, total: p.total, close: p.close, reports: 0,
         status: p.status || "approved", reason: p.reason || "",
@@ -876,7 +881,7 @@ const backends = {
         watch(f){ cb = f; load(); },
         refresh: load,
         // live: it went up at once (auto_approve), instead of waiting for a moderator.
-        async post(item){ const r = await rpc("create_post", { body: item.text, color: item.color, scope: item.scope, ...placeArgs(myPlace()) }, true); await load(); return { id: "p" + r.id, live: r.status === "approved" }; },
+        async post(item){ const r = await rpc("create_post", { body: item.text, color: item.color, scope: item.scope, ...placeArgs(myPlace()), ...(item.opts ? { opt_a: item.opts[0], opt_b: item.opts[1] } : {}) }, true); await load(); return { id: "p" + r.id, live: r.status === "approved" }; },
         async comment(item){ const r = await rpc("create_comment", { pid: num(item.post), body: item.text, ...placeArgs(myPlace()) }, true); await load(); return { id: "c" + r.id, live: r.status === "approved" }; },
         vote: (id, v) => rpc("judge_post", { pid: num(id), yes: v > 0, ...placeArgs(myPlace()) }, true),
         report: id => rpc("report_item", { what: what(id), iid: num(id), ...placeArgs(myPlace()) }, true),
@@ -1453,7 +1458,7 @@ function postSlide(p){
   const published = !p.status || p.status === "approved";
   const s = shell(p.id, COLORS[(typeof p.color === "number" ? p.color : hash(p.id)) % COLORS.length]), body = el("div", "sbody");
   body.append(el("div", "kicker", [placeLabel(p), ago(p.t), mine ? standing(p) : "", ask.flipped[p.id] ? "Flipped since you voted" : ""].filter(Boolean).join(" · ")));
-  const imgs = p.imgs || [], duo = imgs.length === 2, labels = duo ? ["This one", "That one"] : ["Yes", "No"];
+  const imgs = p.imgs || [], duo = imgs.length === 2, labels = sideLabels(p);
   const tap = i => mine ? toast("You can't vote on your own post.") : votePost(p.id, i === 0 ? 1 : -1);
   if (imgs.length === 1){ s.classList.add("photo"); const im = el("img", "pbg"); im.src = imgs[0]; im.alt = ""; s.append(im); }
   if (duo){ s.classList.add("duo"); const g = el("div", "duo-imgs");
@@ -1667,7 +1672,8 @@ async function shareDaily(){
 // ---------- Comments ----------
 const liveComments = p => p.comments.filter(c => (c.reports < HIDE_AT || c.author === ask.api.me) && !ask.myReports[c.id]);
 const whoSaid = c => c.author === ask.api.me ? "You" : friends().includes(c.author) ? c.author : "Someone";
-const sideLabels = p => (p.imgs || []).length === 2 ? ["This one", "That one"] : ["Yes", "No"];
+// A post's answers: its own two (like Lamborghini or Ferrari), This one or That one for two photos, else Yes or No.
+const sideLabels = p => (p.imgs || []).length === 2 ? ["This one", "That one"] : p.opts && p.opts.length === 2 ? p.opts : ["Yes", "No"];
 function openSheet(id){ sheetPost = id; $("stitle").textContent = "Comments"; $("clist").hidden = false; $("cform").hidden = false; $("shareBox").hidden = true; renderSheet(); $("sheet").hidden = false; }
 function closeSheet(){ $("sheet").hidden = true; sheetPost = null; }
 function renderSheet(){
@@ -1742,7 +1748,8 @@ function drawCompose(){
   $("ptext").placeholder = cPhotos.length === 2 ? "Which one?" : cPhotos.length === 1 ? "Yes or no?" : "What do you want a verdict on?";
   $("cnote").textContent = cPhotos.length === 2 ? "Friends pick This one or That one. Photo posts go to friends only for now."
     : cPhotos.length === 1 ? "Friends answer Yes or No. Photo posts go to friends only for now."
-    : "People answer Yes or No. No names, phone numbers or anything mean about a real person.";
+    : "People pick one of your two answers. No names, phone numbers or anything mean about a real person.";
+  $("optRow").hidden = cPhotos.length > 0;
   if (backend && backend.mode === "device") $("cnote").textContent = "Only you can see your posts until Verd goes live. " + $("cnote").textContent;
   if (ask.api.live) $("cnote").textContent = (ask.api.reviewFirst ? "A moderator checks every post before anyone else sees it, and your name is never shown. "
     : "Posts go live straight away, and your name is never shown. ") + $("cnote").textContent;
@@ -1755,14 +1762,19 @@ $("psend").onclick = async () => {
   if (imgs.length && !friends().length){ toast("Add a friend on your profile first. Photo posts go to friends."); return; }
   if (text.length < 4){ toast("Write a little more."); return; }
   if (BLOCK.some(r => r.test(text))){ toast(BLOCK_MSG); return; }
+  // Your own answers, or Yes and No when both are left empty.
+  const oa = $("opta").value.trim().replace(/\s+/g, " "), ob = $("optb").value.trim().replace(/\s+/g, " "), opts = !imgs.length && (oa || ob) ? [oa, ob] : null;
+  if (opts && (!oa || !ob)){ toast("Fill in both answers, or leave both empty for Yes and No."); return; }
+  if (opts && oa.toLowerCase() === ob.toLowerCase()){ toast("Make the two answers different."); return; }
+  if (opts && BLOCK.some(r => r.test(oa) || r.test(ob))){ toast(BLOCK_MSG); return; }
   if ((cScope === "city" && (!pl.city || !pl.state)) || (cScope === "state" && !pl.state)){ toast("Add your city and state on the Me page first."); return; }
-  const item = { id: ask.api.me + "-" + Date.now().toString(36), author: ask.api.me, text, color: cColor, photos: imgs.length, cat: catOf(text), scope: imgs.length ? "friends" : cScope, city: pl.city, state: pl.state, country: pl.country, t: Date.now() };
+  const item = { id: ask.api.me + "-" + Date.now().toString(36), author: ask.api.me, text, color: cColor, photos: imgs.length, opts, cat: catOf(text), scope: imgs.length ? "friends" : cScope, city: pl.city, state: pl.state, country: pl.country, t: Date.now() };
   $("psend").disabled = true;
   if (ask.api.live){
     try{
       const r = await ask.api.post(item); store.set("posted", true);
       if (ask.scope !== item.scope){ ask.scope = item.scope; order = []; renderTop(); }
-      jumpTo = r.id; $("ptext").value = ""; closeCompose(); showPage("feed"); renderFeed();
+      jumpTo = r.id; $("ptext").value = $("opta").value = $("optb").value = ""; closeCompose(); showPage("feed"); renderFeed();
       toast(r.live ? "Posted. Others can see it now." : "Sent for review. Others see it once a moderator approves it."); checkBadges();
     }catch(err){ const m = writeError(err); if (m) toast(m); else { closeCompose(); gate("post"); } }
     $("psend").disabled = false; return;
@@ -1770,7 +1782,7 @@ $("psend").onclick = async () => {
   try{
     if (ask.scope !== item.scope){ ask.scope = item.scope; order = []; renderTop(); }
     jumpTo = item.id; if (imgs.length) await ask.api.photo(item.id, imgs); await ask.api.post(item); store.set("posted", true);
-    $("ptext").value = ""; closeCompose(); showPage("feed"); renderFeed(); toast("Posted."); checkBadges();
+    $("ptext").value = $("opta").value = $("optb").value = ""; closeCompose(); showPage("feed"); renderFeed(); toast("Posted."); checkBadges();
   }catch{ jumpTo = null; toast("Couldn't post. Check your connection and try again."); }
   $("psend").disabled = false;
 };
@@ -1835,6 +1847,9 @@ function writeError(e){
   return /blocked words/.test(m) ? BLOCK_MSG
     : /enough posts/.test(m) ? "That's the limit for today. You can post again tomorrow."
     : /enough comments/.test(m) ? "That's the limit for today. You can comment again tomorrow."
+    : /give two different answers/.test(m) ? "Make the two answers different."
+    : /answers are 1 to 30/.test(m) ? "Keep each answer to 30 letters."
+    : /create_post|PGRST202|function/i.test(m) ? "Your own answers need one more setup step. Leave them empty for Yes and No for now."
     : /wait a moment/.test(m) ? "Wait a moment before the next one."
     : /are \d+ to 200 characters/.test(m) ? m[0].toUpperCase() + m.slice(1) + "."
     : /set your place/.test(m) ? "Add your city and state on the Me page first."

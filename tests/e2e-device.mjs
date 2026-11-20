@@ -202,6 +202,24 @@ test('state and city wait for one neutral age question, and under 13 they are ne
   }
 });
 
+test('a post can have its own two answers, like Lamborghini and Ferrari', async () => {
+  const { p, ctx, errors } = await open();
+  await p.click('#navPlus'); await p.waitForSelector('#compose:not([hidden])');
+  assert.equal(await p.$eval('#optRow', e => e.hidden), false);
+  await p.fill('#ptext', 'Lamborghini or Ferrari?'); await p.fill('#opta', 'Lamborghini'); await p.click('#psend'); await p.waitForTimeout(200);
+  assert.match(await p.innerText('#toast'), /Fill in both answers/);
+  await p.fill('#optb', 'lamborghini'); await p.click('#psend'); await p.waitForTimeout(200);
+  assert.match(await p.innerText('#toast'), /Make the two answers different/);
+  await p.fill('#optb', 'Ferrari'); await p.click('#psend'); await p.waitForTimeout(600);
+  const slide = p.locator('.slide', { has: p.locator('h2', { hasText: 'Lamborghini or Ferrari?' }) });
+  assert.deepEqual(await slide.locator('.ans .alabel').allInnerTexts(), ['Lamborghini', 'Ferrari']);
+  // Empty answers are Yes and No, as before
+  await p.click('#navPlus'); await p.waitForSelector('#compose:not([hidden])');
+  assert.equal(await p.inputValue('#opta'), '', 'the answers start empty again');
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
 test('share and invite links use the address the public site was opened at', async () => {
   const site = 'https://heatedbandz.github.io/Verd/';
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block', permissions: ['clipboard-read', 'clipboard-write'] });

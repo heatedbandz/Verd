@@ -239,6 +239,10 @@ button{border:0;background:none;padding:0;cursor:pointer}
 #ptext{flex:1;min-height:0;background:none;border:0;resize:none;color:var(--on-color);font-weight:800;font-size:var(--t-display-m);letter-spacing:-.04em;line-height:1.06;padding:0;outline:none}
 #ptext::placeholder{color:rgba(255,255,255,.8)}
 .clabel{font-size:var(--t-sm);font-weight:600;margin-bottom:var(--s2)}
+.opts{display:grid;grid-template-columns:1fr 1fr;gap:var(--s3)}
+.opts input{min-width:0;min-height:var(--tap);border:0;border-radius:var(--r2);padding:var(--s3) var(--s4);background:rgba(0,0,0,.22);color:var(--on-color);font-weight:700;font-size:var(--t-base)}
+.opts input::placeholder{color:rgba(255,255,255,.85)}
+.ohint{margin-top:var(--s2);font-size:var(--t-sm);opacity:.9}
 .swatches{display:grid;grid-template-columns:repeat(8,1fr)}
 .sw{height:var(--tap);padding:5px;background-clip:content-box!important;border-radius:var(--r2);box-shadow:none}
 .sw.on{outline:3px solid var(--on-color);outline-offset:-3px}
@@ -519,6 +523,7 @@ html.vt .page{animation:none}
       <div class="cbar"><button class="x" id="cclose" aria-label="Close">×</button><button class="post" id="psend">Post</button></div>
       <textarea id="ptext" maxlength="140" placeholder="What do you want a verdict on?" aria-label="Your post"></textarea>
       <div id="photoRow"><div class="clabel">Photos (optional, up to 2)</div><div class="thumbs" id="thumbs"></div><input type="file" id="pfile" accept="image/*" multiple hidden></div>
+      <div id="optRow"><div class="clabel">Answers</div><div class="opts"><input id="opta" maxlength="30" placeholder="Yes" aria-label="First answer" autocomplete="off" enterkeyhint="next"><input id="optb" maxlength="30" placeholder="No" aria-label="Second answer" autocomplete="off" enterkeyhint="done"></div><div class="ohint">Leave empty for Yes or No, or write your own, like Lamborghini and Ferrari.</div></div>
       <div id="colorRow"><div class="clabel">Color</div><div class="swatches" id="swatches"></div></div>
       <div><div class="clabel">Who decides</div><div class="aud" id="aud"></div></div>
       <p class="cnote" id="cnote"></p>

@@ -432,6 +432,14 @@ Heaton's friend typed his name into the friend code box (6 characters, capitals 
 | Signed in with Google, with a friend's post to see: Verd opens on the **Friends** tab, which is now the first tab, and today's question is one tab over (World). Signed out, or nothing from friends: today's question first, as before. Picking a tab, opening a post or scrolling first stops the switch. | e2e-live "signed in with Google, Verd opens on friends' posts" |
 | Fixed: every tab after the first post showed posts from all places (Country could show World posts). | same test |
 
+## Slurs blocked, nothing to approve, and posts with their own answers (2026-11-20)
+
+| Change | How it's checked |
+|---|---|
+| Slurs are refused by the database (blocked_terms) and by the app before sending, including look-alike spellings; whole words only, so "raccoon" and "spicy" are fine. | db "slurs are refused" |
+| With auto_approve on, Me > Review lists only what people reported, and hides when there's nothing. Rerunning setup.sql lets anything still waiting go live (or turns it down if it holds a blocked word) and takes down anything up that the new list catches. | e2e-live auto_approve test |
+| A post can have its own two answers, like Lamborghini and Ferrari (1 to 30 letters each, different, no blocked words). Left empty, it's Yes and No. Needs setup.sql rerun; until then only Yes/No posts work and the app says so. | db, e2e-device |
+
 ## Next single step
 
 **A parent sets up sign-in and becomes the moderator.** It takes about 20 minutes on a computer. Posting opens the moment it's done, and nothing changes on the site before that.
