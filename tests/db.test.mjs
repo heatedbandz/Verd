@@ -363,6 +363,20 @@ test('only moderators can review or block', async () => {
   await denied(review(w, 'post', p.id, 'approve'), 'approve your own');
 });
 
+test('a post can have its own two answers; both or neither, different, short, and no blocked words', async () => {
+  const opt = (u, body, a, b) => call(u, "select public.create_post($1, 3::smallint, 'world', 'US', null, null, $2, $3) as r", [body, a, b]);
+  await assert.rejects(opt(await realUser(), 'Lamborghini or Ferrari?', 'Lamborghini', null), /two different answers/);
+  await assert.rejects(opt(await realUser(), 'Lamborghini or Ferrari?', 'Ferrari', ' ferrari '), /two different answers/);
+  await assert.rejects(opt(await realUser(), 'Lamborghini or Ferrari?', 'x'.repeat(31), 'Ferrari'), /1 to 30/);
+  await assert.rejects(opt(await realUser(), 'Who is worse?', 'Them', 'that f@ggot'), /blocked words/);
+  const u = await realUser(), r = await opt(u, 'Lamborghini or Ferrari?', '  Lamborghini ', 'Ferrari');
+  const mine = (await feed(u)).posts.find(p => p.id === r.id);
+  assert.deepEqual([mine.a, mine.b], ['Lamborghini', 'Ferrari']);
+  const plain = await realUser(), q = await post(plain, 'Is cereal a soup?');
+  const p2 = (await feed(plain)).posts.find(p => p.id === q.id);
+  assert.deepEqual([p2.a, p2.b], [null, null], 'no answers given: Yes and No');
+});
+
 test('blocked words and rate limits are enforced by the database', async () => {
   const u = await realUser();
   for (const bad of ['Text me at 555 123 4567?', 'Add me on snap?', 'Is www.example.com good?', 'Should I send pics?', 'How old are you?', 'Follow @someone?'])
@@ -377,6 +391,14 @@ test('blocked words and rate limits are enforced by the database', async () => {
   await admin(`update public.posts set created_at = now() - interval '3 hours' where user_id = $1`, [u]);
   await admin(`insert into public.posts (user_id, body, scope, created_at) values ($1, 'Earlier post one?', 'world', now() - interval '2 hours'), ($1, 'Earlier post two?', 'world', now() - interval '1 hour')`, [u]);
   await assert.rejects(post(u, 'Is a fourth post too many?'), /enough posts for today/);
+});
+
+test('slurs are refused, look-alike spellings too, and normal words that contain them still work', async () => {
+  const has = async t => (await admin('select verd_private.blocked($1) as b', [t])).rows[0].b;
+  for (const bad of ['you f@ggot', 'N1GGA please', 'such a retard', 'what a tranny', 'go back wetback', 'K!KE'])
+    assert.equal(await has(bad), true, bad);
+  for (const ok of ['Is a raccoon a good pet?', 'Do you like spicy food?', 'Is Chinese food the best?', 'Is a fig a fruit?', 'Is Nigeria in Africa?', 'Who won the Niger match?', 'Is a cocoon cozy?'])
+    assert.equal(await has(ok), false, ok);
 });
 
 test('judging: once, never your own, only posts you can see, and the split stays hidden until you judge', async () => {

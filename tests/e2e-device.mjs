@@ -122,7 +122,7 @@ test('an invite link adds the friend by name and clears itself; your own link do
   assert.deepEqual(await p.evaluate(() => JSON.parse(localStorage.getItem('es_friends'))), ['JAYK42']);
   await p.click('#navMe'); await p.waitForTimeout(500);
   const list = await p.innerText('#flist');
-  assert.match(list, /Jay · JAYK42/); assert.match(list, /When Verd goes live, swap new invite links to compare\./);
+  assert.match(list, /Jay\s+JAYK42/); assert.match(list, /When Verd goes live, swap new invite links to compare\./);
   const own = await p.evaluate(() => localStorage.getItem('es_myCode:device'));
   assert.match(JSON.parse(own), /^[A-Z2-9]{6}$/);
   await p.evaluate(c => { location.hash = 'f=' + c; }, JSON.parse(own)); await p.waitForTimeout(300);
@@ -138,6 +138,39 @@ test('an invite link adds the friend by name and clears itself; your own link do
   assert.match(await p.innerText('#toast'), /Removed Jay\. To add them back, use JAYK42\./);
   assert.deepEqual(await p.evaluate(() => [JSON.parse(localStorage.getItem('es_friends')), JSON.parse(localStorage.getItem('es_nicks'))]), [[], {}]);
   assert.equal(await p.$$eval('#flist > div', d => d.length), 0);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test('adding a friend: a name in the code box is caught, and a code or a whole invite link both work', async () => {
+  const { p, ctx, errors } = await open();
+  await p.click('#navMe'); await p.waitForTimeout(400);
+  const own = JSON.parse(await p.evaluate(() => localStorage.getItem('es_myCode:device')));
+  const err = async v => { await p.fill('#fcode', v); await p.click('#fadd'); await p.waitForTimeout(100); return p.$eval('#ferr', e => e.hidden ? '' : e.textContent); };
+  assert.match(await err('Marcus Smith'), /That looks like a name\. Your name goes in the Your name box above/);
+  assert.match(await err('Christopher'), /That looks like a name/);
+  assert.match(await err('K7MP'), /A code is 6 letters and numbers\. That one has 4\./);
+  assert.match(await err('K7MPO2'), /never use 0, 1, I or O/);
+  assert.match(await err(own.toLowerCase()), /That's your own code/);
+  assert.deepEqual(await p.evaluate(() => JSON.parse(localStorage.getItem('es_friends') || '[]')), [], 'nothing was added');
+  // typing again clears the message
+  await p.type('#fcode', 'x'); assert.equal(await p.$eval('#ferr', e => e.hidden), true);
+  // a code with a dash, in lower case, with their name
+  await p.fill('#fcode', 'k7m-px2'); await p.fill('#fnick', 'Marcus'); await p.click('#fadd'); await p.waitForTimeout(200);
+  assert.equal((await p.innerText('#toast')).trim(), 'Added Marcus.');
+  assert.equal(await p.inputValue('#fcode'), ''); assert.equal(await p.inputValue('#fnick'), '');
+  // a whole invite link pasted in brings the name with it
+  await p.fill('#fcode', 'Answer today\'s question on Verd http://localhost:8094/verd/#f=ZZPQ42&n=Jay%20Lee'); await p.click('#fadd'); await p.waitForTimeout(200);
+  assert.equal((await p.innerText('#toast')).trim(), 'Added Jay Lee.');
+  // adding the same code again with a name renames them
+  await p.fill('#fcode', 'K7MPX2'); await p.fill('#fnick', 'Marc'); await p.click('#fadd'); await p.waitForTimeout(200);
+  assert.equal((await p.innerText('#toast')).trim(), 'Renamed to Marc.');
+  assert.deepEqual(await p.evaluate(() => JSON.parse(localStorage.getItem('es_friends'))), ['K7MPX2', 'ZZPQ42']);
+  const list = await p.innerText('#flist');
+  assert.match(list, /Marc\s+K7MPX2/); assert.match(list, /Jay Lee\s+ZZPQ42/);
+  // a long first name fits in Your name
+  await p.fill('#myname', 'Maximiliano Alejandro'); await p.dispatchEvent('#myname', 'change');
+  assert.equal(await p.inputValue('#myname'), 'Maximiliano Alejandro');
   assert.deepEqual(errors, []);
   await ctx.close();
 });
@@ -167,6 +200,24 @@ test('state and city wait for one neutral age question, and under 13 they are ne
     assert.deepEqual(errors, []);
     await ctx.close();
   }
+});
+
+test('a post can have its own two answers, like Lamborghini and Ferrari', async () => {
+  const { p, ctx, errors } = await open();
+  await p.click('#navPlus'); await p.waitForSelector('#compose:not([hidden])');
+  assert.equal(await p.$eval('#optRow', e => e.hidden), false);
+  await p.fill('#ptext', 'Lamborghini or Ferrari?'); await p.fill('#opta', 'Lamborghini'); await p.click('#psend'); await p.waitForTimeout(200);
+  assert.match(await p.innerText('#toast'), /Fill in both answers/);
+  await p.fill('#optb', 'lamborghini'); await p.click('#psend'); await p.waitForTimeout(200);
+  assert.match(await p.innerText('#toast'), /Make the two answers different/);
+  await p.fill('#optb', 'Ferrari'); await p.click('#psend'); await p.waitForTimeout(600);
+  const slide = p.locator('.slide', { has: p.locator('h2', { hasText: 'Lamborghini or Ferrari?' }) });
+  assert.deepEqual(await slide.locator('.ans .alabel').allInnerTexts(), ['Lamborghini', 'Ferrari']);
+  // Empty answers are Yes and No, as before
+  await p.click('#navPlus'); await p.waitForSelector('#compose:not([hidden])');
+  assert.equal(await p.inputValue('#opta'), '', 'the answers start empty again');
+  assert.deepEqual(errors, []);
+  await ctx.close();
 });
 
 test('share and invite links use the address the public site was opened at', async () => {

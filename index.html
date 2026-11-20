@@ -32,7 +32,7 @@
 /* Colour pairs are checked for WCAG AA by tests/contrast.mjs, including white text on the frosted glass and tiles. */
 :root{
   --bg:#ffffff; --surface:#f3f3f1; --surface-2:#e6e6e2; --ink:#0f100e; --muted:#5f615a; --line:#e6e6e1;
-  --accent:#10a966; --accent-ink:#087443; --accent-tint:#dcf1e7;
+  --accent:#10a966; --accent-ink:#087443; --accent-tint:#dcf1e7; --warn:#b42318;
   --on-color:#ffffff; --feed-bg:#0b0b0b; --scrim:rgba(0,0,0,.45);
   --sheen:rgba(255,255,255,.1); --glass:rgba(255,255,255,.14); --fill:rgba(255,255,255,.18); --fill-mine:rgba(255,255,255,.26);
   --nav-glass:rgba(14,14,14,.72); --nav-icon:rgba(255,255,255,.72); --paged-glass:rgba(255,255,255,.8); --skeleton:var(--surface-2);
@@ -53,10 +53,10 @@
 }
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
   --bg:#0b0b0b; --surface:#191919; --surface-2:#262626; --ink:#f4f4f2; --muted:#a3a39d; --line:#262626;
-  --accent:#2bd98a; --accent-ink:#3fe39a; --accent-tint:#123323; --paged-glass:rgba(11,11,11,.8); color-scheme:dark}}
+  --accent:#2bd98a; --accent-ink:#3fe39a; --accent-tint:#123323; --warn:#ff8a7a; --paged-glass:rgba(11,11,11,.8); color-scheme:dark}}
 :root[data-theme="dark"]{
   --bg:#0b0b0b; --surface:#191919; --surface-2:#262626; --ink:#f4f4f2; --muted:#a3a39d; --line:#262626;
-  --accent:#2bd98a; --accent-ink:#3fe39a; --accent-tint:#123323; --paged-glass:rgba(11,11,11,.8); color-scheme:dark}
+  --accent:#2bd98a; --accent-ink:#3fe39a; --accent-tint:#123323; --warn:#ff8a7a; --paged-glass:rgba(11,11,11,.8); color-scheme:dark}
 
 /* ---------- Base: iPhone touch behaviour ---------- */
 html{box-sizing:border-box;height:100%;background:var(--feed-bg);overscroll-behavior:none;-webkit-text-size-adjust:100%}
@@ -209,7 +209,22 @@ button{border:0;background:none;padding:0;cursor:pointer}
 .rowlist>div:first-child{border-top:0}
 .rowlist b{font-weight:600}
 .rowlist span{color:var(--muted);text-align:right}
+.card{display:flex;flex-direction:column;gap:var(--s3);background:var(--surface);border-radius:var(--r3);padding:var(--s4)}
+.card .field{background:var(--bg)}
+.card .clabel{margin:0;font-size:var(--t-xs);font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.card .b2.soft{background:var(--surface-2)}
+.card>.b2{align-self:stretch}
+.acct .b2{align-self:flex-start}
+.flabel{font-size:var(--t-md);font-weight:600;margin:var(--s1) 0 calc(var(--s2) * -1)}
+.flabel span{font-weight:400;color:var(--muted)}
+.codein{font-weight:600;letter-spacing:.06em}
+.codein::placeholder{font-weight:400;letter-spacing:0}
+.ferr{margin:0;font-size:var(--t-md);font-weight:600;color:var(--warn)}
+#flist>div{align-items:center}
+#flist .who{display:flex;flex-direction:column;flex:1;min-width:0}
+#flist .who small{font-size:var(--t-xs);color:var(--muted);letter-spacing:.06em}
 #flist span{flex:1}
+#flist .who+span{flex:1.3}
 .rowlist .fx{flex:none;align-self:center;min-width:var(--tap);min-height:var(--tap);margin:calc(var(--s3) * -1) calc(var(--s2) * -1) calc(var(--s3) * -1) calc(var(--s3) * -1);color:var(--muted);font-size:var(--t-2xl);line-height:1}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:var(--s3)}
 
@@ -224,6 +239,10 @@ button{border:0;background:none;padding:0;cursor:pointer}
 #ptext{flex:1;min-height:0;background:none;border:0;resize:none;color:var(--on-color);font-weight:800;font-size:var(--t-display-m);letter-spacing:-.04em;line-height:1.06;padding:0;outline:none}
 #ptext::placeholder{color:rgba(255,255,255,.8)}
 .clabel{font-size:var(--t-sm);font-weight:600;margin-bottom:var(--s2)}
+.opts{display:grid;grid-template-columns:1fr 1fr;gap:var(--s3)}
+.opts input{min-width:0;min-height:var(--tap);border:0;border-radius:var(--r2);padding:var(--s3) var(--s4);background:rgba(0,0,0,.22);color:var(--on-color);font-weight:700;font-size:var(--t-base)}
+.opts input::placeholder{color:rgba(255,255,255,.85)}
+.ohint{margin-top:var(--s2);font-size:var(--t-sm);opacity:.9}
 .swatches{display:grid;grid-template-columns:repeat(8,1fr)}
 .sw{height:var(--tap);padding:5px;background-clip:content-box!important;border-radius:var(--r2);box-shadow:none}
 .sw.on{outline:3px solid var(--on-color);outline-offset:-3px}
@@ -423,6 +442,11 @@ html.vt .page{animation:none}
 
     <section class="page me" id="me" hidden>
       <header><div class="brand">verd<i>.</i></div><span class="note" id="meta"></span></header>
+      <div class="card acct" id="account" hidden>
+        <div class="clabel">Account</div>
+        <p class="note" id="acctNote"></p>
+        <div><button class="b2" id="acctBtn">Sign in with Google</button></div>
+      </div>
       <div>
         <div class="hero-n"><b id="streak">0</b><span>day streak</span></div>
         <p class="note" id="streakNote"></p>
@@ -434,13 +458,27 @@ html.vt .page{animation:none}
       </div>
       <div class="sec"><h3>Badges</h3><div class="tags" id="badges"></div><p class="note" id="badgesNote" hidden>Answer today's question to earn your first badge.</p></div>
       <div class="sec" id="recap" hidden><h3>Your week</h3><div class="rowlist" id="recapBody"></div><div><button class="b2 soft" id="recapShare">Share my week</button></div></div>
-      <div class="sec">
+      <div class="sec" id="friends">
         <h3>Friends</h3>
-        <p class="note">Send your invite link. Once you've both added each other, see who really thinks like you.</p>
-        <div class="line"><b class="code" id="mycode">······</b><button class="b2 soft" id="invite">Invite</button></div>
-        <input class="field" id="myname" maxlength="20" autocomplete="given-name" placeholder="Your first name, for your invite (optional)" aria-label="Your first name, for your invite link (optional)">
-        <form class="line" id="fform"><input class="field" id="fcode" maxlength="6" placeholder="Friend's code" aria-label="Friend's code" style="text-transform:uppercase"><button class="b2">Add</button></form>
+        <p class="note">See how often you and a friend agree. You both add each other, then answer 3 of the same questions.</p>
         <div class="rowlist" id="flist"></div>
+        <div class="card">
+          <div class="clabel">Your code</div>
+          <div class="line"><b class="code" id="mycode">······</b><button class="b2 soft" id="copycode" type="button">Copy</button></div>
+          <p class="note" id="codeNote" hidden>Your code shows up after you answer today's question.</p>
+          <label class="flabel" for="myname">Your name <span>(optional, shown to friends you invite)</span></label>
+          <input class="field" id="myname" maxlength="24" autocomplete="given-name" autocapitalize="words" enterkeyhint="done" placeholder="Like Sam">
+          <button class="b2" id="invite" type="button">Share my invite link</button>
+        </div>
+        <form class="card" id="fform" novalidate>
+          <div class="clabel">Add a friend</div>
+          <label class="flabel" for="fcode">Their code or invite link</label>
+          <input class="field codein" id="fcode" maxlength="300" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" enterkeyhint="next" placeholder="6 letters and numbers, like K7MPX2" aria-describedby="ferr">
+          <label class="flabel" for="fnick">Their name <span>(optional, only you see it)</span></label>
+          <input class="field" id="fnick" maxlength="24" autocomplete="off" autocapitalize="words" enterkeyhint="done" placeholder="Like Jay">
+          <p class="ferr" id="ferr" role="alert" hidden></p>
+          <button class="b2" id="fadd">Add friend</button>
+        </form>
       </div>
       <div class="sec">
         <h3>Your place</h3>
@@ -451,11 +489,6 @@ html.vt .page{animation:none}
         </div>
         <div class="grid2" id="placeFields" hidden><input class="field" id="mystate" maxlength="40" placeholder="State" aria-label="State or region"><input class="field" id="mycity" maxlength="40" placeholder="City" aria-label="City"></div>
         <p class="note" id="placeNote">Used to compare answers with people near you. Never your exact location.</p>
-      </div>
-      <div class="sec" id="account" hidden>
-        <h3>Account</h3>
-        <p class="note" id="acctNote"></p>
-        <div><button class="b2" id="acctBtn">Sign in with Google</button></div>
       </div>
       <div class="sec" id="review" hidden>
         <h3>Review</h3>
@@ -490,6 +523,7 @@ html.vt .page{animation:none}
       <div class="cbar"><button class="x" id="cclose" aria-label="Close">×</button><button class="post" id="psend">Post</button></div>
       <textarea id="ptext" maxlength="140" placeholder="What do you want a verdict on?" aria-label="Your post"></textarea>
       <div id="photoRow"><div class="clabel">Photos (optional, up to 2)</div><div class="thumbs" id="thumbs"></div><input type="file" id="pfile" accept="image/*" multiple hidden></div>
+      <div id="optRow"><div class="clabel">Answers</div><div class="opts"><input id="opta" maxlength="30" placeholder="Yes" aria-label="First answer" autocomplete="off" enterkeyhint="next"><input id="optb" maxlength="30" placeholder="No" aria-label="Second answer" autocomplete="off" enterkeyhint="done"></div><div class="ohint">Leave empty for Yes or No, or write your own, like Lamborghini and Ferrari.</div></div>
       <div id="colorRow"><div class="clabel">Color</div><div class="swatches" id="swatches"></div></div>
       <div><div class="clabel">Who decides</div><div class="aud" id="aud"></div></div>
       <p class="cnote" id="cnote"></p>

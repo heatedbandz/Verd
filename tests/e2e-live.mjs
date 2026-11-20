@@ -212,7 +212,7 @@ test('invites: no account just for opening one, and a match needs both of you to
   const { p, ctx, errors } = await page({}, '#f=' + fcode + '&n=Jay');
   assert.ok(!fake.calls.includes('POST /auth/v1/signup'), 'opening an invite made an account: ' + fake.calls.join(', '));
   await p.click('#navMe'); await p.waitForTimeout(500);
-  assert.match(await p.innerText('#flist'), new RegExp('Jay · ' + fcode + '\\s+Matches start after your first answer\\.'));
+  assert.match(await p.innerText('#flist'), new RegExp('Jay\\s+' + fcode + '\\s+Matches start after your first answer\\.'));
   await p.click('#navHome'); await p.waitForTimeout(300); await tap(p, 0); await p.waitForTimeout(1500);
   const rows = (await fake.pool.query('select user_id from public.friend_adds where code = $1', [fcode])).rows;
   assert.equal(rows.length, 1, 'the database got your friend list once you had an account');
@@ -223,7 +223,7 @@ test('invites: no account just for opening one, and a match needs both of you to
   await fake.pool.query('insert into public.friend_adds (user_id, code) values ($1, $2)', [friend, mycode]);
   for (const [d, c] of [[1, 0], [2, 0], [3, 1]]) await fake.pool.query('insert into public.votes (day, user_id, choice, country) values ($1, $2, $3, $4) on conflict do nothing', [day(today, -d), me, c, 'US']);
   await p.click('#navHome'); await p.waitForTimeout(300); await p.click('#navMe'); await p.waitForTimeout(900);
-  assert.match(await p.innerText('#flist'), /Jay · \w{6}\s+67% match/);
+  assert.match(await p.innerText('#flist'), /Jay\s+\w{6}\s+67% match/);
   assert.deepEqual(errors, []);
   await ctx.close();
 });
@@ -237,8 +237,8 @@ test('friends added before Verd went live are asked for a new link, their stand-
   assert.deepEqual(await sent(), [fcode], 'only the friend added since launch is sent');
   await p.click('#navMe'); await p.waitForTimeout(900);
   const list = await p.innerText('#flist');
-  assert.match(list, /Jay · OLDJAY\s+Added before Verd went live\. Send them your new invite link\./);
-  assert.match(list, new RegExp('Sam · ' + fcode + '\\s+Shows once they add you too\\.'));
+  assert.match(list, /Jay\s+OLDJAY\s+Added before Verd went live\. Send them your new invite link\./);
+  assert.match(list, new RegExp('Sam\\s+' + fcode + '\\s+Shows once they add you too\\.'));
   await p.click('#flist button[aria-label="Remove Sam"]'); await p.waitForTimeout(800);
   assert.deepEqual(await sent(), [], 'removing a friend takes them off your list in the database too');
   assert.doesNotMatch(await p.innerText('#flist'), /Sam/);
@@ -379,7 +379,7 @@ test('a post: age asked first, then Google, then it waits for review and only th
   assert.equal(await p.$eval('#photoRow', e => e.hidden), true, 'photos are offered on the live site');
   assert.match(await p.innerText('#cnote'), /A moderator checks every post before anyone else sees it/);
   await p.fill('#ptext', 'add me on snap if you want'); await p.click('#psend'); await p.waitForTimeout(200);
-  assert.match(await p.innerText('#toast'), /Leave out contact info/);
+  assert.match(await p.innerText('#toast'), /Leave out slurs, contact info/);
   await p.fill('#ptext', 'Is cereal a soup?'); await p.click('#psend'); await p.waitForTimeout(900);
   assert.match(await p.innerText('#toast'), /Sent for review\./);
   const rows = (await fake.pool.query("select status, body, user_id from public.posts")).rows;
@@ -483,17 +483,14 @@ test('once the owner sets auto_approve, posts and comments go live at once, and 
     assert.ok(await slideWith(other.p, 'Is a taco a kind of sandwich?'), 'others see it straight away');
     assert.deepEqual(other.errors, []); await other.ctx.close();
 
-    // The comment from before still waits and the post from before was reported once; the two new ones are listed as live, oldest first.
+    // Nothing to approve: what went live isn't listed, and neither is what waited from before. Only the report shows.
     const mod = await page({ es_sb: modSession, es_born: JSON.stringify(yearsAgo(40, '03')) });
     await mod.p.click('#navMe'); await mod.p.waitForSelector('#review:not([hidden]) .ritem');
-    assert.match(await mod.p.innerText('#reviewNote'), /^1 waiting, 1 reported and 2 went live without review\. New posts and comments go live at once, so check them here\.$/);
-    assert.match(await mod.p.innerText('#reviewList'), /Post · Went live \S+ ago · 2 approved and 0 turned down before[\s\S]*Is a taco a kind of sandwich\?[\s\S]*Looks fine[\s\S]*Remove[\s\S]*Comment · Went live \S+ ago[\s\S]*Only if it comes in a bun/);
-    const row = mod.p.locator('#reviewList .ritem', { has: mod.p.locator('.rmeta', { hasText: /^Post · Went live/ }) });
-    await row.locator('button:text-is("Looks fine")').click(); await mod.p.waitForTimeout(800);
-    assert.match(await mod.p.innerText('#reviewNote'), /^1 waiting, 1 reported and 1 went live without review\./);
-    assert.doesNotMatch(await mod.p.innerText('#reviewList'), /Post · Went live/);
-    const kept = (await fake.pool.query('select status, reviewed_at from public.posts where id = $1', [post.id])).rows[0];
-    assert.ok(kept.status === 'approved' && kept.reviewed_at, 'marked fine: still up, and off the list');
+    assert.equal(await mod.p.innerText('#reviewNote'), '1 was reported. Everything else goes live by itself, and slurs are blocked.');
+    assert.equal(await mod.p.$$eval('#reviewList .ritem', r => r.length), 1);
+    assert.doesNotMatch(await mod.p.innerText('#reviewList'), /Went live|Approve|Looks fine/);
+    await mod.p.click('#reviewList button:text-is("Keep")'); await mod.p.waitForTimeout(900);
+    assert.equal(await mod.p.$eval('#review', e => e.hidden), true, 'with nothing reported, Review goes away');
     assert.deepEqual(mod.errors, []); await mod.ctx.close();
   } finally {
     await fake.pool.query("update public.app_config set value = 0 where key = 'auto_approve'");
@@ -572,4 +569,34 @@ test('Google switched on before the posting part of setup.sql: no sign-in yet, a
     assert.deepEqual(errors, []);
     await ctx.close();
   } finally { await fake.pool.query('alter function public.get_posts_off rename to get_posts'); }
+});
+
+test("signed in with Google, Verd opens on friends' posts with today's question one tab over; signed out it opens on today's question", async () => {
+  const id = email => fake.pool.query('select id from auth.users where email = $1', [email]).then(r => r.rows[0].id);
+  const mod = await id('mod@verd.test'), writer = await id('writer@verd.test');
+  const code = async u => (await fake.pool.query('select verd_private.ensure_profile($1) as c', [u])).rows[0].c;
+  const modCode = await code(mod), writerCode = await code(writer);
+  await fake.pool.query('insert into public.friend_adds (user_id, code) values ($1, $2), ($3, $4) on conflict do nothing', [mod, writerCode, writer, modCode]);
+  const post = (await fake.pool.query("insert into public.posts (user_id, body, scope, status, reviewed_at) values ($1, 'Should pineapple go on pizza?', 'friends', 'approved', now()) returning id", [writer])).rows[0].id;
+  try {
+    const { p, ctx, errors } = await page({ es_sb: modSession, es_born: JSON.stringify(yearsAgo(40, '03')), es_friends: JSON.stringify([writerCode]), es_addedIn: JSON.stringify({ [writerCode]: 'live' }) });
+    await p.waitForSelector('#scopes:not([hidden]) .scope.on', { timeout: 4000 }); await p.waitForTimeout(500);
+    assert.deepEqual(await p.$$eval('#scopes .scope', b => b.slice(0, 2).map(x => x.textContent)), ['Friends', 'World'], 'Friends is the first tab');
+    assert.equal(await p.innerText('#scopes .scope.on'), 'Friends');
+    assert.equal(await p.$eval('#feed .slide', s => s.innerText.includes('Should pineapple go on pizza?')), true, "a friend's post comes first");
+    // one tap over is today's question
+    await p.click('#scopes .scope:text-is("World")'); await p.waitForTimeout(300);
+    assert.equal(await p.$eval('#feed .slide', s => s.dataset.id), 'daily');
+    assert.deepEqual(errors, []); await ctx.close();
+    // Not signed in: today's question first, Friends stays the last tab, and nobody is asked to sign in
+    const anon = await page({ es_friends: JSON.stringify([writerCode]), es_addedIn: JSON.stringify({ [writerCode]: 'live' }) });
+    await anon.p.waitForTimeout(1200);
+    assert.equal(await anon.p.$eval('#feed .slide', s => s.dataset.id), 'daily');
+    assert.equal(await anon.p.$eval('#acct', e => e.hidden), true);
+    const tabs = await anon.p.$$eval('#scopes .scope', b => b.map(x => x.textContent));
+    if (tabs.length) assert.equal(tabs[0], 'World');
+    assert.deepEqual(anon.errors, []); await anon.ctx.close();
+  } finally {
+    await fake.pool.query('delete from public.posts where id = $1', [post]);
+  }
 });

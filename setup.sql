@@ -121,6 +121,16 @@ insert into public.blocked_terms (pattern) values
   ('\mhow old (are|r) (you|u)\M'), ('\mwhere do (you|u) live\M'),      -- asking a stranger's age or home
   ('\m(nudes?|sext(ing)?|porn|onlyfans|horny)\M')                    -- sexual
 on conflict (pattern) do nothing;
+-- Slurs: refused outright, so nothing hateful ever needs a person to check it. Letters swapped for look-alike
+-- numbers and symbols (1, !, @, 3, 0) are caught too. Each is a whole word, so "raccoon" or "spice" still work.
+insert into public.blocked_terms (pattern) values
+  ('\mn+[i1!l|]+gg+(a|ah|as|az|er|ers|uh|uz|ress)?\M'), ('\mn[i1!]g{1,2}(let|lets|ra|ras)\M'),
+  ('\mf+[a@4]+g+([o0]+t+s?|s|y|ie|ier)?\M'), ('\mk[i1!y]kes?\M'), ('\mch[i1!]nks?\M'), ('\msp[i1!]c?ks?\M'),
+  ('\mwet ?backs?\M'), ('\mbeaners?\M'), ('\mg[o0][o0]ks?\M'), ('\mc[o0][o0]ns?\M'), ('\mjig(g)?ab[o0][o0]s?\M'),
+  ('\mporch ?monkeys?\M'), ('\mjungle ?bunn(y|ies)\M'), ('\mtowel ?heads?\M'), ('\mrag ?heads?\M'),
+  ('\msand ?n[i1!]gg'), ('\mzipper ?heads?\M'), ('\mpak[i1!]s\M'), ('\mdykes?\M'), ('\mtr[a@4]nn(y|ie|ies)\M'),
+  ('\mshemales?\M'), ('\mret[a@4]rd(s|ed)?\M'), ('\mtard(s)?\M'), ('\mgyppos?\M'), ('\mkaff[i1]rs?\M')
+on conflict (pattern) do nothing;
 
 -- The friends each person added, by code. A friend match needs both people to have added each
 -- other, so knowing someone's code is not enough to compare yourself with them.
@@ -543,6 +553,9 @@ create table if not exists public.posts (
   kept_at     timestamptz              -- a moderator read its reports and kept it
 );
 create index if not exists posts_by_status on public.posts (status, created_at);
+-- A post's own two answers, like "Lamborghini" and "Ferrari". Both empty means Yes and No.
+alter table public.posts add column if not exists opt_a text check (opt_a is null or char_length(opt_a) between 1 and 30);
+alter table public.posts add column if not exists opt_b text check (opt_b is null or char_length(opt_b) between 1 and 30);
 create index if not exists posts_by_user   on public.posts (user_id, created_at);
 
 -- One judgment per person per post: 1 = yes (or "this one"), -1 = no.
@@ -743,7 +756,7 @@ begin
      group by s.id
   )
   select coalesce(jsonb_agg(jsonb_build_object(
-           'id', s.id, 'body', s.body, 'color', s.color, 'scope', s.scope, 'country', s.country,
+           'id', s.id, 'body', s.body, 'color', s.color, 'scope', s.scope, 'country', s.country, 'a', s.opt_a, 'b', s.opt_b,
            't', verd_private.ms(s.created_at),
            'mine', s.user_id is not distinct from uid,
            'status', case when s.user_id = uid then s.status end,
@@ -810,13 +823,18 @@ end $$;
 
 -- Write a post. It waits for a moderator (or goes live at once with auto_approve). A few a day, a couple of
 -- minutes apart, blocked words refused.
-create or replace function public.create_post(body text, color smallint, scope text, cc text default 'XX', st text default null, ci text default null)
+-- The version before custom answers had six arguments. Two versions side by side would confuse the API.
+drop function if exists public.create_post(text, smallint, text, text, text, text);
+create or replace function public.create_post(body text, color smallint, scope text, cc text default 'XX', st text default null, ci text default null,
+                                              opt_a text default null, opt_b text default null)
 returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare
   uid    uuid := auth.uid();
   why    text := verd_private.cannot_write(auth.uid());
   clean  text := btrim(regexp_replace(coalesce(body, ''), '\s+', ' ', 'g'));
+  a      text := nullif(btrim(regexp_replace(coalesce(opt_a, ''), '\s+', ' ', 'g')), '');
+  b      text := nullif(btrim(regexp_replace(coalesce(opt_b, ''), '\s+', ' ', 'g')), '');
   k_cc   text := verd_private.country(cc);
   k_st   text := verd_private.place(st);
   k_ci   text := verd_private.place(ci);
@@ -838,7 +856,13 @@ begin
      or (scope = 'city' and k_ci is null) then
     raise exception 'set your place first' using errcode = '22023';
   end if;
-  if verd_private.blocked(clean) then
+  if (a is null) <> (b is null) or lower(a) = lower(b) then
+    raise exception 'give two different answers' using errcode = '22023';
+  end if;
+  if char_length(a) > 30 or char_length(b) > 30 then
+    raise exception 'answers are 1 to 30 characters' using errcode = '22023';
+  end if;
+  if verd_private.blocked(clean) or verd_private.blocked(a) or verd_private.blocked(b) then
     raise exception 'blocked words' using errcode = '22023';
   end if;
   select count(*), max(x.created_at) into n, prev
@@ -849,10 +873,10 @@ begin
   if prev > now() - make_interval(secs => verd_private.cfg('post_gap_seconds')) then
     raise exception 'wait a moment' using errcode = '22023';
   end if;
-  insert into public.posts (user_id, body, color, scope, country, state, city, status)
+  insert into public.posts (user_id, body, color, scope, country, state, city, status, opt_a, opt_b)
   values (uid, clean, greatest(0, least(31, coalesce(color, 0))), scope, k_cc,
           case when scope in ('state', 'city') then k_st end, case when scope = 'city' then k_ci end,
-          case when verd_private.review_first() then 'pending' else 'approved' end)
+          case when verd_private.review_first() then 'pending' else 'approved' end, a, b)
   returning id, status into new_id, now_is;
   return jsonb_build_object('id', new_id, 'status', now_is);
 end $$;
@@ -1131,7 +1155,7 @@ grant execute on function public.suggest_question(text, text[]) to authenticated
 revoke all on function public.get_posts(text, text, text) from public;
 revoke all on function public.set_birth(int, int) from public, anon;
 revoke all on function public.judge_post(bigint, boolean, text, text, text) from public, anon;
-revoke all on function public.create_post(text, smallint, text, text, text, text) from public, anon;
+revoke all on function public.create_post(text, smallint, text, text, text, text, text, text) from public, anon;
 revoke all on function public.create_comment(bigint, text, text, text, text) from public, anon;
 revoke all on function public.report_item(text, bigint, text, text, text) from public, anon;
 revoke all on function public.delete_mine(text, bigint) from public, anon;
@@ -1141,7 +1165,7 @@ revoke all on function public.ban_author(text, bigint, int, text) from public, a
 grant execute on function public.get_posts(text, text, text) to anon, authenticated;
 grant execute on function public.set_birth(int, int) to authenticated;
 grant execute on function public.judge_post(bigint, boolean, text, text, text) to authenticated;
-grant execute on function public.create_post(text, smallint, text, text, text, text) to authenticated;
+grant execute on function public.create_post(text, smallint, text, text, text, text, text, text) to authenticated;
 grant execute on function public.create_comment(bigint, text, text, text, text) to authenticated;
 grant execute on function public.report_item(text, bigint, text, text, text) to authenticated;
 grant execute on function public.delete_mine(text, bigint) to authenticated;
@@ -1149,9 +1173,23 @@ grant execute on function public.review_queue() to authenticated;
 grant execute on function public.review_item(text, bigint, text, text) to authenticated;
 grant execute on function public.ban_author(text, bigint, int, text) to authenticated;
 
+-- With auto_approve on, nothing should still be waiting from before it was switched on: let those go live too,
+-- unless they hold something on the blocked list (slurs included), which are turned down.
+do $$ begin
+  if not verd_private.review_first() then
+    update public.posts set status = case when verd_private.blocked(body) then 'rejected' else 'approved' end,
+      reason = case when verd_private.blocked(body) then 'Mean or unsafe' end, reviewed_at = now() where status = 'pending';
+    update public.comments set status = case when verd_private.blocked(body) then 'rejected' else 'approved' end,
+      reason = case when verd_private.blocked(body) then 'Mean or unsafe' end, reviewed_at = now() where status = 'pending';
+  end if;
+  -- Anything already up that the list now catches (the slurs added on 2026-11-20) comes down.
+  update public.posts set status = 'removed', reason = 'Mean or unsafe', reviewed_at = now() where status = 'approved' and verd_private.blocked(body);
+  update public.comments set status = 'removed', reason = 'Mean or unsafe', reviewed_at = now() where status = 'approved' and verd_private.blocked(body);
+end $$;
+
 -- ---------- Done ----------
 -- Tells the API about these functions straight away, then says which version just ran: the SQL Editor shows this
 -- line as the result. "Success. No rows returned" instead means an older copy of this file ran.
 notify pgrst, 'reload schema';
-select 'Verd is set up, with posting (setup.sql of 2026-11-20). New posts '
+select 'Verd is set up, with posting (setup.sql of 2026-11-20, with the slur filter and custom answers). New posts '
        || case when verd_private.review_first() then 'wait for review.' else 'go live at once.' end as result;

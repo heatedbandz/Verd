@@ -171,7 +171,7 @@ const backends = {
       const num = id => Number(String(id).slice(1));
       const what = id => String(id)[0] === "c" ? "comment" : "post";
       const asPost = (p, pl) => ({
-        id: "p" + p.id, text: p.body, color: p.color, cat: catOf(p.body), scope: p.scope, country: p.country,
+        id: "p" + p.id, text: p.body, color: p.color, cat: catOf(p.body), scope: p.scope, country: p.country, opts: p.a && p.b ? [p.a, p.b] : null,
         state: p.scope === "state" || p.scope === "city" ? pl.state : "", city: p.scope === "city" ? pl.city : "",
         t: p.t, author: p.mine ? "@me" : p.code || null, yes: p.yes, no: p.no, total: p.total, close: p.close, reports: 0,
         status: p.status || "approved", reason: p.reason || "",
@@ -198,7 +198,7 @@ const backends = {
         watch(f){ cb = f; load(); },
         refresh: load,
         // live: it went up at once (auto_approve), instead of waiting for a moderator.
-        async post(item){ const r = await rpc("create_post", { body: item.text, color: item.color, scope: item.scope, ...placeArgs(myPlace()) }, true); await load(); return { id: "p" + r.id, live: r.status === "approved" }; },
+        async post(item){ const r = await rpc("create_post", { body: item.text, color: item.color, scope: item.scope, ...placeArgs(myPlace()), ...(item.opts ? { opt_a: item.opts[0], opt_b: item.opts[1] } : {}) }, true); await load(); return { id: "p" + r.id, live: r.status === "approved" }; },
         async comment(item){ const r = await rpc("create_comment", { pid: num(item.post), body: item.text, ...placeArgs(myPlace()) }, true); await load(); return { id: "c" + r.id, live: r.status === "approved" }; },
         vote: (id, v) => rpc("judge_post", { pid: num(id), yes: v > 0, ...placeArgs(myPlace()) }, true),
         report: id => rpc("report_item", { what: what(id), iid: num(id), ...placeArgs(myPlace()) }, true),
@@ -507,7 +507,9 @@ const myCode = () => store.get("myCode:" + (backend ? backend.mode : ""), "");
 const ownCode = c => c === codeFrom(voterId()) || ["live", "preview"].some(m => store.get("myCode:" + m, "") === c);
 const SCOPES = [["world","World"],["country","Country"],["state","State"],["city","City"],["friends","Friends"]];
 // Under 13 there's no state or city, so those tabs and audiences aren't offered.
-const scopes = () => under13() ? SCOPES.filter(([k]) => k !== "state" && k !== "city") : SCOPES;
+// Signed in with Google, Friends comes first: friends' posts are what that person opened Verd for.
+const scopes = () => { const l = under13() ? SCOPES.filter(([k]) => k !== "state" && k !== "city") : SCOPES;
+  return signedInReal ? [l[l.length - 1], ...l.slice(0, -1)] : l; };
 // Slide colours: violet, crimson, green, ink, blue, pink, rust, teal. Each is dark enough that white text passes
 // WCAG AA (4.5:1) on both ends of its gradient, under the sheen. tests/contrast.mjs checks every pair (#verd-data).
 const COLORS = DATA.colors;
@@ -521,9 +523,25 @@ const totalOf = p => p.total ?? (p.yes + p.no);
 const BLOCK = [/\d[\d\s().-]{6,}\d/, /@\w/, /https?:|www\./i, /\b(kill|kys|die)\b/i, /\b(dm|snap|add|text|hmu)\s+me\b/i, /\bhmu\b/i,
   /\bmy\s+(snap|snapchat|insta|ig|discord|number|addy|address)\b/i, /\b(send|show)\s+(me\s+)?(a\s+)?(pics?|nudes?|photos?)\b/i,
   /\bhow old (are|r) (you|u)\b/i, /\bwhere do (you|u) live\b/i, /\b(nudes?|sext(ing)?|porn|onlyfans|horny)\b/i];
-const BLOCK_MSG = "Leave out contact info, links, threats, and asking for pictures or someone's age.";
+// Slurs, the same list as blocked_terms in setup.sql. Look-alike numbers and symbols count; whole words only.
+const SLURS = [/\bn+[i1!l|]+gg+(a|ah|as|az|er|ers|uh|uz|ress)?\b/i, /\bn[i1!]g{1,2}(let|lets|ra|ras)\b/i, /\bf+[a@4]+g+([o0]+t+s?|s|y|ie|ier)?\b/i,
+  /\bk[i1!y]kes?\b/i, /\bch[i1!]nks?\b/i, /\bsp[i1!]c?ks?\b/i, /\bwet ?backs?\b/i, /\bbeaners?\b/i, /\bg[o0][o0]ks?\b/i, /\bc[o0][o0]ns?\b/i,
+  /\bjigg?ab[o0][o0]s?\b/i, /\bporch ?monkeys?\b/i, /\bjungle ?bunn(y|ies)\b/i, /\btowel ?heads?\b/i, /\brag ?heads?\b/i, /\bsand ?n[i1!]gg/i,
+  /\bzipper ?heads?\b/i, /\bpak[i1!]s\b/i, /\bdykes?\b/i, /\btr[a@4]nn(y|ie|ies)\b/i, /\bshemales?\b/i, /\bret[a@4]rd(s|ed)?\b/i, /\btards?\b/i,
+  /\bgyppos?\b/i, /\bkaff[i1]rs?\b/i];
+BLOCK.push(...SLURS);
+const BLOCK_MSG = "Leave out slurs, contact info, links, threats, and asking for pictures or someone's age.";
 // Posting on the live site opens once Verd has a moderator and Google sign-in is switched on.
 let signInReady = false;
+// Signed in with Google (not just the anonymous account every answer makes), and whether you've picked a tab yourself.
+let signedInReal = false, pickedScope = false;
+// Signed in with friends' posts to see: open on Friends, with today's question one tab over. Signed out,
+// or with nothing from friends yet, Verd opens on today's question as always. Never once you've picked a tab.
+function friendsFirst(){
+  if (!signedInReal || pickedScope || ask.scope !== "world" || !ask.api || !friends().length || $("feed").scrollTop > 40) return;
+  if (!ask.posts.some(p => p.scope === "friends" && p.author !== ask.api.me && visible(p, true))) return;
+  ask.scope = "friends"; order = []; renderTop(); renderFeed(); $("feed").scrollTop = 0;
+}
 const postingOpen = () => !!ask.api && (!ask.api.live || (ask.api.open && signInReady));
 const ICON = {
   comment: '<svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 0 1-11.800 7L4 20l1-4.200A8 8 0 1 1 20 12z"/></svg>',
@@ -553,7 +571,7 @@ function placeLabel(p){
 }
 // The order is frozen while you browse, so posts never jump under your thumb. New posts join at the end.
 function syncOrder(){
-  const vis = ask.api ? ask.posts.filter(visible) : [];
+  const vis = ask.api ? ask.posts.filter(p => visible(p)) : [];
   const ids = new Set(vis.map(p => p.id));
   order = order.filter(id => ids.has(id));
   if (jumpTo && ids.has(jumpTo) && !order.includes(jumpTo)) order.unshift(jumpTo);
@@ -757,7 +775,7 @@ function postSlide(p){
   const published = !p.status || p.status === "approved";
   const s = shell(p.id, COLORS[(typeof p.color === "number" ? p.color : hash(p.id)) % COLORS.length]), body = el("div", "sbody");
   body.append(el("div", "kicker", [placeLabel(p), ago(p.t), mine ? standing(p) : "", ask.flipped[p.id] ? "Flipped since you voted" : ""].filter(Boolean).join(" · ")));
-  const imgs = p.imgs || [], duo = imgs.length === 2, labels = duo ? ["This one", "That one"] : ["Yes", "No"];
+  const imgs = p.imgs || [], duo = imgs.length === 2, labels = sideLabels(p);
   const tap = i => mine ? toast("You can't vote on your own post.") : votePost(p.id, i === 0 ? 1 : -1);
   if (imgs.length === 1){ s.classList.add("photo"); const im = el("img", "pbg"); im.src = imgs[0]; im.alt = ""; s.append(im); }
   if (duo){ s.classList.add("duo"); const g = el("div", "duo-imgs");
@@ -825,7 +843,7 @@ function renderTop(){
   if (!show) ask.scope = "world";
   box.hidden = !show; box.innerHTML = ""; if (!show) return;
   scopes().forEach(([k, l]) => { const b = el("button", "scope" + (k === ask.scope ? " on" : ""), l); b.setAttribute("role", "tab"); b.setAttribute("aria-selected", k === ask.scope);
-    b.onclick = () => { ask.scope = k; order = []; renderTop(); renderFeed(); $("feed").scrollTop = 0; }; box.append(b); });
+    b.onclick = () => { pickedScope = true; ask.scope = k; order = []; renderTop(); renderFeed(); $("feed").scrollTop = 0; }; box.append(b); });
 }
 
 // ---------- Connection ----------
@@ -971,7 +989,8 @@ async function shareDaily(){
 // ---------- Comments ----------
 const liveComments = p => p.comments.filter(c => (c.reports < HIDE_AT || c.author === ask.api.me) && !ask.myReports[c.id]);
 const whoSaid = c => c.author === ask.api.me ? "You" : friends().includes(c.author) ? c.author : "Someone";
-const sideLabels = p => (p.imgs || []).length === 2 ? ["This one", "That one"] : ["Yes", "No"];
+// A post's answers: its own two (like Lamborghini or Ferrari), This one or That one for two photos, else Yes or No.
+const sideLabels = p => (p.imgs || []).length === 2 ? ["This one", "That one"] : p.opts && p.opts.length === 2 ? p.opts : ["Yes", "No"];
 function openSheet(id){ sheetPost = id; $("stitle").textContent = "Comments"; $("clist").hidden = false; $("cform").hidden = false; $("shareBox").hidden = true; renderSheet(); $("sheet").hidden = false; }
 function closeSheet(){ $("sheet").hidden = true; sheetPost = null; }
 function renderSheet(){
@@ -1046,7 +1065,8 @@ function drawCompose(){
   $("ptext").placeholder = cPhotos.length === 2 ? "Which one?" : cPhotos.length === 1 ? "Yes or no?" : "What do you want a verdict on?";
   $("cnote").textContent = cPhotos.length === 2 ? "Friends pick This one or That one. Photo posts go to friends only for now."
     : cPhotos.length === 1 ? "Friends answer Yes or No. Photo posts go to friends only for now."
-    : "People answer Yes or No. No names, phone numbers or anything mean about a real person.";
+    : "People pick one of your two answers. No names, phone numbers or anything mean about a real person.";
+  $("optRow").hidden = cPhotos.length > 0;
   if (backend && backend.mode === "device") $("cnote").textContent = "Only you can see your posts until Verd goes live. " + $("cnote").textContent;
   if (ask.api.live) $("cnote").textContent = (ask.api.reviewFirst ? "A moderator checks every post before anyone else sees it, and your name is never shown. "
     : "Posts go live straight away, and your name is never shown. ") + $("cnote").textContent;
@@ -1059,14 +1079,19 @@ $("psend").onclick = async () => {
   if (imgs.length && !friends().length){ toast("Add a friend on your profile first. Photo posts go to friends."); return; }
   if (text.length < 4){ toast("Write a little more."); return; }
   if (BLOCK.some(r => r.test(text))){ toast(BLOCK_MSG); return; }
+  // Your own answers, or Yes and No when both are left empty.
+  const oa = $("opta").value.trim().replace(/\s+/g, " "), ob = $("optb").value.trim().replace(/\s+/g, " "), opts = !imgs.length && (oa || ob) ? [oa, ob] : null;
+  if (opts && (!oa || !ob)){ toast("Fill in both answers, or leave both empty for Yes and No."); return; }
+  if (opts && oa.toLowerCase() === ob.toLowerCase()){ toast("Make the two answers different."); return; }
+  if (opts && BLOCK.some(r => r.test(oa) || r.test(ob))){ toast(BLOCK_MSG); return; }
   if ((cScope === "city" && (!pl.city || !pl.state)) || (cScope === "state" && !pl.state)){ toast("Add your city and state on the Me page first."); return; }
-  const item = { id: ask.api.me + "-" + Date.now().toString(36), author: ask.api.me, text, color: cColor, photos: imgs.length, cat: catOf(text), scope: imgs.length ? "friends" : cScope, city: pl.city, state: pl.state, country: pl.country, t: Date.now() };
+  const item = { id: ask.api.me + "-" + Date.now().toString(36), author: ask.api.me, text, color: cColor, photos: imgs.length, opts, cat: catOf(text), scope: imgs.length ? "friends" : cScope, city: pl.city, state: pl.state, country: pl.country, t: Date.now() };
   $("psend").disabled = true;
   if (ask.api.live){
     try{
       const r = await ask.api.post(item); store.set("posted", true);
       if (ask.scope !== item.scope){ ask.scope = item.scope; order = []; renderTop(); }
-      jumpTo = r.id; $("ptext").value = ""; closeCompose(); showPage("feed"); renderFeed();
+      jumpTo = r.id; $("ptext").value = $("opta").value = $("optb").value = ""; closeCompose(); showPage("feed"); renderFeed();
       toast(r.live ? "Posted. Others can see it now." : "Sent for review. Others see it once a moderator approves it."); checkBadges();
     }catch(err){ const m = writeError(err); if (m) toast(m); else { closeCompose(); gate("post"); } }
     $("psend").disabled = false; return;
@@ -1074,7 +1099,7 @@ $("psend").onclick = async () => {
   try{
     if (ask.scope !== item.scope){ ask.scope = item.scope; order = []; renderTop(); }
     jumpTo = item.id; if (imgs.length) await ask.api.photo(item.id, imgs); await ask.api.post(item); store.set("posted", true);
-    $("ptext").value = ""; closeCompose(); showPage("feed"); renderFeed(); toast("Posted."); checkBadges();
+    $("ptext").value = $("opta").value = $("optb").value = ""; closeCompose(); showPage("feed"); renderFeed(); toast("Posted."); checkBadges();
   }catch{ jumpTo = null; toast("Couldn't post. Check your connection and try again."); }
   $("psend").disabled = false;
 };
@@ -1139,6 +1164,9 @@ function writeError(e){
   return /blocked words/.test(m) ? BLOCK_MSG
     : /enough posts/.test(m) ? "That's the limit for today. You can post again tomorrow."
     : /enough comments/.test(m) ? "That's the limit for today. You can comment again tomorrow."
+    : /give two different answers/.test(m) ? "Make the two answers different."
+    : /answers are 1 to 30/.test(m) ? "Keep each answer to 30 letters."
+    : /create_post|PGRST202|function/i.test(m) ? "Your own answers need one more setup step. Leave them empty for Yes and No for now."
     : /wait a moment/.test(m) ? "Wait a moment before the next one."
     : /are \d+ to 200 characters/.test(m) ? m[0].toUpperCase() + m.slice(1) + "."
     : /set your place/.test(m) ? "Add your city and state on the Me page first."
@@ -1156,7 +1184,7 @@ async function renderAccount(){
   sec.hidden = false;
   let a = null; try{ a = await backend.account(); }catch{}
   const real = !!(a && a.real), b = $("acctBtn");
-  $("acctNote").textContent = real ? "Signed in with Google. Your name is never shown to anyone." : "Sign in to post and comment. Your name is never shown to anyone.";
+  $("acctNote").textContent = real ? "Signed in with Google. Your name is never shown to anyone." : "Sign in to post and comment. Your name is never shown to anyone. Answering and friends work without it.";
   b.hidden = real; b.disabled = false;
   b.onclick = async () => { if (await gate("me")) renderAccount(); };
   renderReview(a);
@@ -1165,16 +1193,18 @@ const REASONS = ["Personal info", "Mean or unsafe", "Not a yes or no question", 
 async function renderReview(a){
   const sec = $("review"); sec.hidden = !(a && a.moderator); if (sec.hidden) return;
   let q; try{ q = await backend.review.queue(); }catch{ $("reviewNote").textContent = "Couldn't load what's waiting. Check your connection."; $("reviewList").replaceChildren(); return; }
-  // live: what went up without review, once the database owner set auto_approve (older databases send neither).
-  const live = q.live || [], first = q.review_first !== false;
-  const parts = [q.waiting.length ? q.waiting.length + " waiting" : "", q.reported.length ? q.reported.length + " reported" : "",
-    live.length ? live.length + " went live without review" : ""].filter(Boolean);
-  $("reviewNote").textContent = !parts.length
-    ? (first ? "Nothing waiting. New posts and comments show up here before anyone else sees them."
-       : "Nothing to check. New posts and comments go live at once, and show up here so you can check them.")
-    : (parts.length > 1 ? parts.slice(0, -1).join(", ") + " and " + parts[parts.length - 1] : parts[0])
-      + (first ? ". Nothing new shows to others until you approve it." : ". New posts and comments go live at once, so check them here.");
-  $("reviewList").replaceChildren(...q.waiting.map(x => reviewRow(x, "waiting")), ...q.reported.map(x => reviewRow(x, "reported")), ...live.map(x => reviewRow(x, "live")));
+  // With auto_approve on, nothing needs a moderator: posts go live at once and slurs are refused before they're saved.
+  // Only what people reported is listed, and Review stays hidden when nothing was reported.
+  const first = q.review_first !== false;
+  if (!first){
+    if (!q.reported.length){ sec.hidden = true; return; }
+    $("reviewNote").textContent = q.reported.length + (q.reported.length === 1 ? " was" : " were") + " reported. Everything else goes live by itself, and slurs are blocked.";
+    $("reviewList").replaceChildren(...q.reported.map(x => reviewRow(x, "reported"))); return;
+  }
+  const parts = [q.waiting.length ? q.waiting.length + " waiting" : "", q.reported.length ? q.reported.length + " reported" : ""].filter(Boolean);
+  $("reviewNote").textContent = !parts.length ? "Nothing waiting. New posts and comments show up here before anyone else sees them."
+    : parts.join(" and ") + ". Nothing new shows to others until you approve it.";
+  $("reviewList").replaceChildren(...q.waiting.map(x => reviewRow(x, "waiting")), ...q.reported.map(x => reviewRow(x, "reported")));
 }
 // how: "waiting" (only its writer sees it), "reported", or "live" (it went up without review).
 function reviewRow(x, how){
@@ -1245,9 +1275,11 @@ function renderMe(){
 }
 // Your friend code. On the live site it exists once you've answered (that's when your account is made).
 function showCode(){
-  $("mycode").textContent = myCode() || "······";
-  if (backend) backend.profile().then(p => { if (p && p.code){ $("mycode").textContent = p.code; store.set("myCode:" + backend.mode, p.code); } }).catch(() => {});
+  const put = c => { const ok = /^[A-Z2-9]{6}$/.test(c || ""); $("mycode").textContent = ok ? c : "······"; $("copycode").hidden = !ok; $("codeNote").hidden = ok; };
+  put(myCode());
+  if (backend) backend.profile().then(p => { if (p && p.code){ store.set("myCode:" + backend.mode, p.code); put(p.code); } }).catch(() => {});
 }
+$("copycode").onclick = () => { const c = myCode(); if (c) copyOrShow(c, "Code copied. Your friend types it in Add a friend."); };
 // Your friends and how often you agree. Placeholder rows show while the matches load.
 // A match needs you both to have added each other, and 3 past questions you both answered.
 let friendsCall = 0;
@@ -1264,8 +1296,9 @@ async function renderFriends(){
           : !r ? (live ? "Shows once they add you too." : "No shared answers yet")
           : m === null ? (r.shared ? r.shared + " shared " + (r.shared === 1 ? "answer" : "answers") + " so far" : "No shared answers yet")
           : (m >= 80 ? "Same brain, " : m <= 30 ? "Opposites, " : "") + m + "% match";
-        const d = el("div"), x = el("button", "fx", "×"); x.setAttribute("aria-label", "Remove " + (nick(c) || c)); x.onclick = () => removeFriend(c);
-        d.append(el("b", "", nick(c) ? nick(c) + " · " + c : c), el("span", by === undefined && !failed && !old(c) ? "sk" : "", t), x); box.append(d); });
+        const d = el("div"), x = el("button", "fx", "×"), who = el("div", "who"); x.setAttribute("aria-label", "Remove " + (nick(c) || c)); x.onclick = () => removeFriend(c);
+        who.append(el("b", "", nick(c) || c)); if (nick(c)) who.append(el("small", "", c));
+        d.append(who, el("span", by === undefined && !failed && !old(c) ? "sk" : "", t), x); box.append(d); });
     if (failed) box.append(el("p", "note", "Couldn't load your matches. Check your connection."));
   };
   if (!fl.length){ box.innerHTML = ""; return; }
@@ -1279,7 +1312,7 @@ $("recapShare").onclick = () => { const r = recapData(), p = profile(); if (!r) 
 // ---------- Invites ----------
 // Your invite link is the site plus #f=CODE&n=Name. Nothing after the # is ever sent to a server, and the
 // name is optional. Opening a friend's link adds them on your phone; the link is then cleared from the address bar.
-const cleanName = s => String(s || "").normalize("NFC").replace(/[^\p{L}\p{M} '’-]/gu, "").replace(/\s+/g, " ").trim().slice(0, 20);
+const cleanName = s => String(s || "").normalize("NFC").replace(/[^\p{L}\p{M} '’-]/gu, "").replace(/\s+/g, " ").trim().slice(0, 24);
 function inviteUrl(){
   const c = myCode(), n = cleanName(store.get("myName", ""));
   return siteUrl() + (/^[A-Z2-9]{6}$/.test(c) ? "#f=" + c + (n ? "&n=" + encodeURIComponent(n) : "") : "");
@@ -1306,9 +1339,37 @@ function takeInvite(){
   if (!$("me").hidden) renderMe();
 }
 addEventListener("hashchange", takeInvite);
-$("fform").onsubmit = e => { e.preventDefault(); const c = $("fcode").value.trim().toUpperCase(), me = $("mycode").textContent;
-  if (!/^[A-Z0-9]{6}$/.test(c)){ toast("Friend codes are 6 letters and numbers."); return; } if (c === me || ownCode(c)){ toast("That's your own code."); return; }
-  addFriend(c); $("fcode").value = ""; toast("Friend added."); checkBadges(); renderMe(); order = []; renderFeed(); };
+// Add a friend: their 6-character code, or their whole invite link pasted in. Spaces, dashes and lower case are fine.
+// What went wrong is said right under the box, so a name typed in the wrong box is easy to spot.
+function readFriend(raw){
+  const v = String(raw || "").trim(), link = /[#&?]f=([^&\s]*)/i.exec(v);
+  if (link){ const n = /[#&?]n=([^&\s]*)/i.exec(v); let name = ""; try{ name = n ? decodeURIComponent(n[1].replace(/\+/g, " ")) : ""; }catch{}
+    return { code: link[1].toUpperCase(), name: cleanName(name) }; }
+  return { code: v.toUpperCase().replace(/[\s-]/g, ""), name: "" };
+}
+function friendError(v){
+  const { code } = readFriend(v);
+  if (!code) return "Type your friend's code, or paste their invite link.";
+  if (/\s/.test(v.trim()) && /^[\p{L} '’-]+$/u.test(v.trim()) || /^[\p{L}'’-]+$/u.test(v.trim()) && v.trim().length > 6)
+    return "That looks like a name. Your name goes in the Your name box above. Here, type the 6-character code your friend sees on their Me tab.";
+  if (/[^A-Z0-9]/.test(code)) return "A code is only letters and numbers, like K7MPX2.";
+  if (code.length !== 6) return "A code is 6 letters and numbers. That one has " + code.length + ".";
+  if (/[01IO]/.test(code)) return "Codes never use 0, 1, I or O. Check the code with your friend.";
+  if (code === $("mycode").textContent || ownCode(code)) return "That's your own code. Type your friend's code instead.";
+  return "";
+}
+const showFerr = m => { $("ferr").textContent = m; $("ferr").hidden = !m; $("fcode").setAttribute("aria-invalid", m ? "true" : "false"); };
+$("fcode").oninput = () => { if (!$("ferr").hidden) showFerr(""); };
+$("fform").onsubmit = e => { e.preventDefault();
+  const v = $("fcode").value, err = friendError(v); if (err){ showFerr(err); $("fcode").focus(); return; }
+  const r = readFriend(v), name = cleanName($("fnick").value) || r.name, had = friends().includes(r.code);
+  if (name) store.set("nicks", { ...store.get("nicks", {}), [r.code]: name });
+  if (!had) addFriend(r.code);
+  $("fcode").value = $("fnick").value = ""; showFerr(""); document.activeElement && document.activeElement.blur();
+  const who = name || "your friend", mine = myCode();
+  toast(had ? (name ? "Renamed to " + name + "." : who + " is already on your list.")
+    : "Added " + who + "." + (modeNow() !== "device" ? " Now ask them to add you" + (mine ? ", your code is " + mine : "") + "." : ""));
+  checkBadges(); renderMe(); order = []; renderFeed(); };
 function ageOptions(month, year){
   const pick = (s, label) => { const o = new Option(label, "", true, true); o.disabled = true; s.add(o); };
   pick(month, "Month"); pick(year, "Year");
@@ -1354,6 +1415,7 @@ function highlight(text, words){
   text.split(re).forEach((part, i) => frag.append(i % 2 ? el("mark", "", part) : part)); return frag;
 }
 function openPost(id){
+  pickedScope = true;
   if (id === "daily"){ ask.scope = "world"; order = []; renderTop(); showPage("feed"); renderFeed(); $("feed").scrollTop = 0; return; }
   const p = ask.posts.find(x => x.id === id); if (!p) return;
   ask.scope = p.scope; order = []; jumpTo = id; renderTop(); showPage("feed"); renderFeed();
@@ -1532,6 +1594,7 @@ document.addEventListener("keydown", e => { if (e.key !== "Escape") return; if (
   if (backend.authSettings) (async () => {
     const s = await backend.authSettings(); signInReady = !!(s && s.external && s.external.google);
     if (signInReady){ watchPosts(); await backend.ask.refresh(); if (backend.ask.missing){ signInReady = false; $("navPlus").hidden = true; } }
+    if (signInReady){ const a = await backend.account().catch(() => null); signedInReal = !!(a && a.real); if (signedInReal){ renderTop(); friendsFirst(); } }
     renderEnd(); if (!$("me").hidden) renderAccount();
     if (signedIn === "ok"){
       toast("Signed in."); showCode();
