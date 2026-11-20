@@ -1,4 +1,4 @@
-import { sum, pct, num, countsOf, shares, leader, dayState, promptLine, verdictMain, lockedLines, pickTeaser, flavor, GUESSES, guessLine, countdown, inDays, FREEZES, NO_STREAK, streakOn, answerOn, streakNote, blockedText, BLOCK_MSG } from "./core.js";
+import { sum, pct, num, countsOf, shares, leader, dayState, promptLine, verdictMain, lockedLines, pickTeaser, flavor, GUESSES, guessLine, countdown, inDays, FREEZES, NO_STREAK, streakOn, answerOn, streakNote } from "./core.js";
 
 // ---------- Settings ----------
 // Verd's Supabase project: its Project URL and publishable key (the project's Connect button, or Settings > API Keys).
@@ -517,6 +517,11 @@ const ask = { api: null, posts: [], myVotes: {}, myReports: {}, flipped: {}, sco
 const signOf = p => p.yes > p.no ? 1 : p.yes < p.no ? -1 : 0;
 // How many judged a post. The live database sends the split only once you've judged (or it's yours).
 const totalOf = p => p.total ?? (p.yes + p.no);
+// The same kinds of things the database refuses (blocked_terms in setup.sql), caught before sending.
+const BLOCK = [/\d[\d\s().-]{6,}\d/, /@\w/, /https?:|www\./i, /\b(kill|kys|die)\b/i, /\b(dm|snap|add|text|hmu)\s+me\b/i, /\bhmu\b/i,
+  /\bmy\s+(snap|snapchat|insta|ig|discord|number|addy|address)\b/i, /\b(send|show)\s+(me\s+)?(a\s+)?(pics?|nudes?|photos?)\b/i,
+  /\bhow old (are|r) (you|u)\b/i, /\bwhere do (you|u) live\b/i, /\b(nudes?|sext(ing)?|porn|onlyfans|horny)\b/i];
+const BLOCK_MSG = "Leave out contact info, links, threats, and asking for pictures or someone's age.";
 // Posting on the live site opens once Verd has a moderator and Google sign-in is switched on.
 let signInReady = false;
 const postingOpen = () => !!ask.api && (!ask.api.live || (ask.api.open && signInReady));
@@ -989,7 +994,7 @@ $("sclose").onclick = closeSheet;
 $("sheet").onclick = e => { if (e.target === $("sheet")) closeSheet(); };
 $("cform").onsubmit = async e => {
   e.preventDefault(); const text = $("cinput").value.trim(); if (text.length < 2 || !sheetPost) return;
-  if (blockedText(text)){ toast(BLOCK_MSG); return; }
+  if (BLOCK.some(r => r.test(text))){ toast(BLOCK_MSG); return; }
   const pp = ask.posts.find(x => x.id === sheetPost), my = ask.myVotes[sheetPost];
   if (!my && !(pp && pp.author === ask.api.me)){ toast("Vote first, then say why."); return; }
   if (ask.api.live){
@@ -1053,7 +1058,7 @@ $("psend").onclick = async () => {
   if (imgs.length && !text) text = imgs.length === 2 ? "Which one?" : "Yes or no?";
   if (imgs.length && !friends().length){ toast("Add a friend on your profile first. Photo posts go to friends."); return; }
   if (text.length < 4){ toast("Write a little more."); return; }
-  if (blockedText(text)){ toast(BLOCK_MSG); return; }
+  if (BLOCK.some(r => r.test(text))){ toast(BLOCK_MSG); return; }
   if ((cScope === "city" && (!pl.city || !pl.state)) || (cScope === "state" && !pl.state)){ toast("Add your city and state on the Me page first."); return; }
   const item = { id: ask.api.me + "-" + Date.now().toString(36), author: ask.api.me, text, color: cColor, photos: imgs.length, cat: catOf(text), scope: imgs.length ? "friends" : cScope, city: pl.city, state: pl.state, country: pl.country, t: Date.now() };
   $("psend").disabled = true;
@@ -1160,23 +1165,25 @@ const REASONS = ["Personal info", "Mean or unsafe", "Not a yes or no question", 
 async function renderReview(a){
   const sec = $("review"); sec.hidden = !(a && a.moderator); if (sec.hidden) return;
   let q; try{ q = await backend.review.queue(); }catch{ $("reviewNote").textContent = "Couldn't load what's waiting. Check your connection."; $("reviewList").replaceChildren(); return; }
-  // first: new posts wait for a moderator. False once the database owner set auto_approve: then they go live
-  // at once and only what people report comes here (older databases don't say, and always wait).
-  const w = q.waiting.length, r = q.reported.length, first = q.review_first !== false;
-  $("reviewNote").textContent = !w && !r
+  // live: what went up without review, once the database owner set auto_approve (older databases send neither).
+  const live = q.live || [], first = q.review_first !== false;
+  const parts = [q.waiting.length ? q.waiting.length + " waiting" : "", q.reported.length ? q.reported.length + " reported" : "",
+    live.length ? live.length + " went live without review" : ""].filter(Boolean);
+  $("reviewNote").textContent = !parts.length
     ? (first ? "Nothing waiting. New posts and comments show up here before anyone else sees them."
-       : "Nothing reported. New posts and comments go live at once, and anything people report shows up here.")
-    : [w ? w + " waiting" : "", r ? r + " reported" : ""].filter(Boolean).join(" and ")
-      + (first ? ". Nothing new shows to others until you approve it." : ". New posts and comments go live at once.");
-  $("reviewList").replaceChildren(...q.waiting.map(x => reviewRow(x, "waiting")), ...q.reported.map(x => reviewRow(x, "reported")));
+       : "Nothing to check. New posts and comments go live at once, and show up here so you can check them.")
+    : (parts.length > 1 ? parts.slice(0, -1).join(", ") + " and " + parts[parts.length - 1] : parts[0])
+      + (first ? ". Nothing new shows to others until you approve it." : ". New posts and comments go live at once, so check them here.");
+  $("reviewList").replaceChildren(...q.waiting.map(x => reviewRow(x, "waiting")), ...q.reported.map(x => reviewRow(x, "reported")), ...live.map(x => reviewRow(x, "live")));
 }
-// how: "waiting" (only its writer sees it) or "reported" (it's up, and people reported it).
+// how: "waiting" (only its writer sees it), "reported", or "live" (it went up without review).
 function reviewRow(x, how){
   const d = el("div", "ritem"), acts = el("div", "racts"), w = x.writer || {};
   // The writer's record counts this one too once it's up, so leave it out.
   const ok = Math.max(0, (w.approved || 0) - (how === "waiting" ? 0 : 1)), no = w.turned_down || 0;
   d.append(el("div", "rmeta", [x.kind === "post" ? "Post" : "Comment",
-    how === "reported" ? x.reports + (x.reports === 1 ? " report" : " reports") + (x.hidden ? ", hidden until you decide" : "") : ago(x.t) + " ago",
+    how === "reported" ? x.reports + (x.reports === 1 ? " report" : " reports") + (x.hidden ? ", hidden until you decide" : "")
+      : (how === "live" ? "Went live " : "") + ago(x.t) + " ago",
     ok + no ? ok + " approved and " + no + " turned down before" : "First one from this writer"].join(" · ")));
   if (x.on) d.append(el("p", "ron", "On “" + x.on + "”"));
   d.append(el("p", "", x.body));
@@ -1192,6 +1199,7 @@ function reviewRow(x, how){
     btn("Cancel", "lnk", () => d.replaceWith(reviewRow(x, how)));
   };
   if (how === "reported"){ btn("Keep", "b2", () => done(() => backend.review.decide(x.kind, x.id, "keep"))); btn("Remove", "b2 soft", () => why("remove")); }
+  else if (how === "live"){ btn("Looks fine", "b2", () => done(() => backend.review.decide(x.kind, x.id, "keep"))); btn("Remove", "b2 soft", () => why("remove")); }
   else { btn("Approve", "b2", () => done(() => backend.review.decide(x.kind, x.id, "approve"))); btn("Reject", "b2 soft", () => why("reject")); }
   const blk = btn("Block writer for 7 days", "b2 soft", () => {
     if (!blk.dataset.armed){ blk.dataset.armed = "1"; blk.textContent = "Tap again to block for 7 days"; return; }

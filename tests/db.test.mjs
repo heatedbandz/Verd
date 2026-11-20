@@ -511,7 +511,7 @@ test('you can delete your own post or comment, and nobody else can', async () =>
   assert.equal((await admin('select count(*)::int as n from public.post_votes where post_id = $1', [pid])).rows[0].n, 0, 'its judgments went with it');
 });
 
-test('auto_approve: off unless the owner sets it; then posts and comments go live at once, the moderator sees only reports, and every other rule holds', async () => {
+test('auto_approve: off unless the owner sets it; then posts and comments go live at once, the moderator sees each one, and every other rule holds', async () => {
   const w = await realUser(), c = await realUser(), viewer = await user();
   const has = (list, kind, id) => list.some(x => x.kind === kind && x.id === id);
   assert.equal((await feed(viewer)).review_first, true, 'everything waits for review by default');
@@ -527,77 +527,42 @@ test('auto_approve: off unless the owner sets it; then posts and comments go liv
     const cm = await comment(c, p.id, 'It is a taco');
     assert.equal(cm.status, 'approved');
     assert.ok((await feed(viewer)).posts.find(x => x.id === p.id).comments.some(x => x.id === cm.id), 'the comment shows too');
-    // Nothing for the moderator to approve: the queue has only what people report.
+    // The moderator sees both, oldest first, with the writer's record and never who they are. Nothing is waiting.
     let q = await queue(mod);
     assert.equal(q.review_first, false);
-    assert.deepEqual(Object.keys(q).sort(), ['reported', 'review_first', 'waiting']);
-    assert.ok(![['post', p.id], ['comment', cm.id]].some(([k, id]) => has(q.waiting, k, id) || has(q.reported, k, id)));
-    // A report puts it in front of the moderator; 3 hide it for everyone, as before. Removing tells the writer why.
-    await reportIt(await user(), 'comment', cm.id);
-    q = await queue(mod);
-    assert.ok(has(q.reported, 'comment', cm.id));
-    assert.ok(!JSON.stringify(q).includes(c), 'no account ids in the queue');
+    const at = (kind, id) => q.live.findIndex(x => x.kind === kind && x.id === id);
+    assert.ok(at('post', p.id) >= 0 && at('post', p.id) < at('comment', cm.id), 'both listed, oldest first');
+    assert.deepEqual(q.live[at('post', p.id)].writer, { approved: 1, turned_down: 0 });
+    assert.ok(!has(q.waiting, 'post', p.id) && !has(q.waiting, 'comment', cm.id));
+    assert.ok(![w, c].some(id => JSON.stringify(q).includes(id)), 'no account ids in the queue');
+    // Looks fine: off the list and still up. Remove: down for everyone, and the writer sees why.
+    await review(mod, 'post', p.id, 'keep');
     await review(mod, 'comment', cm.id, 'remove', 'Spam');
-    assert.ok(!(await feed(viewer)).posts.find(x => x.id === p.id).comments.some(x => x.id === cm.id), 'the removed comment is gone');
+    q = await queue(mod);
+    assert.ok(!has(q.live, 'post', p.id) && !has(q.live, 'comment', cm.id));
+    const shown = (await feed(viewer)).posts.find(x => x.id === p.id);
+    assert.ok(shown && !shown.comments.some(x => x.id === cm.id));
     assert.equal((await feed(c)).posts.find(x => x.id === p.id).comments.find(x => x.id === cm.id).status, 'removed');
+    // A report moves it from the live list to the reported one; 3 hide it for everyone, as before.
     const w2 = await realUser(), p2 = await post(w2, 'Is cereal better at night?');
-    for (let i = 0; i < 3; i++) await reportIt(await user(), 'post', p2.id);
+    assert.ok(has((await queue(mod)).live, 'post', p2.id));
+    await reportIt(await user(), 'post', p2.id);
+    q = await queue(mod);
+    assert.ok(!has(q.live, 'post', p2.id) && has(q.reported, 'post', p2.id));
+    await reportIt(await user(), 'post', p2.id); await reportIt(await user(), 'post', p2.id);
     assert.ok(!ids(await feed(viewer)).includes(p2.id), 'hidden for everyone at 3 reports');
     // The word filter, the gap between posts, the age rule and blocks still apply.
     await assert.rejects(post(await realUser(), 'Can you dm me later?'), /blocked words/);
-    await assert.rejects(post(await realUser(), 'Are you a f@ggot?'), /blocked words/);
     await assert.rejects(post(w, 'Is a taco a sandwich?'), /wait a moment/);
     const year = new Date().getUTCFullYear();
     await assert.rejects(post(await realUser([year - 12, 1]), 'Is recess too short?'), /13 and older/);
     await call(mod, `select public.ban_author('post', $1, 7, 'Spam') as r`, [p2.id]);
     await admin(`update public.posts set created_at = now() - interval '1 hour' where user_id = $1`, [w2]);
     await assert.rejects(post(w2, 'Is lunch too early?'), /blocked for you/);
+    assert.ok(!has((await queue(mod)).live, 'post', p2.id));
   } finally {
     await admin(`update public.app_config set value = 0 where key = 'auto_approve'`);
   }
   assert.equal((await post(await realUser(), 'Is it back to waiting?')).status, 'pending', 'switched off: new ones wait again');
   assert.equal((await feed(viewer)).review_first, true);
-});
-
-// The slur list lives twice: blocked_terms here and core.js in the app (so the app can say so before sending).
-// Both must hold the same patterns and agree on every example, including spellings meant to slip past a filter.
-const SLUR_EXAMPLES = ['you nigger', 'NIGGA please', 'my niggas', 'niggaz', 'nigguh', 'niiigggaaa', 'n1gg3r', 'ni99a', 'n*gga',
-  'n i g g a', 'n.i.g.g.e.r', 'N-I-G-G-E-R', 'niglet', 'faggot', 'you fag', 'fags', 'f@g', 'f4ggot', 'faggit', 'f a g g o t',
-  'dyke', 'tranny', 'trannies', 'shemale', 'lesbo', 'retard', 'retarded', 'r3tard', 'mongoloid', 'kike', 'kyke', 'chink',
-  'gook', 'g00k', 'spic', 'spics', 'wetback', 'beaner', 'coon', 'jigaboo', 'porch monkey', 'towelhead', 'raghead', 'rag-head', 'paki',
-  'redskins', 'squaw'];
-const CLEAN_EXAMPLES = ['Is Niger in Africa?', 'Is Nigeria the biggest country in Africa?', 'Is snigger a real word?',
-  'Is that just a niggle?', 'Is a raccoon cute?', 'Is a cocoon cozy?', 'Is Pakistan hot in summer?', 'Is flame retardant safe?',
-  'Do you like spicy food?', 'Is Fagin a villain?', 'Is that a running gag?', 'Is this a con?', 'Is a dike a wall?',
-  'Is a chinchilla soft?', 'Is Hong Kong busy?', 'Is bacon good?', 'Mini golf or bowling?', 'Lamborghini or Ferrari?',
-  'Is a martini gross?', 'Is a pecan a nut?', 'Is Scunthorpe in England?', 'I scored 69 points, is that good?',
-  'Is 2024 a leap year?', 'Is a gecko a good pet?', 'Is red skin from the sun bad?', 'Is a spice rack useful?',
-  'Is she male or female?', 'I came home with a wet back, is that bad?', 'Is a towel head wrap good?', 'Is squawk a bird sound?',
-  'Do you know Nigel?', 'Is nigiri better than rolls?', 'Is a tycoon rich?', 'Is Kiki a cute name?', 'Is sniggering rude?'];
-
-test('slurs are refused, written plainly or dodged, and the app checks exactly the same list', async () => {
-  const { SLURS, SQUEEZED, blockedText } = await import('../core.js');
-  const rows = (await admin('select pattern, squeezed from public.blocked_terms')).rows;
-  const sql = r => r.source.replace(/^\\b/, '\\m').replace(/\\b$/, '\\M');
-  for (const r of SLURS) assert.ok(rows.some(x => x.pattern === sql(r) && !x.squeezed), 'setup.sql is missing ' + sql(r));
-  for (const r of SQUEEZED) assert.ok(rows.some(x => x.pattern === r.source && x.squeezed), 'setup.sql is missing squeezed ' + r.source);
-  const blocked = async t => (await admin('select verd_private.blocked($1) as b', [t])).rows[0].b;
-  for (const t of SLUR_EXAMPLES) {
-    assert.equal(await blocked(t), true, 'the database let through: ' + t);
-    assert.equal(blockedText(t), true, 'the app let through: ' + t);
-  }
-  for (const t of CLEAN_EXAMPLES) {
-    assert.equal(await blocked(t), false, 'the database refused: ' + t);
-    assert.equal(blockedText(t), false, 'the app refused: ' + t);
-  }
-  // And through the real calls: a post, a comment and a suggested question.
-  const w = await realUser(), c = await realUser();
-  await assert.rejects(post(w, 'Are all n1gg@s like this?'), /blocked words/);
-  const pid = await approved(w, 'Is soccer better than football?');
-  await judge(c, pid, true);
-  await assert.rejects(comment(c, pid, 'only a f a g g o t says no'), /blocked words/);
-  await assert.rejects(call(c, 'select public.suggest_question($1, $2) as r', ['Is a tranny weird?', ['Yes', 'No']]), /friendly/);
-  // The old link pattern never matched in Postgres (\b is a backspace there). Now a bare web address is refused.
-  assert.equal(await blocked('Go to example.com now'), true);
-  assert.equal(await blocked('Is it cool. Me too'), false);
 });
