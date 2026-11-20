@@ -212,7 +212,7 @@ test('invites: no account just for opening one, and a match needs both of you to
   const { p, ctx, errors } = await page({}, '#f=' + fcode + '&n=Jay');
   assert.ok(!fake.calls.includes('POST /auth/v1/signup'), 'opening an invite made an account: ' + fake.calls.join(', '));
   await p.click('#navMe'); await p.waitForTimeout(500);
-  assert.match(await p.innerText('#flist'), new RegExp('Jay\\s+' + fcode + '\\s+Matches start after your first answer\\.'));
+  assert.match(await p.innerText('#flist'), /Jay\s+Matches start after your first answer\./);
   await p.click('#navHome'); await p.waitForTimeout(300); await tap(p, 0); await p.waitForTimeout(1500);
   const rows = (await fake.pool.query('select user_id from public.friend_adds where code = $1', [fcode])).rows;
   assert.equal(rows.length, 1, 'the database got your friend list once you had an account');
@@ -223,13 +223,14 @@ test('invites: no account just for opening one, and a match needs both of you to
   await fake.pool.query('insert into public.friend_adds (user_id, code) values ($1, $2)', [friend, mycode]);
   for (const [d, c] of [[1, 0], [2, 0], [3, 1]]) await fake.pool.query('insert into public.votes (day, user_id, choice, country) values ($1, $2, $3, $4) on conflict do nothing', [day(today, -d), me, c, 'US']);
   await p.click('#navHome'); await p.waitForTimeout(300); await p.click('#navMe'); await p.waitForTimeout(900);
-  assert.match(await p.innerText('#flist'), /Jay\s+\w{6}\s+67% match/);
+  assert.match(await p.innerText('#flist'), /Jay\s+67% match/);
   assert.deepEqual(errors, []);
   await ctx.close();
 });
 
 test('friend requests: someone who added you shows up on Me with a dot, and Accept makes you friends', async () => {
   const friend = await newUser(), fcode = (await fake.pool.query('select verd_private.ensure_profile($1) as c', [friend])).rows[0].c;
+  await fake.pool.query("update public.profiles set name = 'Jay' where id = $1", [friend]);
   const { p, ctx, errors } = await page();
   await tap(p, 0); await p.waitForTimeout(1500);
   const me = await uidOf(p), mycode = (await fake.pool.query('select verd_private.ensure_profile($1) as c', [me])).rows[0].c;
@@ -240,18 +241,18 @@ test('friend requests: someone who added you shows up on Me with a dot, and Acce
   await p.reload(); await p.waitForTimeout(1500);
   assert.equal(await p.$eval('#meDot', e => e.hidden), false, 'the Me button shows a dot');
   await p.click('#navMe'); await p.waitForSelector('#freqs:not([hidden])');
-  assert.match(await p.innerText('#freqs'), new RegExp('1 friend request[\\s\\S]*' + fcode + '[\\s\\S]*added you', 'i'));
-  await p.fill('#freqs input', 'Jay'); await p.click('#freqs button:text-is("Accept")'); await p.waitForTimeout(1200);
+  assert.match(await p.innerText('#freqs'), /1 friend request[\s\S]*Jay[\s\S]*added you/i);
+  await p.fill('#myname', 'Sam'); await p.dispatchEvent('#myname', 'change'); await p.click('#freqs button:text-is("Accept")'); await p.waitForTimeout(1200);
   assert.match(await p.innerText('#toast'), /You and Jay are friends now\./);
   assert.equal(await p.$eval('#freqs', e => e.hidden), true); assert.equal(await p.$eval('#meDot', e => e.hidden), true);
   assert.equal((await fake.pool.query('select count(*)::int as n from public.friend_adds where user_id = $1 and code = $2', [me, fcode])).rows[0].n, 1, 'accepting adds them back');
-  assert.match(await p.innerText('#flist'), new RegExp('Jay\\s+' + fcode));
+  assert.match(await p.innerText('#flist'), /Jay/); assert.doesNotMatch(await p.innerText('#flist'), new RegExp(fcode), 'a name, not a code');
   assert.doesNotMatch(await p.innerText('#flist'), /Waiting for them/, 'they added you, so it is mutual');
   // Not now hides a request on this phone
   const other = await newUser(), ocode = (await fake.pool.query('select verd_private.ensure_profile($1) as c', [other])).rows[0].c;
   await fake.pool.query('insert into public.friend_adds (user_id, code) values ($1, $2)', [other, mycode]);
   await p.reload(); await p.waitForTimeout(1500); await p.click('#navMe'); await p.waitForSelector('#freqs:not([hidden])');
-  assert.match(await p.innerText('#freqs'), new RegExp(ocode));
+  assert.match(await p.innerText('#freqs'), /Someone/, 'no name yet'); assert.doesNotMatch(await p.innerText('#freqs'), new RegExp(ocode));
   await p.click('#freqs button:text-is("Not now")'); await p.waitForTimeout(300);
   assert.equal(await p.$eval('#freqs', e => e.hidden), true);
   assert.deepEqual(errors, []);
@@ -267,8 +268,8 @@ test('friends added before Verd went live are asked for a new link, their stand-
   assert.deepEqual(await sent(), [fcode], 'only the friend added since launch is sent');
   await p.click('#navMe'); await p.waitForTimeout(900);
   const list = await p.innerText('#flist');
-  assert.match(list, /Jay\s+OLDJAY\s+Added before Verd went live\. Send them your new invite link\./);
-  assert.match(list, new RegExp('Sam\\s+' + fcode + '\\s+Request sent\\. Waiting for them to accept\\.'));
+  assert.match(list, /Jay\s+Added before Verd went live\. Send them your new invite link\./);
+  assert.match(list, new RegExp('Sam\\s+Request sent\\. Waiting for them to accept\\.'));
   await p.click('#flist button[aria-label="Remove Sam"]'); await p.waitForTimeout(800);
   assert.deepEqual(await sent(), [], 'removing a friend takes them off your list in the database too');
   assert.doesNotMatch(await p.innerText('#flist'), /Sam/);
@@ -652,12 +653,14 @@ test('invite links: open one, sign in with Google, and you are friends both ways
   assert.equal(await a.p.innerText('#atitle'), 'Jay invited you');
   assert.match(await a.p.innerText('#anote'), /Sign in with Google and you're friends right away/);
   assert.equal(await a.p.innerText('#ago'), 'Continue with Google');
-  await a.p.click('#ago'); await google(a.p, 'joiner@verd.test'); await a.p.waitForTimeout(800);
+  await a.p.click('#ago'); await a.p.waitForTimeout(300);
+  assert.equal(await a.p.$eval('#acct', e => e.hidden), false, 'a name is needed first');
+  await a.p.fill('#aname', 'Ava'); await a.p.click('#ago'); await google(a.p, 'joiner@verd.test'); await a.p.waitForTimeout(800);
   assert.match(await a.p.innerText('#toast'), /You and Jay are friends now\./);
   const joiner = (await fake.pool.query("select id from auth.users where email = 'joiner@verd.test'")).rows[0].id;
   assert.equal((await fake.pool.query('select count(*)::int as n from public.friend_adds where user_id = $1 and code = $2', [joiner, hostCode])).rows[0].n, 1);
   await a.p.click('#navMe'); await a.p.waitForTimeout(900);
-  assert.match(await a.p.innerText('#flist'), new RegExp('Jay\\s+' + hostCode));
+  assert.match(await a.p.innerText('#flist'), /Jay/);
   assert.deepEqual(a.errors, []); await a.ctx.close();
 
   // Under 13: never sent to Google, one tap to join
@@ -665,7 +668,7 @@ test('invite links: open one, sign in with Google, and you are friends both ways
   const kid = await page({ es_born: JSON.stringify(yearsAgo(11)) }, '#' + hash[1]);
   await kid.p.waitForSelector('#acct:not([hidden])');
   assert.equal(await kid.p.innerText('#ago'), 'Join');
-  await kid.p.click('#ago'); await kid.p.waitForTimeout(1200);
+  await kid.p.fill('#aname', 'Max'); await kid.p.click('#ago'); await kid.p.waitForTimeout(1200);
   assert.match(await kid.p.innerText('#toast'), /You and Jay are friends now\./);
   assert.ok(!fake.calls.some(c => /authorize/.test(c)), fake.calls.join(', '));
   assert.deepEqual(kid.errors, []); await kid.ctx.close();
@@ -678,6 +681,8 @@ test('invite links: open one, sign in with Google, and you are friends both ways
   await host.p.click('#navMe'); await host.p.waitForTimeout(900);
   assert.equal(await host.p.$eval('#freqs', e => e.hidden), true, 'nothing left to accept');
   assert.doesNotMatch(await host.p.innerText('#flist'), /Waiting for them/);
+  const hl = await host.p.innerText('#flist');
+  assert.match(hl, /Ava/); assert.match(hl, /Max/); assert.doesNotMatch(hl, /New friend|[A-Z2-9]{6}\n/, 'their own names, not codes');
   assert.deepEqual(host.errors, []); await host.ctx.close();
 });
 

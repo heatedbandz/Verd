@@ -102,7 +102,12 @@ const backends = {
     // match can check that you both added each other. No account is made just for this.
     // A match or request check waits for the last save, so someone just added or accepted counts straight away.
     let syncing = Promise.resolve();
-    function syncFriends(){ if (session) syncing = rpc("set_friends", { codes: liveFriends() }, true).catch(() => {}); return syncing; }
+    function syncFriends(){ if (session) syncing = rpc("set_friends", { codes: liveFriends() }, true).catch(() => {}); syncName(); return syncing; }
+    // Your name for your friends, sent once you have an account and again whenever it changes.
+    function syncName(){
+      const n = store.get("myName", "");
+      if (session && n && store.get("nameSent", "") !== n) rpc("set_my_name", { n }, true).then(() => store.set("nameSent", n)).catch(() => {});
+    }
     // Answers this phone saved before the database existed, copied once (today's goes through the outbox).
     async function importLocal(){
       if (store.get("imported", false)) return;
@@ -148,7 +153,7 @@ const backends = {
       if (err === "identity_already_exists" && how === "link") return (await signIn(true)) === "away" ? "away" : "failed";
       if (err || !verifier) return "failed";
       try{ await auth("token?grant_type=pkce", { auth_code: code, code_verifier: verifier }); }catch{ return "failed"; }
-      acct = null; importLocal(); syncFriends();
+      acct = null; store.set("nameSent", ""); importLocal(); syncFriends();
       return "ok";
     }
     // What your account may do. No account is made just to ask.
@@ -250,6 +255,7 @@ const backends = {
       async friendMatch(codes){ await syncing; return !codes.length ? [] : session ? rpc("friend_match", { codes }, true) : null; },
       setFriends: syncFriends,
       hasAccount: () => !!session,
+      setName: () => syncName(),
       // People who added you and you haven't added back. null: no account yet, or the database is older than requests.
       // Invite links: yours (made once you have an account), and joining from someone else's (makes an account).
       async myInvite(){ if (!session) return null; try{ return await rpc("my_invite", {}, true); }catch{ return null; } },
@@ -511,7 +517,10 @@ const under13 = () => bornAt() != null && !ageOk();
 const canSuggest = () => !!(backend && backend.suggest) && !under13();
 const friends = () => store.get("friends", []);
 // First names from invite links. They're kept on this phone only.
-const nick = c => store.get("nicks", {})[c] || "";
+// The name a friend gave themselves (from the database, once you're friends), else the one you typed for them.
+const nick = c => store.get("names", {})[c] || store.get("nicks", {})[c] || "";
+const keepNames = rows => { const add = Object.fromEntries((rows || []).filter(r => r && r.code && r.name).map(r => [r.code, r.name]));
+  if (Object.keys(add).length) store.set("names", { ...store.get("names", {}), ...add }); };
 function saveFriends(list){ store.set("friends", list); if (backend && backend.setFriends) backend.setFriends(); }
 // Where each friend was added. A code added before Verd went live is a stand-in that doesn't exist in the database,
 // so that friend is asked for a new link, and the stand-in is never sent there.
@@ -521,7 +530,7 @@ const modeNow = () => backend ? backend.mode : LIVE ? "live" : "device";
 function liveFriends(){ return friends().filter(c => addedIn(c) === "live"); }
 function addFriend(c){ store.set("addedIn", { ...store.get("addedIn", {}), [c]: modeNow() }); saveFriends([...friends().filter(x => x !== c), c]); }
 function removeFriend(c){
-  const name = nick(c) || c, nicks = store.get("nicks", {}), added = store.get("addedIn", {});
+  const name = nick(c) || "your friend", nicks = store.get("nicks", {}), added = store.get("addedIn", {});
   delete nicks[c]; delete added[c]; store.set("nicks", nicks); store.set("addedIn", added);
   saveFriends(friends().filter(x => x !== c));
   toast("Removed " + name + ". To add them back, use " + c + "."); renderFriends();
@@ -1162,9 +1171,13 @@ function openAcct(mode, then){
     : mode === "age" ? (inv ? "To join " + who + ", pick the month and year you were born." : "Pick the month and year you were born.")
     : "That goes for comments too. You can still answer every day, judge posts and report anything that looks wrong.";
   $("aage").hidden = mode !== "age"; $("amonth").value = $("ayear").value = "";
+  // Joining from an invite asks your name too: it's what your new friend sees.
+  const askName = !!inv && (mode === "signin" || mode === "join"); $("aname").hidden = !askName; if (askName) $("aname").value = store.get("myName", "");
   const go = $("ago"); go.hidden = mode === "young"; go.disabled = false;
   go.textContent = mode === "signin" ? "Continue with Google" : mode === "join" ? "Join" : "Continue";
-  go.onclick = mode === "signin" ? () => startSignIn(then, go) : mode === "join" ? () => { go.disabled = true; acceptInvite(); } : async () => {
+  const named = fn => () => { if (askName){ if (blockedText($("aname").value)){ toast(BLOCK_MSG); return; } const n = cleanName($("aname").value); if (!n){ toast("Type your name first. It's what your friend sees."); $("aname").focus(); return; }
+      store.set("myName", n); $("myname").value = n; if (backend.setName) backend.setName(); } fn(); };
+  go.onclick = mode === "signin" ? named(() => startSignIn(then, go)) : mode === "join" ? named(() => { go.disabled = true; acceptInvite(); }) : async () => {
     const y = $("ayear").value, m = $("amonth").value;
     if (!y || !m){ toast("Pick a month and a year."); return; }
     saveBorn(y + "-" + m); closeAcct();
@@ -1342,15 +1355,15 @@ async function renderFriends(){
           : !r ? (live ? "Request sent. Waiting for them to accept." : "No shared answers yet")
           : m === null ? (r.shared ? r.shared + " shared " + (r.shared === 1 ? "answer" : "answers") + " so far" : "No shared answers yet")
           : (m >= 80 ? "Same brain, " : m <= 30 ? "Opposites, " : "") + m + "% match";
-        const d = el("div"), x = el("button", "fx", "×"), who = el("div", "who"); x.setAttribute("aria-label", "Remove " + (nick(c) || c)); x.onclick = () => removeFriend(c);
-        who.append(el("b", "", nick(c) || c)); if (nick(c)) who.append(el("small", "", c));
+        const d = el("div"), x = el("button", "fx", "×"), who = el("div", "who"); x.setAttribute("aria-label", "Remove " + (nick(c) || "this friend")); x.onclick = () => removeFriend(c);
+        who.append(el("b", "", nick(c) || "New friend"));
         d.append(who, el("span", by === undefined && !failed && !old(c) ? "sk" : "", t), x); box.append(d); });
     if (failed) box.append(el("p", "note", "Couldn't load your matches. Check your connection."));
   };
   if (!fl.length){ box.innerHTML = ""; return; }
   draw(undefined);
   let rows = null, failed = false;
-  try{ if (backend) rows = await backend.friendMatch(live ? liveFriends() : fl); }catch{ failed = true; }
+  try{ if (backend) rows = await backend.friendMatch(live ? liveFriends() : fl); keepNames(rows); }catch{ failed = true; }
   if (call === friendsCall) draw(rows ? Object.fromEntries(rows.map(r => [r.code, r])) : null, failed);
 }
 $("recapShare").onclick = () => { const r = recapData(), p = profile(); if (!r) return;
@@ -1364,7 +1377,14 @@ function inviteUrl(tok){
   const c = myCode(), n = cleanName(store.get("myName", ""));
   return siteUrl() + (/^[A-Z2-9]{6}$/.test(c) ? "#" + (tok ? "i=" + tok + "&" : "") + "f=" + c + (n ? "&n=" + encodeURIComponent(n) : "") : "");
 }
+// Your name is needed before you invite, add or accept anyone, so friends always see a name, never a code.
+function needName(){
+  if (cleanName(store.get("myName", ""))) return false;
+  const e = $("nameErr"); e.hidden = false; $("myname").focus(); $("myname").scrollIntoView({ block: "center" });
+  return true;
+}
 $("invite").onclick = async () => {
+  if (needName()) return;
   if (!/^[A-Z2-9]{6}$/.test(myCode())){ toast("Your invite link is ready after your first answer."); return; }
   const tok = backend && backend.myInvite ? await backend.myInvite() : null;
   const text = tok ? "Join me on Verd. Sign in and we're friends right away." : "Answer today's question on Verd, then we can see how often we agree.", url = inviteUrl(tok);
@@ -1373,7 +1393,9 @@ $("invite").onclick = async () => {
 };
 $("joinInv").onclick = () => joinInvite();
 $("myname").value = store.get("myName", "");
-$("myname").onchange = () => { const v = cleanName($("myname").value); $("myname").value = v; store.set("myName", v); };
+$("myname").onchange = () => { if (blockedText($("myname").value)){ toast(BLOCK_MSG); $("myname").value = store.get("myName", ""); return; }
+  const v = cleanName($("myname").value); $("myname").value = v; store.set("myName", v); if (v) $("nameErr").hidden = true; if (backend && backend.setName) backend.setName(); };
+$("myname").oninput = () => { if (cleanName($("myname").value)) $("nameErr").hidden = true; };
 function takeInvite(){
   const h = new URLSearchParams(location.hash.slice(1)), code = (h.get("f") || "").trim().toUpperCase();
   if (!h.has("f")) return;
@@ -1405,8 +1427,10 @@ async function joinInvite(){
   const inv = store.get("invite", null); if (!inv || !backend || !backend.acceptInvite) return;
   const born = /^(\d{4})-(\d{2})$/.test(store.get("born", ""));
   let real = false; try{ real = signInReady && !!(await backend.account(true)).real; }catch{}
-  if (real) return acceptInvite();
+  const named = !!cleanName(store.get("myName", ""));
+  if (real && named) return acceptInvite();
   if (!born) return openAcct("age", "invite");
+  if (real) return openAcct("join", "invite");
   openAcct(signInReady && !under13() ? "signin" : "join", "invite");
 }
 async function acceptInvite(){
@@ -1415,8 +1439,8 @@ async function acceptInvite(){
   try{
     const r = await backend.acceptInvite(inv.tok); store.set("invite", null);
     if (r && r.own){ toast("That's your own invite link."); return; }
-    if (!friends().includes(r.code)) addFriend(r.code);
-    toast("You and " + (inv.name || r.code) + " are friends now."); checkBadges();
+    keepNames([r]); if (!friends().includes(r.code)) addFriend(r.code);
+    toast("You and " + (r.name || inv.name || "your friend") + " are friends now."); checkBadges();
   }catch(e){
     if (/invite expired/.test((e && e.message) || "")){ store.set("invite", null); toast("That invite has run out. Ask " + (inv.name || "your friend") + " for a new link."); }
     else toast("Couldn't join. Check your connection and try again.");
@@ -1429,9 +1453,10 @@ async function renderRequests(){
   const box = $("freqs"), call = ++reqCall;
   let rows = null; try{ if (backend && backend.friendRequests) rows = await backend.friendRequests(); }catch{}
   if (call !== reqCall) return;
+  keepNames(rows);
   // Someone who joined from your invite link is added back by itself: your link was your yes.
   const joined = (rows || []).filter(r => r.invited && !friends().includes(r.code) && !ownCode(r.code));
-  if (joined.length){ for (const r of joined) addFriend(r.code); toast(joined.length === 1 ? "Someone joined from your invite. You're friends now." : joined.length + " friends joined from your invite."); checkBadges(); renderFriends(); }
+  if (joined.length){ for (const r of joined) addFriend(r.code); toast(joined.length === 1 ? (joined[0].name || "Someone") + " joined from your invite. You're friends now." : joined.length + " friends joined from your invite."); checkBadges(); renderFriends(); }
   const inv = store.get("invite", null); $("joinInv").hidden = !inv;
   if (inv) $("joinInv").textContent = "Join " + (inv.name || "your friend") + "'s invite";
   const no = store.get("declined", []), fl = friends();
@@ -1439,13 +1464,12 @@ async function renderRequests(){
   $("meDot").hidden = !list.length; box.hidden = !list.length; box.replaceChildren(); if (!list.length) return;
   box.append(el("div", "clabel", list.length === 1 ? "1 friend request" : list.length + " friend requests"));
   for (const r of list){
-    const row = el("div", "freq"), top = el("div", "line"), name = el("input", "field"), ok = el("button", "b2", "Accept"), x = el("button", "b2 soft", "Not now");
-    name.maxLength = 24; name.placeholder = "Their name (optional)"; name.setAttribute("aria-label", "Name for " + r.code); name.autocapitalize = "words";
-    top.append(el("b", "code sm", r.code), el("span", "note", "added you " + ago(r.t) + " ago"));
-    ok.onclick = () => { const n = cleanName(name.value); if (n) store.set("nicks", { ...store.get("nicks", {}), [r.code]: n });
-      addFriend(r.code); toast("You and " + (n || r.code) + " are friends now."); checkBadges(); renderMe(); order = []; renderFeed(); };
+    const row = el("div", "freq"), top = el("div", "line"), ok = el("button", "b2", "Accept"), x = el("button", "b2 soft", "Not now"), who = r.name || "Someone";
+    top.append(el("b", "rname", who), el("span", "note", "added you " + ago(r.t) + " ago"));
+    ok.onclick = () => { if (needName()) return;
+      addFriend(r.code); toast("You and " + who + " are friends now."); checkBadges(); renderMe(); order = []; renderFeed(); };
     x.onclick = () => { store.set("declined", [...no.filter(c => c !== r.code), r.code]); renderRequests(); };
-    const acts = el("div", "line"); acts.append(ok, x); row.append(top, name, acts); box.append(row);
+    const acts = el("div", "line"); acts.append(ok, x); row.append(top, acts); box.append(row);
   }
 }
 // Add a friend: their 6-character code, or their whole invite link pasted in. Spaces, dashes and lower case are fine.
@@ -1470,6 +1494,7 @@ function friendError(v){
 const showFerr = m => { $("ferr").textContent = m; $("ferr").hidden = !m; $("fcode").setAttribute("aria-invalid", m ? "true" : "false"); };
 $("fcode").oninput = () => { if (!$("ferr").hidden) showFerr(""); };
 $("fform").onsubmit = e => { e.preventDefault();
+  if (needName()) return;
   const v = $("fcode").value, err = friendError(v); if (err){ showFerr(err); $("fcode").focus(); return; }
   const r = readFriend(v), name = cleanName($("fnick").value) || r.name, had = friends().includes(r.code);
   if (name) store.set("nicks", { ...store.get("nicks", {}), [r.code]: name });

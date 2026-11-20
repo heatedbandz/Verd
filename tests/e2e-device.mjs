@@ -122,7 +122,7 @@ test('an invite link adds the friend by name and clears itself; your own link do
   assert.deepEqual(await p.evaluate(() => JSON.parse(localStorage.getItem('es_friends'))), ['JAYK42']);
   await p.click('#navMe'); await p.waitForTimeout(500);
   const list = await p.innerText('#flist');
-  assert.match(list, /Jay\s+JAYK42/); assert.match(list, /When Verd goes live, swap new invite links to compare\./);
+  assert.match(list, /Jay/); assert.doesNotMatch(list, /JAYK42/, 'names, never codes'); assert.match(list, /When Verd goes live, swap new invite links to compare\./);
   const own = await p.evaluate(() => localStorage.getItem('es_myCode:device'));
   assert.match(JSON.parse(own), /^[A-Z2-9]{6}$/);
   await p.evaluate(c => { location.hash = 'f=' + c; }, JSON.parse(own)); await p.waitForTimeout(300);
@@ -146,6 +146,12 @@ test('adding a friend: a name in the code box is caught, and a code or a whole i
   const { p, ctx, errors } = await open();
   await p.click('#navMe'); await p.waitForTimeout(400);
   const own = JSON.parse(await p.evaluate(() => localStorage.getItem('es_myCode:device')));
+  // Your name comes first: without it nothing is added, and the box says why
+  await p.fill('#fcode', 'K7MPX2'); await p.click('#fadd'); await p.waitForTimeout(100);
+  assert.equal(await p.$eval('#nameErr', e => e.hidden), false);
+  assert.deepEqual(await p.evaluate(() => JSON.parse(localStorage.getItem('es_friends') || '[]')), []);
+  await p.fill('#myname', 'Sam'); await p.dispatchEvent('#myname', 'change');
+  assert.equal(await p.$eval('#nameErr', e => e.hidden), true);
   const err = async v => { await p.fill('#fcode', v); await p.click('#fadd'); await p.waitForTimeout(100); return p.$eval('#ferr', e => e.hidden ? '' : e.textContent); };
   assert.match(await err('Marcus Smith'), /That looks like a name\. Your name goes in the Your name box above/);
   assert.match(await err('Christopher'), /That looks like a name/);
@@ -167,7 +173,7 @@ test('adding a friend: a name in the code box is caught, and a code or a whole i
   assert.equal((await p.innerText('#toast')).trim(), 'Renamed to Marc.');
   assert.deepEqual(await p.evaluate(() => JSON.parse(localStorage.getItem('es_friends'))), ['K7MPX2', 'ZZPQ42']);
   const list = await p.innerText('#flist');
-  assert.match(list, /Marc\s+K7MPX2/); assert.match(list, /Jay Lee\s+ZZPQ42/);
+  assert.match(list, /Marc/); assert.match(list, /Jay Lee/); assert.doesNotMatch(list, /K7MPX2|ZZPQ42/);
   // a long first name fits in Your name
   await p.fill('#myname', 'Maximiliano Alejandro'); await p.dispatchEvent('#myname', 'change');
   assert.equal(await p.inputValue('#myname'), 'Maximiliano Alejandro');
@@ -228,9 +234,10 @@ test('share and invite links use the address the public site was opened at', asy
   const p = await ctx.newPage(), errors = [];
   p.on('pageerror', e => errors.push(e.message)); p.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
   await p.goto(site); await p.waitForSelector('.slide[data-id=end]');
-  await p.click('#navMe'); await p.waitForTimeout(300); await p.click('#invite'); await p.waitForTimeout(300);
+  await p.click('#navMe'); await p.waitForTimeout(300);
+  await p.fill('#myname', 'Ana'); await p.dispatchEvent('#myname', 'change'); await p.click('#invite'); await p.waitForTimeout(300);
   const link = await p.evaluate(() => navigator.clipboard.readText());
-  assert.match(link, /\shttps:\/\/heatedbandz\.github\.io\/Verd\/#f=[A-Z2-9]{6}$/, link);
+  assert.match(link, /\shttps:\/\/heatedbandz\.github\.io\/Verd\/#f=[A-Z2-9]{6}&n=Ana$/, link);
   assert.deepEqual(errors, []);
   await ctx.close();
 });

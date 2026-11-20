@@ -187,6 +187,8 @@ create table if not exists public.friend_adds (
   primary key (user_id, code)
 );
 create index if not exists friend_adds_by_code on public.friend_adds (code);
+-- Your name, as you typed it on Me. Only shown to people you're friends with, or who you added.
+alter table public.profiles add column if not exists name text check (name is null or char_length(name) between 1 and 24);
 
 -- Invite links. Whoever opens one and joins becomes the inviter's friend both ways, with nobody asked again:
 -- the link itself is the inviter's yes. A link works for 14 days; the app reuses one for a week.
@@ -435,8 +437,10 @@ end $$;
 -- How often you agree with friends, by their codes. Only friends who added you too get a row
 -- (shared = 0 when you have no past answers in common yet). Past days only (today stays private),
 -- agreement only once you share enough answers. Never returns anyone's actual answers.
+-- name: the friend's name, now that you've both added each other.
+drop function if exists public.friend_match(text[]);
 create or replace function public.friend_match(codes text[])
-returns table (code text, shared int, agree int)
+returns table (code text, shared int, agree int, name text)
 language plpgsql stable security definer set search_path = public as $$
 declare
   uid     uuid := auth.uid();
@@ -450,7 +454,8 @@ begin
   return query
     select p.code,
            count(m.day)::int,
-           case when count(m.day) >= minimum then (count(*) filter (where f.choice = m.choice))::int end
+           case when count(m.day) >= minimum then (count(*) filter (where f.choice = m.choice))::int end,
+           p.name
       from public.profiles p
       join public.friend_adds i_added    on i_added.user_id = uid and i_added.code = p.code
       join public.friend_adds they_added on they_added.user_id = p.id and they_added.code = mine
@@ -458,7 +463,29 @@ begin
       left join public.votes m on m.user_id = uid and m.day = f.day
      where p.code = any (codes[1:50])
        and p.id <> uid
-     group by p.code;
+     group by p.code, p.name;
+end $$;
+
+-- Your name for your friends: letters, spaces, apostrophes and dashes, 1 to 24, nothing on the blocked list.
+create or replace function public.set_my_name(n text)
+returns text
+language plpgsql volatile security definer set search_path = public as $$
+declare
+  uid   uuid := auth.uid();
+  clean text := left(btrim(regexp_replace(regexp_replace(coalesce(n, ''), '[^[:alpha:] ''’-]', '', 'g'), '\s+', ' ', 'g')), 24);
+begin
+  if uid is null then
+    raise exception 'sign in first' using errcode = '28000';
+  end if;
+  if clean = '' then
+    raise exception 'name needed' using errcode = '22023';
+  end if;
+  if verd_private.blocked(clean) or verd_private.blocked(n) then
+    raise exception 'blocked words' using errcode = '22023';
+  end if;
+  perform verd_private.ensure_profile(uid);
+  update public.profiles set name = clean where id = uid;
+  return clean;
 end $$;
 
 -- Your friend list, as the app has it. It replaces what was saved, so removing someone here ends
@@ -493,7 +520,7 @@ end $$;
 -- invited: they joined from your invite link, so the app adds them back without asking.
 drop function if exists public.friend_requests();
 create or replace function public.friend_requests()
-returns table (code text, t bigint, invited boolean)
+returns table (code text, t bigint, invited boolean, name text)
 language plpgsql stable security definer set search_path = public as $$
 declare
   uid  uuid := auth.uid();
@@ -508,7 +535,8 @@ begin
   end if;
   return query
     select p.code, verd_private.ms(f.added_at),
-           exists (select 1 from public.invite_joins j where j.inviter = uid and j.joiner = p.id)
+           exists (select 1 from public.invite_joins j where j.inviter = uid and j.joiner = p.id),
+           p.name
       from public.friend_adds f
       join public.profiles p on p.id = f.user_id
      where f.code = mine and p.id <> uid and f.added_at > now() - interval '60 days'
@@ -566,7 +594,7 @@ begin
     insert into public.friend_adds (user_id, code) values (uid, theirs) on conflict do nothing;
   end if;
   insert into public.invite_joins (inviter, joiner) values (inviter, uid) on conflict do nothing;
-  return jsonb_build_object('code', theirs);
+  return jsonb_build_object('code', theirs, 'name', (select pr.name from public.profiles pr where pr.id = inviter));
 end $$;
 
 -- Today's board: countries (no cc), states in a country (no st) or cities in a state,
@@ -1412,6 +1440,7 @@ revoke all on function public.cast_vote(date, smallint, smallint, text, text, te
 revoke all on function public.my_profile() from public;
 revoke all on function public.import_votes(jsonb) from public;
 revoke all on function public.friend_match(text[]) from public;
+revoke all on function public.set_my_name(text) from public;
 revoke all on function public.set_friends(text[]) from public;
 revoke all on function public.friend_requests() from public;
 revoke all on function public.my_invite() from public;
@@ -1422,6 +1451,7 @@ revoke all on function public.cast_vote(date, smallint, smallint, text, text, te
 revoke all on function public.my_profile() from anon;
 revoke all on function public.import_votes(jsonb) from anon;
 revoke all on function public.friend_match(text[]) from anon;
+revoke all on function public.set_my_name(text) from anon;
 revoke all on function public.set_friends(text[]) from anon;
 revoke all on function public.friend_requests() from anon;
 revoke all on function public.my_invite() from anon;
@@ -1433,6 +1463,7 @@ grant execute on function public.cast_vote(date, smallint, smallint, text, text,
 grant execute on function public.my_profile() to authenticated;
 grant execute on function public.import_votes(jsonb) to authenticated;
 grant execute on function public.friend_match(text[]) to authenticated;
+grant execute on function public.set_my_name(text) to authenticated;
 grant execute on function public.set_friends(text[]) to authenticated;
 grant execute on function public.friend_requests() to authenticated;
 grant execute on function public.my_invite() to authenticated;
@@ -1482,6 +1513,6 @@ end $$;
 -- Tells the API about these functions straight away, then says which version just ran: the SQL Editor shows this
 -- line as the result. "Success. No rows returned" instead means an older copy of this file ran.
 notify pgrst, 'reload schema';
-select 'Verd is set up, with posting (setup.sql of 2026-11-20, with the stronger slur filter, custom answers, friend requests, invite links and photos for friends). New posts '
+select 'Verd is set up, with posting (setup.sql of 2026-11-20, with the stronger slur filter, custom answers, friend requests, invite links, photos for friends and friend names). New posts '
        || case when verd_private.review_first() then 'wait for review.' else 'go live at once.' end
        || case when verd_private.photos_on() then ' Photo posts are on.' else ' Photo posts are off.' end as result;

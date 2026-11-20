@@ -192,15 +192,15 @@ test('friend match: only between two people who added each other, past days only
   assert.deepEqual(await match(a, [codeB]), [], 'knowing a code is not enough: they have to add you too');
   // their own code, a lowercase duplicate and junk are skipped
   assert.equal(await setFriends(b, [codeA.toLowerCase(), codeA, 'bad!!', codeB]), 1);
-  assert.deepEqual(await match(a, [codeB]), [{ code: codeB, shared: 0, agree: null }], 'friends both ways, nothing in common yet');
+  assert.deepEqual(await match(a, [codeB]), [{ code: codeB, shared: 0, agree: null, name: null }], 'friends both ways, nothing in common yet');
   await put(a, day(today, -3), 0); await put(b, day(today, -3), 0);
   await put(a, day(today, -4), 1); await put(b, day(today, -4), 0);
   await put(b, day(today, -6), 1);   // only they answered: not shared
-  assert.deepEqual(await match(a, [codeB]), [{ code: codeB, shared: 2, agree: null }], 'no agreement shown with 2 shared answers');
+  assert.deepEqual(await match(a, [codeB]), [{ code: codeB, shared: 2, agree: null, name: null }], 'no agreement shown with 2 shared answers');
   await put(a, day(today, -5), 1); await put(b, day(today, -5), 1);
   await vote(a, today, 1); await vote(b, today, 1);   // today must not count
-  assert.deepEqual(await match(a, [codeB, codeA, 'ZZZZZZ']), [{ code: codeB, shared: 3, agree: 2 }], 'today, your own code and unknown codes left out');
-  assert.deepEqual(await match(b, [codeA]), [{ code: codeA, shared: 3, agree: 2 }], 'the same both ways');
+  assert.deepEqual(await match(a, [codeB, codeA, 'ZZZZZZ']), [{ code: codeB, shared: 3, agree: 2, name: null }], 'today, your own code and unknown codes left out');
+  assert.deepEqual(await match(b, [codeA]), [{ code: codeA, shared: 3, agree: 2, name: null }], 'the same both ways');
   // Removing someone ends it for both of you.
   assert.equal(await setFriends(b, []), 0);
   assert.deepEqual(await match(a, [codeB]), []);
@@ -216,13 +216,34 @@ test('friend requests: only people who added you and you have not added back, on
   await as('authenticated', c, 'select public.set_friends($1)', [[await codeOf(a)]]);
   const got = await reqs(a);
   assert.deepEqual(got.map(r => r.code).sort(), [await codeOf(b), await codeOf(c)].sort());
-  assert.deepEqual(Object.keys(got[0]).sort(), ['code', 'invited', 't'], 'nothing but the code, when, and whether they joined from your invite');
+  assert.deepEqual(Object.keys(got[0]).sort(), ['code', 'invited', 'name', 't'], 'nothing but the code, their name, when, and whether they joined from your invite');
   await as('authenticated', a, 'select public.set_friends($1)', [[await codeOf(b)]]);
   assert.deepEqual((await reqs(a)).map(r => r.code), [await codeOf(c)], 'accepted ones are gone');
   assert.deepEqual(await reqs(b), [], 'b already added a');
   // Saving the same list again keeps when each was first added
   const t1 = (await reqs(a))[0].t; await as('authenticated', c, 'select public.set_friends($1)', [[await codeOf(a)]]);
   assert.equal((await reqs(a))[0].t, t1);
+});
+
+test('names: cleaned, required, no slurs, and only friends or people you added see them', async () => {
+  const a = await realUser(), b = await realUser(), c = await realUser();
+  const codeOf = async u => (await admin('select code from public.profiles where id = $1', [u])).rows[0].code;
+  const setName = (u, n) => as('authenticated', u, 'select public.set_my_name($1) as r', [n]).then(r => r.rows[0].r);
+  await assert.rejects(as('anon', null, "select public.set_my_name('Sam')"), /permission denied/);
+  await assert.rejects(setName(a, '  123 !! '), /name needed/);
+  await assert.rejects(setName(a, 'n1gga'), /blocked words/);
+  assert.equal(await setName(a, '  Sam   O’Neil-Ray99 '), 'Sam O’Neil-Ray');
+  assert.equal((await setName(a, 'x'.repeat(40))).length, 24);
+  await setName(a, 'Sam');
+  // b added a: a sees b's name in requests; b sees a's name only once a adds b back
+  await setName(b, 'Jay');
+  await as('authenticated', b, 'select public.set_friends($1)', [[await codeOf(a)]]);
+  assert.deepEqual((await as('authenticated', a, 'select code, name from public.friend_requests()')).rows, [{ code: await codeOf(b), name: 'Jay' }]);
+  assert.deepEqual((await as('authenticated', b, 'select * from public.friend_match($1)', [[await codeOf(a)]])).rows, [], 'not friends yet: no name');
+  await as('authenticated', a, 'select public.set_friends($1)', [[await codeOf(b)]]);
+  assert.equal((await as('authenticated', b, 'select name from public.friend_match($1)', [[await codeOf(a)]])).rows[0].name, 'Sam');
+  // c knows a's code but isn't a friend: nothing
+  assert.deepEqual((await as('authenticated', c, 'select * from public.friend_match($1)', [[await codeOf(a)]])).rows, []);
 });
 
 test('friend lists: signed in only, at most 50, and never readable', async () => {

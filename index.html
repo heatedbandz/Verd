@@ -227,7 +227,7 @@ button{border:0;background:none;padding:0;cursor:pointer}
 .freq{display:flex;flex-direction:column;gap:var(--s2);padding-top:var(--s2)}
 .freq+.freq{border-top:1px solid var(--line);padding-top:var(--s3)}
 .freq .line{justify-content:space-between}
-.code.sm{font-size:var(--t-lg);flex:none}
+.rname{font-size:var(--t-lg);font-weight:700}
 .freq .b2{flex:1}
 #flist .who{display:flex;flex-direction:column;flex:1;min-width:0}
 #flist .who small{font-size:var(--t-xs);color:var(--muted);letter-spacing:.06em}
@@ -482,15 +482,16 @@ html.vt .page{animation:none}
           <div class="clabel">Your code</div>
           <div class="line"><b class="code" id="mycode">······</b><button class="b2 soft" id="copycode" type="button">Copy</button></div>
           <p class="note" id="codeNote" hidden>Your code shows up after you answer today's question.</p>
-          <label class="flabel" for="myname">Your name <span>(optional, shown to friends you invite)</span></label>
-          <input class="field" id="myname" maxlength="24" autocomplete="given-name" autocapitalize="words" enterkeyhint="done" placeholder="Like Sam">
+          <label class="flabel" for="myname">Your name <span>(your friends see this)</span></label>
+          <input class="field" id="myname" maxlength="24" autocomplete="given-name" autocapitalize="words" enterkeyhint="done" placeholder="Your first name" required aria-describedby="nameErr">
+          <p class="ferr" id="nameErr" role="alert" hidden>Add your name first, so your friends know who you are.</p>
           <button class="b2" id="invite" type="button">Share my invite link</button>
         </div>
         <form class="card" id="fform" novalidate>
           <div class="clabel">Add a friend</div>
           <label class="flabel" for="fcode">Their code or invite link</label>
           <input class="field codein" id="fcode" maxlength="300" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" enterkeyhint="next" placeholder="6 letters and numbers, like K7MPX2" aria-describedby="ferr">
-          <label class="flabel" for="fnick">Their name <span>(optional, only you see it)</span></label>
+          <label class="flabel" for="fnick">Their name <span>(optional, until they add you back)</span></label>
           <input class="field" id="fnick" maxlength="24" autocomplete="off" autocapitalize="words" enterkeyhint="done" placeholder="Like Jay">
           <p class="ferr" id="ferr" role="alert" hidden></p>
           <button class="b2" id="fadd">Add friend</button>
@@ -557,6 +558,7 @@ html.vt .page{animation:none}
       <div class="sheetin" role="dialog" aria-modal="true" aria-labelledby="atitle">
         <div class="shead"><div id="atitle">Sign in to post</div><button id="aclose" aria-label="Close">×</button></div>
         <p class="note" id="anote"></p>
+        <input class="field" id="aname" maxlength="24" autocomplete="given-name" autocapitalize="words" placeholder="Your first name" aria-label="Your first name" hidden>
         <div class="grid2" id="aage" hidden><select class="field" id="amonth" aria-label="Month you were born"></select><select class="field" id="ayear" aria-label="Year you were born"></select></div>
         <div><button class="b2" id="ago">Continue with Google</button></div>
       </div>

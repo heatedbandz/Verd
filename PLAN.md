@@ -488,6 +488,13 @@ Heaton: an invite link should go straight to Google sign-in and make you friends
   - `e2e-live`: two photos from the composer go to Friends only and nothing about where they were taken is kept. A friend who's signed in sees both and picks one, someone signed out never even asks for them, and Review blurs a reported one until it's tapped.
   - `live-rls`: 4 new checks. Nobody can read the photos table, and someone signed out or anonymous gets no photos. All 76 pass against the stand-in.
 
+## Friends see names, not codes (2026-11-20)
+
+| Change | How it's checked |
+|---|---|
+| `profiles.name` and `set_my_name` (letters only, 1 to 24, no blocked words). `friend_match` gives a name only between mutual friends; `friend_requests` gives the name of whoever added you; `accept_invite` gives the inviter's. | db "names" |
+| Your name is required before you share an invite, add a friend, accept a request or join from an invite (the invite sheet asks for it). Friends list and requests show names; codes only appear where you type one. | e2e-device, e2e-live |
+
 ## Next single step
 
 **A parent sets up sign-in and becomes the moderator.** It takes about 20 minutes on a computer. Posting opens the moment it's done, and nothing changes on the site before that.
@@ -496,7 +503,7 @@ Heaton: an invite link should go straight to Google sign-in and make you friends
    - Open [a new query in Verd's Supabase project](https://supabase.com/dashboard/project/zfphqlavepncdoihiugu/sql/new). It must be empty.
    - Open [setup.sql on GitHub](https://github.com/heatedbandz/Verd/blob/main/setup.sql) and press its copy button (two squares, top right of the file).
    - Paste into the empty query and press **Run**.
-   - It worked if the result says **Verd is set up, with posting (setup.sql of 2026-11-20, with the stronger slur filter, custom answers, friend requests, invite links and photos for friends)**. If it says "Success. No rows returned", an older copy ran (for example one still open in the SQL Editor from launch day).
+   - It worked if the result says **Verd is set up, with posting (setup.sql of 2026-11-20, with the stronger slur filter, custom answers, friend requests, invite links, photos for friends and friend names)**. If it says "Success. No rows returned", an older copy ran (for example one still open in the SQL Editor from launch day).
 2. **Make a Google sign-in client.** Open the [Google Cloud console](https://console.cloud.google.com/auth/overview), signed in as the parent.
    - Create a project called Verd if asked.
    - **Branding:** app name Verd and a support email.
