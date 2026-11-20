@@ -1052,7 +1052,7 @@ $("cform").onsubmit = async e => {
     if (!postingOpen()){ toast("Comments open soon."); return; }
     const post = sheetPost; if (!(await gate("comment:" + post))) return;
     $("csend").disabled = true;
-    try{ const r = await ask.api.comment({ post, text }); $("cinput").value = ""; store.set("commented", true); checkBadges(); toast(r.live ? "Posted. Others can see it now." : "Sent. Others see it once a moderator approves it."); }
+    try{ const r = await ask.api.comment({ post, text }); $("cinput").value = ""; store.set("commented", true); bump("nComments"); checkBadges(); toast(r.live ? "Posted. Others can see it now." : "Sent. Others see it once a moderator approves it."); }
     catch(err){ const m = writeError(err); if (m) toast(m); else gate("comment:" + post); }
     $("csend").disabled = false; return;
   }
@@ -1060,7 +1060,7 @@ $("cform").onsubmit = async e => {
   if (my) item.side = my > 0 ? 0 : 1;
   const p = ask.posts.find(x => x.id === sheetPost); if (p) p.comments.push({ ...item, reports: 0 });
   $("cinput").value = ""; renderSheet(); renderFeed();
-  try{ await ask.api.comment(item); store.set("commented", true); checkBadges(); }catch{ toast("Couldn't send your comment. Try again."); }
+  try{ await ask.api.comment(item); store.set("commented", true); bump("nComments"); checkBadges(); }catch{ toast("Couldn't send your comment. Try again."); }
 };
 
 // ---------- New post ----------
@@ -1135,7 +1135,7 @@ $("psend").onclick = async () => {
   $("psend").disabled = true;
   if (ask.api.live){
     try{
-      const r = await ask.api.post(item, imgs); store.set("posted", true);
+      const r = await ask.api.post(item, imgs); store.set("posted", true); bump("nPosts");
       if (ask.scope !== item.scope){ ask.scope = item.scope; order = []; renderTop(); }
       jumpTo = r.id; $("ptext").value = $("opta").value = $("optb").value = ""; cPhotos = []; closeCompose(); showPage("feed"); renderFeed();
       toast(r.live ? (imgs.length ? "Posted. Your friends can see it now." : "Posted. Others can see it now.") : "Sent for review. Others see it once a moderator approves it."); checkBadges();
@@ -1144,7 +1144,7 @@ $("psend").onclick = async () => {
   }
   try{
     if (ask.scope !== item.scope){ ask.scope = item.scope; order = []; renderTop(); }
-    jumpTo = item.id; if (imgs.length) await ask.api.photo(item.id, imgs); await ask.api.post(item); store.set("posted", true);
+    jumpTo = item.id; if (imgs.length) await ask.api.photo(item.id, imgs); await ask.api.post(item); store.set("posted", true); bump("nPosts");
     $("ptext").value = $("opta").value = $("optb").value = ""; closeCompose(); showPage("feed"); renderFeed(); toast("Posted."); checkBadges();
   }catch{ jumpTo = null; toast("Couldn't post. Check your connection and try again."); }
   $("psend").disabled = false;
@@ -1312,15 +1312,34 @@ function profile(){
   return { type: days.length < 3 ? null : avg < 40 ? "Rare thinker" : avg <= 60 ? "Free thinker" : "Mainstream", nTyped: days.length, nAnswered: Object.keys(myVotes).length,
     judged: days.length, maj: days.filter(d => myVotes[d].majority).length };
 }
+// Badges level up instead of piling up: one per kind, Bronze to Legend. Only the ones you have show, each with how
+// far it is to the next level. Nothing locked to collect, and none for features that are switched off.
+const bump = k => store.set(k, store.get(k, 0) + 1);
+const TIERS = ["Bronze", "Silver", "Gold", "Diamond", "Legend"];
 const BADGES = [
-  ["first", "First answer", p => p.nAnswered >= 1], ["s3", "3-day streak", () => streakNow().best >= 3], ["s7", "7-day streak", () => streakNow().best >= 7],
-  ["s30", "30-day streak", () => streakNow().best >= 30], ["rare", "Rare club", () => Object.values(myVotes).some(v => v.share < 35)], ["ten", "10 answers", p => p.nAnswered >= 10],
-  ["poster", "First post", () => store.get("posted", false)], ["talker", "First comment", () => store.get("commented", false)], ["crew", "Added a friend", () => friends().length > 0]
+  ["streak", "Streak", () => streakNow().best, [3, 7, 30, 100, 365], n => n + "-day streak"],
+  ["answers", "Answers", p => p.nAnswered, [1, 10, 50, 100, 365], n => n + (n === 1 ? " answer" : " answers")],
+  ["rare", "Rare takes", () => Object.values(myVotes).filter(v => v.share < 35).length, [1, 5, 15, 40, 100], n => n + (n === 1 ? " rare take" : " rare takes")],
+  ["friends", "Friends", () => friends().length, [1, 3, 10, 25, 50], n => n + (n === 1 ? " friend" : " friends")],
+  ["posts", "Posts", () => store.get("nPosts", store.get("posted", false) ? 1 : 0), [1, 5, 20, 50, 100], n => n + (n === 1 ? " post" : " posts")],
+  ["comments", "Comments", () => store.get("nComments", store.get("commented", false) ? 1 : 0), [1, 10, 50, 100, 250], n => n + (n === 1 ? " comment" : " comments")]
 ];
+const badgeLevels = p => BADGES.map(([id, label, value, steps, unit]) => { const v = value(p), lv = steps.filter(t => v >= t).length; return { id, label, v, lv, steps, unit }; });
 function checkBadges(){
-  const had = store.get("badges", []), p = profile(); let fresh = null;
-  for (const [id, label, test] of BADGES) if (test(p) && !had.includes(id)){ had.push(id); fresh = label; }
-  if (fresh){ store.set("badges", had); if (had.length > 1){ setTimeout(() => { toast("New badge: " + fresh); haptics.badge(); }, 1400); } }
+  const had = store.get("badgeLv", null), first = had === null, now = {}, p = profile(); let up = null;
+  for (const b of badgeLevels(p)){ now[b.id] = Math.max(b.lv, (had || {})[b.id] || 0); if (b.lv > ((had || {})[b.id] || 0)) up = b; }
+  store.set("badgeLv", now);
+  // The very first badge is already on screen with the answer, so only later upgrades get a toast.
+  if (up && !first && Object.values(had).some(Boolean)) setTimeout(() => { toast(up.label + " badge: " + (up.lv === 1 ? "unlocked, " : "up to ") + TIERS[up.lv - 1] + "!"); haptics.badge(); }, 1400);
+}
+function badgeCard(b){
+  const d = el("div", "badge t" + b.lv), m = el("i", "medal"), txt = el("div", "btxt"), next = b.steps[b.lv];
+  m.textContent = ["B", "S", "G", "D", "L"][b.lv - 1]; m.setAttribute("aria-hidden", "true");
+  txt.append(el("b", "", b.label + " · " + TIERS[b.lv - 1]),
+    el("small", "", next ? (next - b.v) + " more to " + TIERS[b.lv] + " (" + b.unit(next) + ")" : "Top level. " + b.unit(b.v) + "."));
+  const bar = el("div", "bbar"), fill = el("i"); const prev = b.steps[b.lv - 1];
+  fill.style.width = (next ? Math.max(4, Math.min(100, (b.v - prev) / (next - prev) * 100)) : 100) + "%"; bar.append(fill); txt.append(bar);
+  d.append(m, txt); return d;
 }
 function renderMe(){
   const s = streakNow(), p = profile();
@@ -1332,8 +1351,8 @@ function renderMe(){
   $("agree").textContent = p.judged ? p.maj + "/" + p.judged : "–";
   $("answered").textContent = p.nAnswered;
   // Only badges you have. No locked ones to collect, and none for features that are switched off.
-  const earned = BADGES.filter(([, , test]) => test(p));
-  $("badges").replaceChildren(...earned.map(([, label]) => el("span", "", label))); $("badgesNote").hidden = earned.length > 0;
+  const earned = badgeLevels(p).filter(b => b.lv > 0).sort((a, b) => b.lv - a.lv);
+  $("badges").replaceChildren(...earned.map(badgeCard)); $("badgesNote").hidden = earned.length > 0;
   const r = recapData(), rb = $("recapBody"); $("recap").hidden = !r || r.answered < 2; rb.innerHTML = "";
   if (r){ const row = (a, b) => { const d = el("div"); d.append(el("b", "", a), el("span", "", b)); rb.append(d); };
     row("Days answered", r.answered + " of 7"); if (r.known) row("With the majority", r.maj + " of " + r.known); row("Streak", r.s + (r.s === 1 ? " day" : " days"));
