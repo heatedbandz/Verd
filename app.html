@@ -513,7 +513,7 @@ html.vt .page{animation:none}
       <div id="photoRow"><div class="clabel">Photos (optional, up to 2)</div><div class="thumbs" id="thumbs"></div><input type="file" id="pfile" accept="image/*" multiple hidden></div>
       <div id="optRow"><div class="clabel">Answers</div><div class="opts"><input id="opta" maxlength="30" placeholder="Yes" aria-label="First answer" autocomplete="off" enterkeyhint="next"><input id="optb" maxlength="30" placeholder="No" aria-label="Second answer" autocomplete="off" enterkeyhint="done"></div><div class="ohint">Leave empty for Yes or No, or write your own, like Lamborghini and Ferrari.</div></div>
       <div id="colorRow"><div class="clabel">Color</div><div class="swatches" id="swatches"></div></div>
-      <div><div class="clabel">Who decides</div><div class="aud" id="aud"></div></div>
+      <div><div class="clabel">Who decides</div><div class="aud" id="aud"></div><div class="ohint" id="awhen" hidden></div></div>
       <p class="cnote" id="cnote"></p>
     </section>
 
@@ -660,6 +660,15 @@ function countdown(ms){
   return h ? h + "h " + m + "m" : m + "m";
 }
 const inDays = k => k === 1 ? "tomorrow" : "in " + k + " days";
+
+// The line under "Who decides" for a public post. w: the account's public_wait from the database (every,
+// step and min, in minutes); left: minutes until the next public post can go.
+const minutes = n => n + (n === 1 ? " minute" : " minutes");
+function publicWaitNote(w, left){
+  if (left > 0) return "Your next public post can go in " + minutes(left) + ".";
+  if (w.every <= w.min) return "You can post publicly every " + minutes(w.every) + ".";
+  return "You can post publicly every " + minutes(w.every) + ". Each day of your streak takes " + minutes(w.step) + " off, down to " + minutes(w.min) + ".";
+}
 
 // ---------- Streaks ----------
 // Days in a row you answered. Freezes cover missed days by themselves, and they're easy to get: everyone starts
@@ -1792,7 +1801,7 @@ $("cform").onsubmit = async e => {
 };
 
 // ---------- New post ----------
-let cColor = 0, cScope = "world", cPhotos = [];
+let cColor = 0, cScope = "world", cPhotos = [], cWait = null;
 // Shrinks a photo in the browser so it loads fast and stays small (960 pixels on the live site, 640 on the phone).
 // Drawing it again keeps only the picture: where and when it was taken and the camera are left behind.
 // The database cuts those out too, whatever app sends the photo.
@@ -1812,6 +1821,10 @@ $("pfile").onchange = async e => {
 async function openCompose(prefill){
   if (!postingOpen()){ toast("Posting opens soon."); return; }
   if (ask.api.live && !(await gate("post"))) return;
+  // How long until your next public post (the database counts it from your answer streak). The account was just
+  // fetched by the gate. Missing on a database that's older than the waits: then nothing is said.
+  cWait = null;
+  if (ask.api.live) try{ const w = (await backend.account()).public_wait; if (w) cWait = { ...w, until: Date.now() + w.next * 1000 }; }catch{}
   cColor = Math.floor(Math.random() * COLORS.length); cScope = ask.scope; cPhotos = []; drawCompose(); $("compose").hidden = false; paintStatusBar();
   if (typeof prefill === "string") $("ptext").value = prefill; $("ptext").focus();
 }
@@ -1835,6 +1848,8 @@ function drawCompose(){
     : cPhotos.length === 1 ? "Friends answer Yes or No." + who
     : "People pick one of your two answers. No names, phone numbers or anything mean about a real person.";
   $("optRow").hidden = cPhotos.length > 0;
+  const pub = cWait && cScope !== "friends" && !cPhotos.length; $("awhen").hidden = !pub;
+  if (pub) $("awhen").textContent = publicWaitNote(cWait, Math.ceil((cWait.until - Date.now()) / 60000));
   if (backend && backend.mode === "device") $("cnote").textContent = "Only you can see your posts until Verd goes live. " + $("cnote").textContent;
   if (ask.api.live) $("cnote").textContent = (ask.api.reviewFirst ? "A moderator checks every post before anyone else sees it, and your name is never shown. "
     : "Posts go live straight away, and your name is never shown. ") + $("cnote").textContent;
@@ -1939,6 +1954,8 @@ function writeError(e){
   const m = (e && e.message) || "";
   return /blocked words/.test(m) ? BLOCK_MSG
     : /enough posts/.test(m) ? "That's the limit for today. You can post again tomorrow."
+    : /enough photo posts/.test(m) ? "That's the limit for photo posts today. Posts without photos can still go."
+    : /next public post in \d+/.test(m) ? publicWaitNote(null, +/next public post in (\d+)/.exec(m)[1])
     : /enough comments/.test(m) ? "That's the limit for today. You can comment again tomorrow."
     : /give two different answers/.test(m) ? "Make the two answers different."
     : /answers are 1 to 30/.test(m) ? "Keep each answer to 30 letters."

@@ -2,7 +2,7 @@
 //   cd tests && node --test core.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { shares, leader, localLevel, dayState, promptLine, verdictMain, lockedLines, pickTeaser, guessLine, bucket, flavor, countdown, inDays, NO_STREAK, streakOn, answerOn, streakNote } from '../core.js';
+import { shares, leader, localLevel, dayState, promptLine, verdictMain, lockedLines, pickTeaser, guessLine, bucket, flavor, countdown, inDays, NO_STREAK, streakOn, answerOn, streakNote, publicWaitNote } from '../core.js';
 
 const MIN = { world: 10, country: 30, state: 30, city: 30 };
 // Builds a results object the way the database sends it: counts are null below the minimum.
@@ -202,3 +202,11 @@ test('streaks: missing more days than your freezes is a fresh start that keeps y
   for (const n of notes) assert.doesNotMatch(n, /lost|lose|broke|ruin|gone|miss out|don't|!|shame|sad/i, n);
 });
 
+test('the public post wait reads plainly: how long is left, or how often, and how the streak shortens it', () => {
+  const w = every => ({ every, next: 0, step: 5, min: 5 });
+  assert.equal(publicWaitNote(w(30), 0), 'You can post publicly every 30 minutes. Each day of your streak takes 5 minutes off, down to 5 minutes.');
+  assert.equal(publicWaitNote(w(10), -3), 'You can post publicly every 10 minutes. Each day of your streak takes 5 minutes off, down to 5 minutes.');
+  assert.equal(publicWaitNote(w(5), 0), 'You can post publicly every 5 minutes.');
+  assert.equal(publicWaitNote(w(30), 12), 'Your next public post can go in 12 minutes.');
+  assert.equal(publicWaitNote(null, 1), 'Your next public post can go in 1 minute.');
+});

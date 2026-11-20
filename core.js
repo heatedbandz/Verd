@@ -114,6 +114,15 @@ export function countdown(ms){
 }
 export const inDays = k => k === 1 ? "tomorrow" : "in " + k + " days";
 
+// The line under "Who decides" for a public post. w: the account's public_wait from the database (every,
+// step and min, in minutes); left: minutes until the next public post can go.
+const minutes = n => n + (n === 1 ? " minute" : " minutes");
+export function publicWaitNote(w, left){
+  if (left > 0) return "Your next public post can go in " + minutes(left) + ".";
+  if (w.every <= w.min) return "You can post publicly every " + minutes(w.every) + ".";
+  return "You can post publicly every " + minutes(w.every) + ". Each day of your streak takes " + minutes(w.step) + " off, down to " + minutes(w.min) + ".";
+}
+
 // ---------- Streaks ----------
 // Days in a row you answered. Freezes cover missed days by themselves, and they're easy to get: everyone starts
 // with one and earns another for every 5 days answered (in a row or not), holding up to 3. Missing more days than

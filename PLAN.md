@@ -370,7 +370,7 @@ How these were measured: Lighthouse 13.6, median of 3 runs, in two profiles. "De
   - The moderator sees how many of the writer's posts were approved or turned down before, never who they are.
 - **Reports:** anyone can report a post or comment. It's hidden for them at once, and for everyone at 3 reports until the moderator keeps or removes it. 30 reports a day per person.
 - **Word filter, in the database and in the app:** phone numbers, @handles, links, threats, asking for contact info ("add me on snap", "my insta"), asking for pictures, asking someone's age or where they live, and sexual words. The app catches them before sending, and the database refuses them anyway.
-- **Rate limits:** 3 posts a day, 2 minutes apart. 20 comments a day, 20 seconds apart.
+- **Rate limits:** 3 posts a day, 2 minutes apart (changed 2026-11-20: see **Post waits by streak**). 20 comments a day, 20 seconds apart.
 - **No names anywhere.** Posts and comments show "Someone". Only mutual friends see each other's friend code. No DMs, no profiles, no follower counts.
 - **Left off on purpose:**
   - **Photos on the live site.** Words can be checked before anyone sees them, but photos can't, and reviewing strangers' photos would put the moderator in front of whatever gets uploaded. Photo posts stay in the preview and in phone-only mode.
@@ -477,7 +477,7 @@ Heaton: an invite link should go straight to Google sign-in and make you friends
 
 - **The switch:** `update public.app_config set value = 1 where key = 'photos';` turns photo posts on. 0 stops new ones and hides every photo post from everyone but its writer, at once.
 - **Friends only:** a photo post goes to Friends and nowhere else. Only mutual friends who are signed in with Google and 13 or older see it: not an anonymous account, not a friend under 13, not someone who only knows your code, and nobody signed out. The database checks this for the post and for each photo.
-- **Up to 2 photos,** like on the phone: one is answered Yes or No, two are This one or That one. The words are still filtered, and photo posts count toward the 3 posts a day.
+- **Up to 2 photos,** like on the phone: one is answered Yes or No, two are This one or That one. The words are still filtered, and photo posts keep a limit of 3 a day (see **Post waits by streak**).
 - **No location or camera details:** the app redraws each photo at 960 pixels at most, which leaves out where and when it was taken. The database also cuts out every bit of metadata (EXIF, XMP, comments) before it keeps a photo, so not even another app can post a location.
 - **Reports:** one report hides a photo post for everyone until the moderator looks (a text post takes 3). In **Me → Review** the photos are blurred until the moderator taps them.
 - **Kept 30 days:** photos are deleted 30 days after they're posted. The feed only goes back 14. Deleting a post deletes its photos.
@@ -495,6 +495,23 @@ Heaton: an invite link should go straight to Google sign-in and make you friends
 | `profiles.name` and `set_my_name` (letters only, 1 to 24, no blocked words). `friend_match` gives a name only between mutual friends; `friend_requests` gives the name of whoever added you; `accept_invite` gives the inviter's. | db "names" |
 | Your name is required before you share an invite, add a friend, accept a request or join from an invite (the invite sheet asks for it). Friends list and requests show names; codes only appear where you type one. | e2e-device, e2e-live |
 
+## Post waits by streak (2026-11-20)
+
+**The owner asked for:** no daily limit on posts to friends, and public posts once every 30 minutes, 5 minutes less for each day of your answer streak, never under 5.
+
+| Change | How it's checked |
+|---|---|
+| Posts to **Friends** have no daily limit. The 2 minutes between any two posts stays, so nobody can flood the database. | db "public posts wait", e2e-live |
+| **Public posts** (World, Country, State, City): one every 30 minutes, 5 minutes less for each day of your answer streak, never under 5. A 5-day streak gets there. Settings: `public_wait_start` (30), `public_wait_step` (5) and `public_wait_min` (5) in `app_config`. | db, e2e-live |
+| The database counts the streak itself from your answers (`verd_private.streak`), with the app's freeze rules, so nobody can claim a longer one. Only answers given while their question was open count, so answers copied in from a phone later don't make a streak. | db "answer streak": 80 random answer patterns give the same streak as the app's rules in core.js |
+| A deleted public post still counts for the wait, so deleting and posting again doesn't skip it. Two posts sent at the same moment are handled one after the other, so both can't slip through. | db |
+| **Photo posts** keep a limit of 3 a day (`photo_posts_per_day`): photos take room in the database. Posts without photos can still go. | db photo test |
+| The composer says how long until your next public post, or how often you can post publicly and how your streak shortens it. A refused post says the same. Before `setup.sql` is run again, the old limits stay and the composer says nothing new. | core, e2e-live |
+| `posts_per_day` is gone from `app_config`. Running `setup.sql` again keeps every answer and post (now checked with data in the database). | db |
+
+- **Tests:** 5 new, and all 110 pass. `live-rls` passes against the stand-in.
+- **The streak shown on Me** is kept on each phone. The wait uses the account's answers from every phone, so the two can differ for someone who answers on more than one phone.
+
 ## Next single step
 
 **A parent sets up sign-in and becomes the moderator.** It takes about 20 minutes on a computer. Posting opens the moment it's done, and nothing changes on the site before that.
@@ -503,7 +520,7 @@ Heaton: an invite link should go straight to Google sign-in and make you friends
    - Open [a new query in Verd's Supabase project](https://supabase.com/dashboard/project/zfphqlavepncdoihiugu/sql/new). It must be empty.
    - Open [setup.sql on GitHub](https://github.com/heatedbandz/Verd/blob/main/setup.sql) and press its copy button (two squares, top right of the file).
    - Paste into the empty query and press **Run**.
-   - It worked if the result says **Verd is set up, with posting (setup.sql of 2026-11-20, with the stronger slur filter, custom answers, friend requests, invite links, photos for friends and friend names)**. If it says "Success. No rows returned", an older copy ran (for example one still open in the SQL Editor from launch day).
+   - It worked if the result says **Verd is set up, with posting (setup.sql of 2026-11-20, with the stronger slur filter, custom answers, friend requests, invite links, photos for friends, friend names and streak post limits)**. If it says "Success. No rows returned", an older copy ran (for example one still open in the SQL Editor from launch day).
 2. **Make a Google sign-in client.** Open the [Google Cloud console](https://console.cloud.google.com/auth/overview), signed in as the parent.
    - Create a project called Verd if asked.
    - **Branding:** app name Verd and a support email.

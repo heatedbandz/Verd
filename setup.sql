@@ -379,14 +379,19 @@ end $$;
 
 -- Your friend code (made on first use), and what your account may do: real = signed in with a real
 -- account, not anonymous; age_given / age_ok = month and year given, 13 or older; open = posting is open.
+-- public_wait: minutes between your public posts (every, from your answer streak), seconds until the next
+-- one can go (next), and the rule behind it (step off per streak day, down to min).
 create or replace function public.my_profile()
 returns jsonb
 language plpgsql security definer set search_path = public as $$
-declare uid uuid := auth.uid();
+declare
+  uid  uuid := auth.uid();
+  wait int;
 begin
   if uid is null then
     raise exception 'sign in first' using errcode = '28000';
   end if;
+  wait := verd_private.public_wait(uid);
   return jsonb_build_object(
     'code', verd_private.ensure_profile(uid),
     'real', verd_private.real(uid),
@@ -394,7 +399,10 @@ begin
     'age_ok', verd_private.age_ok(uid),
     'moderator', verd_private.is_mod(uid),
     'blocked', verd_private.banned(uid),
-    'open', verd_private.posting_open());
+    'open', verd_private.posting_open(),
+    'public_wait', jsonb_build_object('every', wait, 'next', verd_private.public_next(uid, wait),
+                                      'step', coalesce(verd_private.cfg('public_wait_step'), 5),
+                                      'min', coalesce(verd_private.cfg('public_wait_min'), 5)));
 end $$;
 
 -- One-time copy of answers this phone saved before the database existed.
@@ -691,8 +699,11 @@ end $$;
 --   * Enough reports hide a post or comment for everyone until a moderator looks at it.
 
 insert into public.app_config (key, value) values
-  ('posts_per_day', 3),          -- posts per person per day
-  ('post_gap_seconds', 120),     -- and at least 2 minutes apart
+  ('post_gap_seconds', 120),     -- any two posts at least 2 minutes apart; posts to friends have no other limit
+  ('public_wait_start', 30),     -- public posts: one every 30 minutes with no answer streak,
+  ('public_wait_step', 5),       -- 5 minutes less for each day of your streak,
+  ('public_wait_min', 5),        -- and never closer than 5 minutes
+  ('photo_posts_per_day', 3),    -- photos take room in the database, so photo posts keep a daily limit
   ('comments_per_day', 20),
   ('comment_gap_seconds', 20),
   ('reports_per_day', 30),
@@ -701,9 +712,13 @@ insert into public.app_config (key, value) values
   ('auto_approve', 0),           -- 1: new posts and comments go live at once; the moderator sees what's reported
   ('photos', 0)                  -- 1: photo posts for friends; 0 stops them and hides every one at once
 on conflict (key) do nothing;
+-- Posts per day was replaced by the waits above (2026-11-20).
+delete from public.app_config where key = 'posts_per_day';
 
 -- The month someone was born, given once (year * 12 + month - 1). The app can't change it.
 alter table public.profiles add column if not exists born int check (born between 1900 * 12 and 2200 * 12);
+-- When your latest deleted public post was made, so deleting one doesn't shorten the wait for the next.
+alter table public.profiles add column if not exists deleted_public_at timestamptz;
 
 -- Who reviews posts. Add someone after they've signed in on the site:
 --   insert into public.moderators (user_id) select id from auth.users where email = 'their@email.com';
@@ -969,6 +984,56 @@ language sql stable security definer set search_path = public as $$
   select coalesce(verd_private.cfg('auto_approve'), 0) <> 1
 $$;
 
+-- Your answer streak, counted the way the app counts it (streakOn and answerOn in core.js): days in a row
+-- you answered, where everyone starts with one freeze, earns another for every 5 days answered (holding up
+-- to 3), and a freeze covers a missed day by itself. Only answers given while their question was open
+-- count, so answers copied in later (import_votes) can't make a streak.
+create or replace function verd_private.streak(uid uuid) returns int
+language plpgsql stable security definer set search_path = public as $$
+declare
+  t    date := verd_private.today();
+  d    date;
+  last date;
+  s    int := 0;   -- the streak so far
+  fz   int := 1;   -- freezes held
+  n    int := 0;   -- days answered
+begin
+  for d in select v.day from public.votes v
+            where v.user_id = uid and v.day <= t and (v.created_at at time zone 'utc')::date <= v.day + 1
+            order by v.day loop
+    n := n + 1;
+    if last is not null and d - last - 1 <= fz then
+      fz := fz - (d - last - 1);
+      s := s + 1;
+    else
+      s := 1;
+    end if;
+    if n % 5 = 0 and fz < 3 then
+      fz := fz + 1;
+    end if;
+    last := d;
+  end loop;
+  return case when last is not null and t - last - 1 <= fz then s else 0 end;
+end $$;
+
+-- Minutes between public posts: public_wait_start (30) with no streak, public_wait_step (5) less for each
+-- day of your streak, and never under public_wait_min (5). Posts to friends don't wait like this.
+create or replace function verd_private.public_wait(uid uuid) returns int
+language sql stable security definer set search_path = public as $$
+  select greatest(coalesce(verd_private.cfg('public_wait_min'), 5),
+                  coalesce(verd_private.cfg('public_wait_start'), 30) - coalesce(verd_private.cfg('public_wait_step'), 5) * verd_private.streak(uid))
+$$;
+
+-- Seconds until your next public post can go (0: now), counted from your latest public post, even one
+-- you deleted since.
+create or replace function verd_private.public_next(uid uuid, wait_min int) returns int
+language sql stable security definer set search_path = public as $$
+  select greatest(0, ceil(extract(epoch from greatest(
+           (select max(x.created_at) from public.posts x where x.user_id = uid and x.scope <> 'friends'),
+           (select p.deleted_public_at from public.profiles p where p.id = uid))
+         + make_interval(mins => wait_min) - now()))::int)
+$$;
+
 revoke all on all functions in schema verd_private from public, anon, authenticated;
 
 -- ---------- Posting: the API ----------
@@ -1131,7 +1196,7 @@ declare
   k_cc   text := verd_private.country(cc);
   k_st   text := verd_private.place(st);
   k_ci   text := verd_private.place(ci);
-  n      int;
+  left_s int;
   prev   timestamptz;
   new_id bigint;
   now_is text;
@@ -1175,13 +1240,21 @@ begin
   if verd_private.blocked(clean) or verd_private.blocked(a) or verd_private.blocked(b) then
     raise exception 'blocked words' using errcode = '22023';
   end if;
-  select count(*), max(x.created_at) into n, prev
-    from public.posts x where x.user_id = uid and x.created_at > now() - interval '1 day';
-  if n >= verd_private.cfg('posts_per_day') then
-    raise exception 'that is enough posts for today' using errcode = '22023';
-  end if;
+  -- One post at a time per person, so two sent at once can't both slip under the limits.
+  perform pg_advisory_xact_lock(hashtext('verd posts'), hashtext(uid::text));
+  select max(x.created_at) into prev from public.posts x where x.user_id = uid;
   if prev > now() - make_interval(secs => verd_private.cfg('post_gap_seconds')) then
     raise exception 'wait a moment' using errcode = '22023';
+  end if;
+  if coalesce(cardinality(pics), 0) > 0 and (select count(*) from public.posts x where x.user_id = uid and x.photos > 0
+       and x.created_at > now() - interval '1 day') >= coalesce(verd_private.cfg('photo_posts_per_day'), 3) then
+    raise exception 'that is enough photo posts for today' using errcode = '22023';
+  end if;
+  if scope <> 'friends' then
+    left_s := verd_private.public_next(uid, verd_private.public_wait(uid));
+    if left_s > 0 then
+      raise exception 'next public post in % min', ceil(left_s / 60.0)::int using errcode = '22023';
+    end if;
   end if;
   foreach pic in array coalesce(pics, '{}'::text[]) loop
     shot := verd_private.clean_jpeg(pic);
@@ -1303,6 +1376,9 @@ begin
     raise exception 'sign in first' using errcode = '28000';
   end if;
   if what = 'post' then
+    -- A deleted public post still counts for the wait before the next one.
+    update public.profiles pr set deleted_public_at = greatest(pr.deleted_public_at, x.created_at)
+      from public.posts x where x.id = iid and x.user_id = uid and x.scope <> 'friends' and pr.id = uid;
     delete from public.posts x where x.id = iid and x.user_id = uid;
   elsif what = 'comment' then
     delete from public.comments x where x.id = iid and x.user_id = uid;
@@ -1513,6 +1589,6 @@ end $$;
 -- Tells the API about these functions straight away, then says which version just ran: the SQL Editor shows this
 -- line as the result. "Success. No rows returned" instead means an older copy of this file ran.
 notify pgrst, 'reload schema';
-select 'Verd is set up, with posting (setup.sql of 2026-11-20, with the stronger slur filter, custom answers, friend requests, invite links, photos for friends and friend names). New posts '
+select 'Verd is set up, with posting (setup.sql of 2026-11-20, with the stronger slur filter, custom answers, friend requests, invite links, photos for friends, friend names and streak post limits). New posts '
        || case when verd_private.review_first() then 'wait for review.' else 'go live at once.' end
        || case when verd_private.photos_on() then ' Photo posts are on.' else ' Photo posts are off.' end as result;

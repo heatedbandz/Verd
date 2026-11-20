@@ -1,4 +1,4 @@
-import { sum, pct, num, countsOf, shares, leader, dayState, promptLine, verdictMain, lockedLines, pickTeaser, flavor, GUESSES, guessLine, countdown, inDays, FREEZES, NO_STREAK, streakOn, answerOn, streakNote, blockedText, BLOCK_MSG } from "./core.js";
+import { sum, pct, num, countsOf, shares, leader, dayState, promptLine, verdictMain, lockedLines, pickTeaser, flavor, GUESSES, guessLine, countdown, inDays, FREEZES, NO_STREAK, streakOn, answerOn, streakNote, blockedText, BLOCK_MSG, publicWaitNote } from "./core.js";
 
 // ---------- Settings ----------
 // Verd's Supabase project: its Project URL and publishable key (the project's Connect button, or Settings > API Keys).
@@ -1064,7 +1064,7 @@ $("cform").onsubmit = async e => {
 };
 
 // ---------- New post ----------
-let cColor = 0, cScope = "world", cPhotos = [];
+let cColor = 0, cScope = "world", cPhotos = [], cWait = null;
 // Shrinks a photo in the browser so it loads fast and stays small (960 pixels on the live site, 640 on the phone).
 // Drawing it again keeps only the picture: where and when it was taken and the camera are left behind.
 // The database cuts those out too, whatever app sends the photo.
@@ -1084,6 +1084,10 @@ $("pfile").onchange = async e => {
 async function openCompose(prefill){
   if (!postingOpen()){ toast("Posting opens soon."); return; }
   if (ask.api.live && !(await gate("post"))) return;
+  // How long until your next public post (the database counts it from your answer streak). The account was just
+  // fetched by the gate. Missing on a database that's older than the waits: then nothing is said.
+  cWait = null;
+  if (ask.api.live) try{ const w = (await backend.account()).public_wait; if (w) cWait = { ...w, until: Date.now() + w.next * 1000 }; }catch{}
   cColor = Math.floor(Math.random() * COLORS.length); cScope = ask.scope; cPhotos = []; drawCompose(); $("compose").hidden = false; paintStatusBar();
   if (typeof prefill === "string") $("ptext").value = prefill; $("ptext").focus();
 }
@@ -1107,6 +1111,8 @@ function drawCompose(){
     : cPhotos.length === 1 ? "Friends answer Yes or No." + who
     : "People pick one of your two answers. No names, phone numbers or anything mean about a real person.";
   $("optRow").hidden = cPhotos.length > 0;
+  const pub = cWait && cScope !== "friends" && !cPhotos.length; $("awhen").hidden = !pub;
+  if (pub) $("awhen").textContent = publicWaitNote(cWait, Math.ceil((cWait.until - Date.now()) / 60000));
   if (backend && backend.mode === "device") $("cnote").textContent = "Only you can see your posts until Verd goes live. " + $("cnote").textContent;
   if (ask.api.live) $("cnote").textContent = (ask.api.reviewFirst ? "A moderator checks every post before anyone else sees it, and your name is never shown. "
     : "Posts go live straight away, and your name is never shown. ") + $("cnote").textContent;
@@ -1211,6 +1217,8 @@ function writeError(e){
   const m = (e && e.message) || "";
   return /blocked words/.test(m) ? BLOCK_MSG
     : /enough posts/.test(m) ? "That's the limit for today. You can post again tomorrow."
+    : /enough photo posts/.test(m) ? "That's the limit for photo posts today. Posts without photos can still go."
+    : /next public post in \d+/.test(m) ? publicWaitNote(null, +/next public post in (\d+)/.exec(m)[1])
     : /enough comments/.test(m) ? "That's the limit for today. You can comment again tomorrow."
     : /give two different answers/.test(m) ? "Make the two answers different."
     : /answers are 1 to 30/.test(m) ? "Keep each answer to 30 letters."

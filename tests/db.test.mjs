@@ -427,10 +427,83 @@ test('blocked words and rate limits are enforced by the database', async () => {
   await assert.rejects(post(u, 'Is this a real audience?', 'galaxy'), /bad audience/);
   assert.equal((await post(u, 'Should I text my crush?')).status, 'pending', 'normal questions about texting are fine');
   await assert.rejects(post(u, 'Is a second post too fast?'), /wait a moment/);
-  // Two more, as if made earlier today, then the fourth of the day is refused.
-  await admin(`update public.posts set created_at = now() - interval '3 hours' where user_id = $1`, [u]);
-  await admin(`insert into public.posts (user_id, body, scope, created_at) values ($1, 'Earlier post one?', 'world', now() - interval '2 hours'), ($1, 'Earlier post two?', 'world', now() - interval '1 hour')`, [u]);
-  await assert.rejects(post(u, 'Is a fourth post too many?'), /enough posts for today/);
+  await assert.rejects(post(u, 'Is a second post too fast?', 'friends'), /wait a moment/, 'two minutes between any two posts');
+  // Two sent at the same moment: one goes, and the other is told to wait.
+  const twin = await realUser();
+  const both = await Promise.allSettled([post(twin, 'Is soup a drink?', 'friends'), post(twin, 'Is cereal a drink?', 'friends')]);
+  assert.deepEqual(both.map(r => r.status).sort(), ['fulfilled', 'rejected']);
+  assert.match(both.find(r => r.status === 'rejected').reason.message, /wait a moment/);
+});
+
+test('running setup.sql again keeps every answer and post, and drops the old posts-per-day setting', async () => {
+  await admin("insert into public.app_config (key, value) values ('posts_per_day', 3) on conflict do nothing");
+  const counts = async () => (await admin('select (select count(*) from public.votes)::int as votes, (select count(*) from public.posts)::int as posts')).rows[0];
+  const was = await counts();
+  assert.ok(was.votes > 0 && was.posts > 0);
+  await admin(readFileSync(here('../setup.sql'), 'utf8'));
+  assert.deepEqual(await counts(), was);
+  assert.equal((await admin("select count(*)::int as n from public.app_config where key = 'posts_per_day'")).rows[0].n, 0);
+});
+
+// Answers on these days back from today (0 = today), each given while its question was open.
+const answered = (u, back) => admin(`insert into public.votes (day, user_id, choice, created_at)
+  select verd_private.today() - k, $1, 0, (verd_private.today() - k)::timestamp at time zone 'utc' + interval '1 hour'
+  from unnest($2::int[]) k on conflict do nothing`, [u, back]);
+const streakOf = async u => (await admin('select verd_private.streak($1) as s', [u])).rows[0].s;
+
+test('the answer streak the database counts is the one the app shows, and copied-in answers do not count', async () => {
+  const { answerOn, streakOn, NO_STREAK } = await import('../core.js');
+  let seed = 20261120;   // mulberry32, so every run checks the same days
+  const rnd = n => { seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) % n; };
+  assert.equal(await streakOf(await user()), 0, 'no answers, no streak');
+  // Random answer days in the last 60: mostly days in a row, with missed days that freezes cover and some
+  // too long to cover, ending today, yesterday or a few days ago.
+  for (let k = 0; k < 80; k++) {
+    const u = await user(), back = [];
+    for (let b = rnd(6); b < 60 && back.length < 30; b += 1 + (rnd(10) < 7 ? 0 : rnd(5))) back.unshift(b);
+    await answered(u, back);
+    let s = { ...NO_STREAK }, n = 0;
+    for (const b of back) s = answerOn(s, -b, ++n).state;
+    assert.equal(await streakOf(u), streakOn(s, 0).current, 'answered ' + back.join(','));
+  }
+  // Answers copied in today (import_votes) only count for days still open today: yesterday and today.
+  const copied = await user();
+  await admin(`insert into public.votes (day, user_id, choice) select verd_private.today() - k, $1, 0 from generate_series(0, 6) k`, [copied]);
+  assert.equal(await streakOf(copied), 2);
+});
+
+test('public posts wait 30 minutes, 5 less for each streak day, never under 5; friends posts have no daily limit', async () => {
+  const u = await realUser();
+  const wait = async () => (await call(u, 'select public.my_profile() as r')).public_wait;
+  const later = mins => admin(`update public.posts set created_at = created_at - make_interval(mins => $2) where user_id = $1`, [u, mins]);
+  assert.deepEqual(await wait(), { every: 30, next: 0, step: 5, min: 5 });
+  await post(u, 'Is cereal a soup?');
+  const w = await wait();
+  assert.ok(w.next > 29 * 60 && w.next <= 30 * 60, 'next public post in 30 minutes: ' + w.next);
+  await later(3);
+  await assert.rejects(post(u, 'Is a hot dog a sandwich?'), /next public post in 27 min/);
+  await assert.rejects(post(u, 'Is my state the best?', 'state', 'US', 'Texas'), /next public post in 27 min/, 'every public audience waits');
+  // Posts to friends don't wait like that, and have no daily limit: only the 2 minutes between any two posts.
+  for (let i = 1; i <= 6; i++) { await post(u, 'Friends question number ' + i + '?', 'friends'); await later(3); }
+  // 3 days in a row: 15 minutes. The public post is 21 minutes old by now, so the next can go.
+  await answered(u, [2, 1, 0]);
+  assert.deepEqual(await wait(), { every: 15, next: 0, step: 5, min: 5 });
+  await post(u, 'Is a hot dog a sandwich?');
+  await later(3);
+  await assert.rejects(post(u, 'Is a taco a sandwich?'), /next public post in 12 min/);
+  // 5 days or more: 5 minutes, and never less.
+  await answered(u, [9, 8, 7, 6, 5, 4, 3]);
+  assert.equal((await wait()).every, 5);
+  await assert.rejects(post(u, 'Is a taco a sandwich?'), /next public post in 2 min/);
+  await later(2);
+  await post(u, 'Is a taco a sandwich?');
+  // A deleted public post still counts for the wait.
+  const v = await realUser(), gone = await post(v, 'Is a wrap a sandwich?');
+  await admin(`update public.posts set created_at = now() - interval '3 minutes' where user_id = $1`, [v]);
+  assert.equal(await call(v, `select public.delete_mine('post', $1) as r`, [gone.id]), 'deleted');
+  await assert.rejects(post(v, 'Is a wrap a sandwich?'), /next public post in 27 min/);
+  assert.ok((await call(v, 'select public.my_profile() as r')).public_wait.next > 26 * 60);
 });
 
 test('slurs are refused, look-alike spellings too, and normal words that contain them still work', async () => {
@@ -757,6 +830,18 @@ test('photo posts: off until the owner switches them on, then friends only, sign
     await assert.rejects(photoPost(w, [JPEG]), /photos are off/);
     await photoSwitch(true);
     assert.ok(await sees(friend2, r.id));
+
+    // Photos take room, so photo posts keep a limit of 3 a day. Posts without photos can still go.
+    const busy = await realUser(), bc = await code(busy);
+    await as('authenticated', busy, 'select public.set_friends($1)', [[wc]]);
+    await as('authenticated', w, 'select public.set_friends($1)', [[await code(friend), await code(friend2), await code(anonFriend), await code(young), bc]]);
+    const sooner = () => admin(`update public.posts set created_at = created_at - interval '3 minutes' where user_id = $1`, [busy]);
+    for (let i = 0; i < 3; i++) { await photoPost(busy, [JPEG]); await sooner(); }
+    await assert.rejects(photoPost(busy, [JPEG]), /enough photo posts for today/);
+    await post(busy, 'Is this one without a photo fine?', 'friends');
+    await admin(`update public.posts set created_at = created_at - interval '1 day' where user_id = $1 and photos > 0`, [busy]);
+    await sooner();
+    await photoPost(busy, [JPEG]);
 
     // Photos are deleted 30 days after they're posted (the feed only goes back 14).
     await admin(`update public.posts set created_at = now() - interval '31 days' where id = $1`, [r.id]);

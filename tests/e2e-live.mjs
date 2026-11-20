@@ -703,7 +703,7 @@ test('photo posts, once the owner switches them on: friends only, no location ke
   const code = async u => (await fake.pool.query('select verd_private.ensure_profile($1) as c', [u])).rows[0].c;
   const modCode = await code(mod), writerCode = await code(writer);
   await fake.pool.query('insert into public.friend_adds (user_id, code) values ($1, $2), ($3, $4) on conflict do nothing', [mod, writerCode, writer, modCode]);
-  // The writer posted earlier in these tests: move those back past the daily limit.
+  // The writer posted earlier in these tests: move those back past the waits between posts.
   await fake.pool.query("update public.posts set created_at = created_at - interval '2 days' where user_id = $1", [writer]);
   await fake.pool.query("update public.app_config set value = 1 where key in ('photos', 'auto_approve')");
   let pid = null;
@@ -760,5 +760,50 @@ test('photo posts, once the owner switches them on: friends only, no location ke
   } finally {
     await fake.pool.query("update public.app_config set value = 0 where key in ('photos', 'auto_approve')");
     if (pid) await fake.pool.query('delete from public.posts where id = $1', [pid]);
+  }
+});
+
+test('public posts wait 30 minutes, 5 less for each day of the answer streak: the composer says how long, and friends posts still go', async () => {
+  const writer = (await fake.pool.query("select id from auth.users where email = 'writer@verd.test'")).rows[0].id;
+  // The writer starts with no answers (theirs are put back after) and nothing posted lately.
+  const kept = (await fake.pool.query('select day::text as day, choice, country, state, city, created_at from public.votes where user_id = $1', [writer])).rows;
+  await fake.pool.query('delete from public.votes where user_id = $1', [writer]);
+  await fake.pool.query("update public.posts set created_at = created_at - interval '2 days' where user_id = $1", [writer]);
+  await fake.pool.query("update public.app_config set value = 1 where key = 'auto_approve'");
+  const later = mins => fake.pool.query('update public.posts set created_at = created_at - make_interval(mins => $2) where user_id = $1', [writer, mins]);
+  try {
+    const { p, ctx, errors } = await page({ es_sb: writerSession, es_born: JSON.stringify(yearsAgo(16, '05')) });
+    await p.waitForTimeout(600);
+    const compose = async () => { await p.click('#navPlus'); await p.waitForSelector('#compose:not([hidden])'); await p.click('#aud button:text-is("World")'); };
+    await compose();
+    assert.equal(await p.innerText('#awhen'), 'You can post publicly every 30 minutes. Each day of your streak takes 5 minutes off, down to 5 minutes.');
+    await p.click('#aud button:text-is("Friends")');
+    assert.equal(await p.$eval('#awhen', e => e.hidden), true, 'posts to friends have no such wait');
+    await p.click('#aud button:text-is("World")');
+    await p.fill('#ptext', 'Is pineapple good on pizza?'); await p.click('#psend'); await p.waitForTimeout(900);
+    assert.match(await p.innerText('#toast'), /Posted\. Others can see it now\./);
+    // 4 minutes later the composer says how long is left, and a public post is refused in the same words.
+    await later(4);
+    await compose();
+    assert.equal(await p.innerText('#awhen'), 'Your next public post can go in 26 minutes.');
+    await p.fill('#ptext', 'Is cold pizza better?'); await p.click('#psend'); await p.waitForTimeout(900);
+    assert.equal(await p.innerText('#toast'), 'Your next public post can go in 26 minutes.');
+    // To Friends it goes now: no wait and no daily limit.
+    await p.click('#aud button:text-is("Friends")'); await p.click('#psend'); await p.waitForTimeout(900);
+    assert.match(await p.innerText('#toast'), /Posted\./);
+    assert.equal((await fake.pool.query("select scope from public.posts where body = 'Is cold pizza better?'")).rows[0].scope, 'friends');
+    // Answers 3 days in a row: 15 minutes between public posts.
+    await fake.pool.query('insert into public.votes (day, user_id, choice, created_at) select verd_private.today() - k, $1, 0, now() - make_interval(days => k) from generate_series(0, 2) k', [writer]);
+    await later(3);
+    await compose();
+    assert.equal(await p.innerText('#awhen'), 'Your next public post can go in 8 minutes.');
+    await p.click('#cclose'); await later(8);
+    await compose();
+    assert.equal(await p.innerText('#awhen'), 'You can post publicly every 15 minutes. Each day of your streak takes 5 minutes off, down to 5 minutes.');
+    assert.deepEqual(errors, []); await ctx.close();
+  } finally {
+    await fake.pool.query("update public.app_config set value = 0 where key = 'auto_approve'");
+    await fake.pool.query('delete from public.votes where user_id = $1', [writer]);
+    for (const v of kept) await fake.pool.query('insert into public.votes (day, user_id, choice, country, state, city, created_at) values ($1, $2, $3, $4, $5, $6, $7)', [v.day, writer, v.choice, v.country, v.state, v.city, v.created_at]);
   }
 });
