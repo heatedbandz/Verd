@@ -79,7 +79,7 @@ else {
   check(gp.ok && b && Array.isArray(b.posts), 'anyone can read approved posts', `${gp.status} ${text.slice(0, 160)}`);
   check(!/user_id|reviewed_by|"email"/.test(text), 'posts carry no account ids or emails', text.slice(0, 160));
   for (const [who, token] of user ? [['anon', null], ['signed-in user', user]] : [['anon', null]]) {
-    for (const t of ['posts', 'post_votes', 'comments', 'reports', 'moderators', 'bans']) {
+    for (const t of ['posts', 'post_votes', 'comments', 'reports', 'moderators', 'bans', 'post_photos']) {
       const r = await fetch(`${url}/rest/v1/${t}?select=*`, { headers: h(token) });
       const body = await r.text();
       check(denied(r) || body === '[]', `${who} cannot read ${t}`, `${r.status} ${body.slice(0, 120)}`);
@@ -89,7 +89,8 @@ else {
   }
   for (const [fn, args] of [['create_post', { body: 'Is this a test?', color: 0, scope: 'world' }], ['create_comment', { pid: 1, body: 'A test' }],
       ['judge_post', { pid: 1, yes: true }], ['report_item', { what: 'post', iid: 1 }], ['delete_mine', { what: 'post', iid: 1 }],
-      ['set_birth', { y: 2000, m: 1 }], ['review_queue', {}], ['review_item', { what: 'post', iid: 1, decision: 'approve' }], ['ban_author', { what: 'post', iid: 1 }]]) {
+      ['set_birth', { y: 2000, m: 1 }], ['review_queue', {}], ['review_item', { what: 'post', iid: 1, decision: 'approve' }], ['ban_author', { what: 'post', iid: 1 }],
+      ['get_photos', { pid: 1 }]]) {
     const r = await fetch(`${url}/rest/v1/rpc/${fn}`, { method: 'POST', headers: h(), body: JSON.stringify(args) });
     check(denied(r), `anon cannot call ${fn}`, `${r.status} ${(await r.text()).slice(0, 120)}`);
   }
@@ -102,6 +103,12 @@ else {
     const r = await fetch(`${url}/rest/v1/rpc/${fn}`, { method: 'POST', headers: h(user), body: JSON.stringify(args) });
     const body = await r.text();
     check(r.status >= 400 && why.test(body), `an anonymous account cannot call ${fn}`, `${r.status} ${body.slice(0, 120)}`);
+  }
+  // Photos: only for mutual friends signed in with Google (404 until the setup.sql with photos is installed).
+  if (user) {
+    const r = await fetch(`${url}/rest/v1/rpc/get_photos`, { method: 'POST', headers: h(user), body: JSON.stringify({ pid: 1 }) });
+    const body = await r.text();
+    check(r.status === 404 || (r.status >= 400 && /no such post/.test(body)), 'an anonymous account gets no photos', `${r.status} ${body.slice(0, 120)}`);
   }
 }
 

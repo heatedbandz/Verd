@@ -461,6 +461,23 @@ Heaton: swapping invite links both ways didn't work easily. Now one person adds 
 | `friend_requests()` lists people who added your code and you haven't added back (code and time only, last 60 days, at most 20). `set_friends` keeps when each code was first added. Needs setup.sql rerun. | db "friend requests" |
 | Me shows a Friend requests card (Accept with an optional name, or Not now, kept on the phone) and a green dot on the Me button. No notifications. Requests go out once the sender has an account (their first answer), and the toast says so. | e2e-live "friend requests" |
 
+## Photo posts for friends (2026-11-20)
+
+**The owner asked for photos in posts.** Photos were left off the live site on purpose: nothing can check a photo the way words are checked, and posts now go live without review. So photo posts stay small and between friends, and they're off until a parent switches them on.
+
+- **The switch:** `update public.app_config set value = 1 where key = 'photos';` turns photo posts on. 0 stops new ones and hides every photo post from everyone but its writer, at once.
+- **Friends only:** a photo post goes to Friends and nowhere else. Only mutual friends who are signed in with Google and 13 or older see it: not an anonymous account, not a friend under 13, not someone who only knows your code, and nobody signed out. The database checks this for the post and for each photo.
+- **Up to 2 photos,** like on the phone: one is answered Yes or No, two are This one or That one. The words are still filtered, and photo posts count toward the 3 posts a day.
+- **No location or camera details:** the app redraws each photo at 960 pixels at most, which leaves out where and when it was taken. The database also cuts out every bit of metadata (EXIF, XMP, comments) before it keeps a photo, so not even another app can post a location.
+- **Reports:** one report hides a photo post for everyone until the moderator looks (a text post takes 3). In **Me → Review** the photos are blurred until the moderator taps them.
+- **Kept 30 days:** photos are deleted 30 days after they're posted. The feed only goes back 14. Deleting a post deletes its photos.
+- **Where they're kept:** in the database, about 220 KB each at most, behind the same locked functions as everything else. The feed comes first and each post's photos follow, so the feed never waits for them.
+- **What it can't do:** nothing looks at what's in a photo. A friend could still post something they shouldn't, and a report is what takes it down.
+- **Tests:** 2 new, and all 103 pass.
+  - `db`: off until switched on. Then friends only, signed in and 13 or older: refused for an anonymous friend, a friend under 13, someone who only added the writer, a stranger and anyone signed out. Three photos, another audience, custom answers, something that isn't a JPEG and a photo cut short are refused. A location and a comment are cut out and the picture is kept byte for byte. One report hides it, and Keep brings it back. Switching off hides it. Photos go after 30 days, and with their post.
+  - `e2e-live`: two photos from the composer go to Friends only and nothing about where they were taken is kept. A friend who's signed in sees both and picks one, someone signed out never even asks for them, and Review blurs a reported one until it's tapped.
+  - `live-rls`: 4 new checks. Nobody can read the photos table, and someone signed out or anonymous gets no photos. All 76 pass against the stand-in.
+
 ## Next single step
 
 **A parent sets up sign-in and becomes the moderator.** It takes about 20 minutes on a computer. Posting opens the moment it's done, and nothing changes on the site before that.
@@ -469,7 +486,7 @@ Heaton: swapping invite links both ways didn't work easily. Now one person adds 
    - Open [a new query in Verd's Supabase project](https://supabase.com/dashboard/project/zfphqlavepncdoihiugu/sql/new). It must be empty.
    - Open [setup.sql on GitHub](https://github.com/heatedbandz/Verd/blob/main/setup.sql) and press its copy button (two squares, top right of the file).
    - Paste into the empty query and press **Run**.
-   - It worked if the result says **Verd is set up, with posting (setup.sql of 2026-11-20, with the stronger slur filter, custom answers and friend requests)**. If it says "Success. No rows returned", an older copy ran (for example one still open in the SQL Editor from launch day).
+   - It worked if the result says **Verd is set up, with posting (setup.sql of 2026-11-20, with the stronger slur filter, custom answers, friend requests and photos for friends)**. If it says "Success. No rows returned", an older copy ran (for example one still open in the SQL Editor from launch day).
 2. **Make a Google sign-in client.** Open the [Google Cloud console](https://console.cloud.google.com/auth/overview), signed in as the parent.
    - Create a project called Verd if asked.
    - **Branding:** app name Verd and a support email.
@@ -488,3 +505,5 @@ Heaton: swapping invite links both ways didn't work easily. Now one person adds 
 To pause posting at any time, run `update public.app_config set value = 1 where key = 'posting_paused';`. Use 0 to open it again.
 
 To let new posts and comments go live without waiting for review, run `update public.app_config set value = 1 where key = 'auto_approve';`. Use 0 to make them wait again. Only do this if the parent agrees: see **Posts can go live at once**.
+
+To switch on photo posts for friends, run `update public.app_config set value = 1 where key = 'photos';`. Use 0 to stop them and hide every photo post at once. Only do this if the parent agrees: see **Photo posts for friends**.

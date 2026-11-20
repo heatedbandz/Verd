@@ -169,13 +169,16 @@ const backends = {
       // missing: get_posts isn't in the database yet (Google switched on before the posting part of setup.sql).
       // One quiet answer of "no such function" is enough: no asking again on a timer, and sign-in stays hidden.
       // reviewFirst: new posts wait for a moderator. False once the database owner sets auto_approve.
-      let cb = null, open = false, reviewFirst = true, loading = null, missing = false;
+      // photosOn: the owner switched photo posts on (friends only). pics: each photo post's photos, once fetched.
+      let cb = null, open = false, reviewFirst = true, photosOn = false, loading = null, missing = false;
+      const pics = {}, fetching = {};
       const num = id => Number(String(id).slice(1));
       const what = id => String(id)[0] === "c" ? "comment" : "post";
       const asPost = (p, pl) => ({
         id: "p" + p.id, text: p.body, color: p.color, cat: catOf(p.body), scope: p.scope, country: p.country, opts: p.a && p.b ? [p.a, p.b] : null,
         state: p.scope === "state" || p.scope === "city" ? pl.state : "", city: p.scope === "city" ? pl.city : "",
         t: p.t, author: p.mine ? "@me" : p.code || null, yes: p.yes, no: p.no, total: p.total, close: p.close, reports: 0,
+        photos: p.photos || 0, imgs: pics["p" + p.id],
         status: p.status || "approved", reason: p.reason || "",
         comments: p.comments.map(c => ({ id: "c" + c.id, post: "p" + p.id, author: c.mine ? "@me" : c.code || null, text: c.body, side: c.side, t: c.t, reports: 0, status: c.status || "approved" }))
       });
@@ -184,7 +187,7 @@ const backends = {
         return loading ||= (async () => {
           try{
             const pl = myPlace(), r = await rpc("get_posts", placeArgs(pl)), mv = {};
-            open = !!r.open; reviewFirst = r.review_first !== false;
+            open = !!r.open; reviewFirst = r.review_first !== false; photosOn = r.photos_on === true;
             for (const p of r.posts) if (p.my_vote) mv["p" + p.id] = p.my_vote;
             if (cb) cb(r.posts.map(p => asPost(p, pl)), mv, {});
           }catch(e){ if (e.status === 404) missing = true; } finally { loading = null; }
@@ -196,11 +199,24 @@ const backends = {
         me: "@me", live: true,
         get open(){ return open; },
         get reviewFirst(){ return reviewFirst; },
+        get photosOn(){ return photosOn; },
         get missing(){ return missing; },
         watch(f){ cb = f; load(); },
         refresh: load,
         // live: it went up at once (auto_approve), instead of waiting for a moderator.
-        async post(item){ const r = await rpc("create_post", { body: item.text, color: item.color, scope: item.scope, ...placeArgs(myPlace()), ...(item.opts ? { opt_a: item.opts[0], opt_b: item.opts[1] } : {}) }, true); await load(); return { id: "p" + r.id, live: r.status === "approved" }; },
+        // imgs: a photo post's photos, as the composer made them (data URLs). The database keeps the JPEG only.
+        async post(item, imgs){
+          const shots = (imgs || []).map(u => u.slice(u.indexOf(",") + 1));
+          const r = await rpc("create_post", { body: item.text, color: item.color, scope: item.scope, ...placeArgs(myPlace()), ...(item.opts ? { opt_a: item.opts[0], opt_b: item.opts[1] } : {}), ...(shots.length ? { pics: shots } : {}) }, true);
+          if (shots.length) pics["p" + r.id] = imgs.slice();
+          await load(); return { id: "p" + r.id, live: r.status === "approved" };
+        },
+        // A photo post's photos, asked for once each, after the feed is up, so the feed never waits for them.
+        photos(id){
+          if (pics[id]) return Promise.resolve(pics[id]);
+          return fetching[id] ||= rpc("get_photos", { pid: num(id) }, true)
+            .then(list => pics[id] = list.map(b => "data:image/jpeg;base64," + b)).finally(() => { delete fetching[id]; });
+        },
         async comment(item){ const r = await rpc("create_comment", { pid: num(item.post), body: item.text, ...placeArgs(myPlace()) }, true); await load(); return { id: "c" + r.id, live: r.status === "approved" }; },
         vote: (id, v) => rpc("judge_post", { pid: num(id), yes: v > 0, ...placeArgs(myPlace()) }, true),
         report: id => rpc("report_item", { what: what(id), iid: num(id), ...placeArgs(myPlace()) }, true),
@@ -215,6 +231,7 @@ const backends = {
       review: {
         queue: () => rpc("review_queue", {}, true),
         decide: (what, iid, decision, why) => rpc("review_item", { what, iid, decision, why: why || null }, true),
+        photos: iid => rpc("get_photos", { pid: iid }, true),
         block: (what, iid, days, why) => rpc("ban_author", { what, iid, for_days: days, why }, true)
       },
       watch(dayKey, n, place, cb){
@@ -768,11 +785,14 @@ function postSlide(p){
   const published = !p.status || p.status === "approved";
   const s = shell(p.id, COLORS[(typeof p.color === "number" ? p.color : hash(p.id)) % COLORS.length]), body = el("div", "sbody");
   body.append(el("div", "kicker", [placeLabel(p), ago(p.t), mine ? standing(p) : "", ask.flipped[p.id] ? "Flipped since you voted" : ""].filter(Boolean).join(" · ")));
-  const imgs = p.imgs || [], duo = imgs.length === 2, labels = sideLabels(p);
+  // On the live site a photo post's photos come a moment after the post: until then their places stay empty.
+  const waitPics = !p.imgs && p.photos > 0 && !!ask.api.photos;
+  const imgs = p.imgs || (waitPics ? Array(p.photos).fill("") : []), duo = imgs.length === 2, labels = sideLabels(p);
+  if (waitPics) fillPics(p);
   const tap = i => mine ? toast("You can't vote on your own post.") : votePost(p.id, i === 0 ? 1 : -1);
-  if (imgs.length === 1){ s.classList.add("photo"); const im = el("img", "pbg"); im.src = imgs[0]; im.alt = ""; s.append(im); }
+  if (imgs.length === 1){ s.classList.add("photo"); const im = el("img", "pbg"); if (imgs[0]) im.src = imgs[0]; im.alt = ""; s.append(im); }
   if (duo){ s.classList.add("duo"); const g = el("div", "duo-imgs");
-    imgs.forEach((src, i) => { const b = el("button", my && (my > 0 ? 0 : 1) === i ? "mine" : ""), im = el("img"); im.src = src; im.alt = labels[i]; b.append(im); b.setAttribute("aria-label", labels[i]); if (show) b.disabled = true; else b.onclick = () => tap(i); g.append(b); });
+    imgs.forEach((src, i) => { const b = el("button", my && (my > 0 ? 0 : 1) === i ? "mine" : ""); if (src){ const im = el("img"); im.src = src; im.alt = labels[i]; b.append(im); } b.setAttribute("aria-label", labels[i]); if (show) b.disabled = true; else b.onclick = () => tap(i); g.append(b); });
     s.append(g); }
   body.append(el("h2", "stext" + (imgs.length ? " s" : sizeClass(p.text)), p.text));
   const close = p.close ?? (total >= 4 && Math.abs(yes - 50) <= 10);
@@ -788,6 +808,13 @@ function postSlide(p){
   foot.append(acts);
   s.append(body, answers(p.id, labels, show && total && yes != null ? [yes, 100 - yes] : null, my ? (my > 0 ? 0 : 1) : -1, tap, animate === p.id), foot);
   return s;
+}
+// Fetches a live photo post's photos and swaps its slide for one with them, where it is.
+function fillPics(p){
+  ask.api.photos(p.id).then(list => {
+    const old = $("feed").querySelector('.slide[data-id="' + p.id + '"]'); if (!old || !list.length) return;
+    const fresh = postSlide({ ...p, imgs: list }); old.replaceWith(fresh); if (seen) seen.observe(fresh);
+  }).catch(() => {});
 }
 const dropLine = () => "Tomorrow's question drops in " + nextIn() + ".";
 function endSlide(){
@@ -983,7 +1010,7 @@ async function shareDaily(){
 const liveComments = p => p.comments.filter(c => (c.reports < HIDE_AT || c.author === ask.api.me) && !ask.myReports[c.id]);
 const whoSaid = c => c.author === ask.api.me ? "You" : friends().includes(c.author) ? c.author : "Someone";
 // A post's answers: its own two (like Lamborghini or Ferrari), This one or That one for two photos, else Yes or No.
-const sideLabels = p => (p.imgs || []).length === 2 ? ["This one", "That one"] : p.opts && p.opts.length === 2 ? p.opts : ["Yes", "No"];
+const sideLabels = p => (p.imgs ? p.imgs.length : ask.api && ask.api.photos ? p.photos : 0) === 2 ? ["This one", "That one"] : p.opts && p.opts.length === 2 ? p.opts : ["Yes", "No"];
 function openSheet(id){ sheetPost = id; $("stitle").textContent = "Comments"; $("clist").hidden = false; $("cform").hidden = false; $("shareBox").hidden = true; renderSheet(); $("sheet").hidden = false; }
 function closeSheet(){ $("sheet").hidden = true; sheetPost = null; }
 function renderSheet(){
@@ -1026,15 +1053,20 @@ $("cform").onsubmit = async e => {
 
 // ---------- New post ----------
 let cColor = 0, cScope = "world", cPhotos = [];
-// Shrinks a photo in the browser so it loads fast and stays small.
-function shrink(file){
+// Shrinks a photo in the browser so it loads fast and stays small (960 pixels on the live site, 640 on the phone).
+// Drawing it again keeps only the picture: where and when it was taken and the camera are left behind.
+// The database cuts those out too, whatever app sends the photo.
+function shrink(file, max){
   return new Promise((ok, fail) => { const img = new Image(), url = URL.createObjectURL(file);
-    img.onload = () => { const k = Math.min(1, 640 / Math.max(img.width, img.height)), c = document.createElement("canvas"); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
-      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url); ok(c.toDataURL("image/jpeg", .7)); };
+    img.onload = () => { const k = Math.min(1, max / Math.max(img.width, img.height)), c = document.createElement("canvas"); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url);
+      let q = .7, out = c.toDataURL("image/jpeg", q);
+      while (out.length > 300000 && q > .3){ q -= .15; out = c.toDataURL("image/jpeg", q); }   // about 220 KB at most
+      ok(out); };
     img.onerror = () => { URL.revokeObjectURL(url); fail(); }; img.src = url; });
 }
 $("pfile").onchange = async e => {
-  for (const f of [...e.target.files].slice(0, 2 - cPhotos.length)){ try{ cPhotos.push(await shrink(f)); }catch{ toast("That photo couldn't be opened."); } }
+  for (const f of [...e.target.files].slice(0, 2 - cPhotos.length)){ try{ cPhotos.push(await shrink(f, ask.api.live ? 960 : 640)); }catch{ toast("That photo couldn't be opened."); } }
   e.target.value = ""; if (cPhotos.length) cScope = "friends"; drawCompose();
 };
 async function openCompose(prefill){
@@ -1053,11 +1085,14 @@ function drawCompose(){
   cPhotos.forEach((src, i) => { const t = el("div", "thumb"), im = el("img"); im.src = src; im.alt = "Photo " + (i + 1); const x = el("button"); x.append(el("span", "", "×")); x.setAttribute("aria-label", "Remove photo"); x.onclick = () => { cPhotos.splice(i, 1); drawCompose(); }; t.append(im, x); th.append(t); });
   if (cPhotos.length < 2){ const a = el("button", "addp"); a.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>'; a.setAttribute("aria-label", "Add a photo"); a.onclick = () => $("pfile").click(); th.append(a); }
   $("compose").classList.toggle("haspic", cPhotos.length > 0); $("colorRow").hidden = cPhotos.length > 0;
-  // No photos on the live site: words can be checked before anyone sees them, photos can't yet.
-  $("photoRow").hidden = !!ask.api.live;
+  // Photos on the live site only once the owner switches them on: nothing can check a photo the way words are
+  // checked, so they go to friends only, and only friends who are signed in and 13 or older see them.
+  $("photoRow").hidden = !!ask.api.live && !ask.api.photosOn;
   $("ptext").placeholder = cPhotos.length === 2 ? "Which one?" : cPhotos.length === 1 ? "Yes or no?" : "What do you want a verdict on?";
-  $("cnote").textContent = cPhotos.length === 2 ? "Friends pick This one or That one. Photo posts go to friends only for now."
-    : cPhotos.length === 1 ? "Friends answer Yes or No. Photo posts go to friends only for now."
+  const who = ask.api.live ? " Only friends who are signed in and 13 or older see it, and one report hides it until the moderator looks."
+    : " Photo posts go to friends only for now.";
+  $("cnote").textContent = cPhotos.length === 2 ? "Friends pick This one or That one." + who
+    : cPhotos.length === 1 ? "Friends answer Yes or No." + who
     : "People pick one of your two answers. No names, phone numbers or anything mean about a real person.";
   $("optRow").hidden = cPhotos.length > 0;
   if (backend && backend.mode === "device") $("cnote").textContent = "Only you can see your posts until Verd goes live. " + $("cnote").textContent;
@@ -1082,10 +1117,10 @@ $("psend").onclick = async () => {
   $("psend").disabled = true;
   if (ask.api.live){
     try{
-      const r = await ask.api.post(item); store.set("posted", true);
+      const r = await ask.api.post(item, imgs); store.set("posted", true);
       if (ask.scope !== item.scope){ ask.scope = item.scope; order = []; renderTop(); }
-      jumpTo = r.id; $("ptext").value = $("opta").value = $("optb").value = ""; closeCompose(); showPage("feed"); renderFeed();
-      toast(r.live ? "Posted. Others can see it now." : "Sent for review. Others see it once a moderator approves it."); checkBadges();
+      jumpTo = r.id; $("ptext").value = $("opta").value = $("optb").value = ""; cPhotos = []; closeCompose(); showPage("feed"); renderFeed();
+      toast(r.live ? (imgs.length ? "Posted. Your friends can see it now." : "Posted. Others can see it now.") : "Sent for review. Others see it once a moderator approves it."); checkBadges();
     }catch(err){ const m = writeError(err); if (m) toast(m); else { closeCompose(); gate("post"); } }
     $("psend").disabled = false; return;
   }
@@ -1159,6 +1194,10 @@ function writeError(e){
     : /enough comments/.test(m) ? "That's the limit for today. You can comment again tomorrow."
     : /give two different answers/.test(m) ? "Make the two answers different."
     : /answers are 1 to 30/.test(m) ? "Keep each answer to 30 letters."
+    : /photos are off/.test(m) ? "Photo posts are switched off right now."
+    : /bad photo/.test(m) ? "That photo couldn't be sent. Try a different one."
+    : /at most 2 photos/.test(m) ? "Two photos at most."
+    : /photo posts/.test(m) ? "Photo posts go to friends, answered Yes or No."
     : /create_post|PGRST202|function/i.test(m) ? "Your own answers need one more setup step. Leave them empty for Yes and No for now."
     : /wait a moment/.test(m) ? "Wait a moment before the next one."
     : /are \d+ to 200 characters/.test(m) ? m[0].toUpperCase() + m.slice(1) + "."
@@ -1204,12 +1243,20 @@ function reviewRow(x, how){
   const d = el("div", "ritem"), acts = el("div", "racts"), w = x.writer || {};
   // The writer's record counts this one too once it's up, so leave it out.
   const ok = Math.max(0, (w.approved || 0) - (how === "waiting" ? 0 : 1)), no = w.turned_down || 0;
-  d.append(el("div", "rmeta", [x.kind === "post" ? "Post" : "Comment",
+  d.append(el("div", "rmeta", [x.kind === "post" ? (x.photos ? "Photo post" : "Post") : "Comment",
     how === "reported" ? x.reports + (x.reports === 1 ? " report" : " reports") + (x.hidden ? ", hidden until you decide" : "")
       : ago(x.t) + " ago",
     ok + no ? ok + " approved and " + no + " turned down before" : "First one from this writer"].join(" · ")));
   if (x.on) d.append(el("p", "ron", "On “" + x.on + "”"));
   d.append(el("p", "", x.body));
+  // A photo post's photos, blurred until the moderator taps them, so nothing is seen by surprise.
+  if (x.photos && backend.review.photos){
+    const ph = el("button", "rphotos"); ph.setAttribute("aria-label", "Show the photos"); d.append(ph);
+    ph.onclick = () => { ph.classList.add("open"); ph.setAttribute("aria-label", "Photos"); };
+    backend.review.photos(x.id).then(list => ph.replaceChildren(...(list.length
+      ? [...list.map((b, i) => { const im = el("img"); im.src = "data:image/jpeg;base64," + b; im.alt = "Photo " + (i + 1); return im; }), el("span", "rtap", "Tap to see")]
+      : [el("span", "rmeta", "The photos were deleted 30 days after it was posted.")]))).catch(() => ph.replaceChildren(el("span", "rmeta", "Couldn't load the photos.")));
+  }
   const done = async fn => {
     for (const k of acts.querySelectorAll("button")) k.disabled = true;
     try{ await fn(); }catch(e){ toast(/already decided/.test((e && e.message) || "") ? "That one was already decided." : "Couldn't save that. Try again."); }

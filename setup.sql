@@ -23,6 +23,9 @@
 --   New posts and comments wait for the moderator. To let them go live at once instead, with the moderator
 --   seeing only what people report (only the account owner can switch this):
 --        update public.app_config set value = 1 where key = 'auto_approve';     (0 makes them wait again)
+--   Photo posts are off until the account owner switches them on. They only ever go to mutual friends who
+--   are signed in and 13 or older, and nothing checks the photos themselves, so a parent should decide:
+--        update public.app_config set value = 1 where key = 'photos';           (0 hides every photo post at once)
 --
 -- Why the publishable (anon) key can sit in a public web page:
 --   * Every table has row level security ON with no policies, and the browser roles (anon,
@@ -40,6 +43,9 @@
 --     not blocked, can write. Everything waits for a moderator (unless the owner sets auto_approve),
 --     words are filtered here, and the limits are counted here. Nobody's account id, email or name
 --     ever leaves the database.
+--   * Photos (when switched on): friends only, seen only by mutual friends signed in and 13 or older.
+--     Location, camera and every other bit of metadata is taken out here before a photo is kept, and
+--     photos are deleted 30 days after they're posted.
 --   * tests/db.test.mjs and tests/live-rls.mjs try to break all of this and must fail to.
 
 -- Older test versions of this file used a different votes table (voter text). Replace it.
@@ -590,7 +596,8 @@ insert into public.app_config (key, value) values
   ('reports_per_day', 30),
   ('hide_at_reports', 3),        -- hidden for everyone at 3 reports, until a moderator looks
   ('posting_paused', 0),         -- set to 1 to stop new posts and comments straight away
-  ('auto_approve', 0)            -- 1: new posts and comments go live at once; the moderator sees what's reported
+  ('auto_approve', 0),           -- 1: new posts and comments go live at once; the moderator sees what's reported
+  ('photos', 0)                  -- 1: photo posts for friends; 0 stops them and hides every one at once
 on conflict (key) do nothing;
 
 -- The month someone was born, given once (year * 12 + month - 1). The app can't change it.
@@ -632,6 +639,8 @@ create index if not exists posts_by_status on public.posts (status, created_at);
 -- A post's own two answers, like "Lamborghini" and "Ferrari". Both empty means Yes and No.
 alter table public.posts add column if not exists opt_a text check (opt_a is null or char_length(opt_a) between 1 and 30);
 alter table public.posts add column if not exists opt_b text check (opt_b is null or char_length(opt_b) between 1 and 30);
+-- How many photos a post has: 0, or 1 to 2 for a photo post (friends only). The photos are in post_photos.
+alter table public.posts add column if not exists photos smallint not null default 0 check (photos between 0 and 2);
 create index if not exists posts_by_user   on public.posts (user_id, created_at);
 
 -- One judgment per person per post: 1 = yes (or "this one"), -1 = no.
@@ -669,6 +678,14 @@ create table if not exists public.reports (
 );
 create index if not exists reports_by_user on public.reports (user_id, created_at);
 
+-- A photo post's photos, kept as plain JPEG with all metadata (location, camera, time) taken out.
+create table if not exists public.post_photos (
+  post_id bigint   not null references public.posts (id) on delete cascade,
+  n       smallint not null check (n in (0, 1)),
+  jpeg    bytea    not null check (octet_length(jpeg) between 100 and 250000),
+  primary key (post_id, n)
+);
+
 -- Locked like the rest: RLS on, no policies, no privileges for the browser roles.
 alter table public.moderators enable row level security;
 alter table public.bans       enable row level security;
@@ -676,7 +693,8 @@ alter table public.posts      enable row level security;
 alter table public.post_votes enable row level security;
 alter table public.comments   enable row level security;
 alter table public.reports    enable row level security;
-revoke all on public.moderators, public.bans, public.posts, public.post_votes, public.comments, public.reports
+alter table public.post_photos enable row level security;
+revoke all on public.moderators, public.bans, public.posts, public.post_votes, public.comments, public.reports, public.post_photos
   from public, anon, authenticated;
 revoke all on sequence public.posts_id_seq, public.comments_id_seq from public, anon, authenticated;
 
@@ -743,14 +761,83 @@ language sql stable security definer set search_path = public as $$
          >= verd_private.cfg('hide_at_reports')
 $$;
 
+-- Photo posts are switched on (app_config photos = 1).
+create or replace function verd_private.photos_on() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce(verd_private.cfg('photos'), 0) = 1
+$$;
+
+-- A photo as the app sends it (base64 JPEG), kept as the picture and nothing else: location, camera, time,
+-- comments and any other metadata (EXIF, XMP, APP3 to APP13, APP15, COM) are cut out. Kept: the JFIF header,
+-- a colour profile and the Adobe colour marker, which only say how to draw it. Null when it isn't a JPEG
+-- of a sensible size.
+create or replace function verd_private.clean_jpeg(b64 text) returns bytea
+language plpgsql immutable as $$
+declare
+  raw bytea;
+  out bytea := '\xffd8'::bytea;
+  i   int := 2;
+  m   int;
+  len int;
+begin
+  begin
+    raw := decode(b64, 'base64');
+  exception when others then
+    return null;
+  end;
+  if raw is null or octet_length(raw) < 100 or octet_length(raw) > 400000
+     or get_byte(raw, 0) <> 255 or get_byte(raw, 1) <> 216 then
+    return null;
+  end if;
+  loop
+    if i + 4 > octet_length(raw) or get_byte(raw, i) <> 255 then
+      return null;
+    end if;
+    m := get_byte(raw, i + 1);
+    if m = 255 then   -- padding before a marker
+      i := i + 1;
+      continue;
+    end if;
+    if m = 218 then   -- start of scan: the picture data, kept to the end
+      out := out || substring(raw from i + 1);
+      exit;
+    end if;
+    if m in (0, 1, 216, 217) or m between 208 and 215 then
+      return null;
+    end if;
+    len := get_byte(raw, i + 2) * 256 + get_byte(raw, i + 3);
+    if len < 2 or i + 2 + len > octet_length(raw) then
+      return null;
+    end if;
+    if (m between 224 and 239 or m = 254)   -- APP0 to APP15 and comments: metadata
+       and not (m = 224 and substring(raw from i + 5 for 5) = '\x4a46494600'::bytea)         -- APP0 "JFIF"
+       and not (m = 226 and substring(raw from i + 5 for 12) = '\x4943435f50524f46494c4500'::bytea)   -- APP2 "ICC_PROFILE"
+       and not (m = 238 and substring(raw from i + 5 for 5) = '\x41646f6265'::bytea) then   -- APP14 "Adobe"
+      null;   -- left out
+    else
+      out := out || substring(raw from i + 1 for 2 + len);
+    end if;
+    i := i + 2 + len;
+  end loop;
+  if octet_length(out) > 250000 or position('\xffd9'::bytea in out) = 0 then
+    return null;
+  end if;
+  return out;
+end $$;
+
 -- May this viewer see this post in their feed? Approved, for their place or a mutual friend, not hidden,
--- not reported by them, and its writer isn't blocked.
+-- not reported by them, and its writer isn't blocked. A photo post also needs photos switched on and a viewer
+-- who is signed in (not anonymous) and 13 or older, and one report hides it until the moderator looks.
 create or replace function verd_private.sees(p public.posts, uid uuid, k_cc text, k_st text, k_ci text) returns boolean
 language sql stable security definer set search_path = public as $$
   select p.status = 'approved'
      and not verd_private.hidden('post', p.id, p.kept_at)
      and not verd_private.banned(p.user_id)
      and not exists (select 1 from public.reports r where r.kind = 'post' and r.item_id = p.id and r.user_id = uid)
+     and (p.photos = 0
+          or (verd_private.photos_on() and verd_private.real(uid) and verd_private.age_ok(uid)
+              and not exists (select 1 from public.reports r
+                               where r.kind = 'post' and r.item_id = p.id and (p.kept_at is null or r.created_at > p.kept_at))))
      and case p.scope
            when 'world'   then true
            when 'country' then p.country = k_cc
@@ -833,6 +920,7 @@ begin
   )
   select coalesce(jsonb_agg(jsonb_build_object(
            'id', s.id, 'body', s.body, 'color', s.color, 'scope', s.scope, 'country', s.country, 'a', s.opt_a, 'b', s.opt_b,
+           'photos', s.photos,
            't', verd_private.ms(s.created_at),
            'mine', s.user_id is not distinct from uid,
            'status', case when s.user_id = uid then s.status end,
@@ -863,7 +951,32 @@ begin
          ) order by s.created_at desc), '[]'::jsonb)
     into list
     from shown s join tally t on t.id = s.id;
-  return jsonb_build_object('open', verd_private.posting_open(), 'review_first', verd_private.review_first(), 'posts', list);
+  return jsonb_build_object('open', verd_private.posting_open(), 'review_first', verd_private.review_first(),
+                            'photos_on', verd_private.photos_on(), 'posts', list);
+end $$;
+
+-- A photo post's photos (base64 JPEG, in order) for someone who may see it: its writer, a mutual friend who
+-- is signed in and 13 or older (the same rule as the feed), or a moderator when it waits for review or was reported.
+create or replace function public.get_photos(pid bigint)
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  uid uuid := auth.uid();
+  p   public.posts;
+begin
+  if uid is null then
+    raise exception 'sign in first' using errcode = '28000';
+  end if;
+  select * into p from public.posts x where x.id = pid;
+  if not found or p.photos = 0
+     or not (p.user_id = uid
+             or verd_private.sees(p, uid, null, null, null)
+             or (verd_private.is_mod(uid)
+                 and (p.status = 'pending' or exists (select 1 from public.reports r where r.kind = 'post' and r.item_id = p.id)))) then
+    raise exception 'no such post' using errcode = '22023';
+  end if;
+  return coalesce((select jsonb_agg(replace(encode(ph.jpeg, 'base64'), E'\n', '') order by ph.n)
+                     from public.post_photos ph where ph.post_id = pid), '[]'::jsonb);
 end $$;
 
 -- Judge a post: yes = true or false. Once per post, never your own, only posts you can see.
@@ -898,11 +1011,13 @@ begin
 end $$;
 
 -- Write a post. It waits for a moderator (or goes live at once with auto_approve). A few a day, a couple of
--- minutes apart, blocked words refused.
--- The version before custom answers had six arguments. Two versions side by side would confuse the API.
+-- minutes apart, blocked words refused. pics: 1 or 2 photos (base64 JPEG) make a photo post, which goes to
+-- friends only, answered Yes or No (This one or That one with two), once the owner has switched photos on.
+-- Earlier versions had six arguments, then eight. Two versions side by side would confuse the API.
 drop function if exists public.create_post(text, smallint, text, text, text, text);
+drop function if exists public.create_post(text, smallint, text, text, text, text, text, text);
 create or replace function public.create_post(body text, color smallint, scope text, cc text default 'XX', st text default null, ci text default null,
-                                              opt_a text default null, opt_b text default null)
+                                              opt_a text default null, opt_b text default null, pics text[] default null)
 returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare
@@ -918,12 +1033,29 @@ declare
   prev   timestamptz;
   new_id bigint;
   now_is text;
+  shots  bytea[] := '{}';
+  shot   bytea;
+  pic    text;
 begin
   if why is not null then
     raise exception '%', why using errcode = '42501';
   end if;
   if char_length(clean) < 4 or char_length(clean) > 200 then
     raise exception 'posts are 4 to 200 characters' using errcode = '22023';
+  end if;
+  if coalesce(cardinality(pics), 0) > 0 then
+    if not verd_private.photos_on() then
+      raise exception 'photos are off' using errcode = '22023';
+    end if;
+    if cardinality(pics) > 2 then
+      raise exception 'at most 2 photos' using errcode = '22023';
+    end if;
+    if scope is distinct from 'friends' then
+      raise exception 'photo posts go to friends' using errcode = '22023';
+    end if;
+    if a is not null or b is not null then
+      raise exception 'photo posts have no answers of their own' using errcode = '22023';
+    end if;
   end if;
   if scope is null or scope not in ('world', 'country', 'state', 'city', 'friends') then
     raise exception 'bad audience' using errcode = '22023';
@@ -949,11 +1081,25 @@ begin
   if prev > now() - make_interval(secs => verd_private.cfg('post_gap_seconds')) then
     raise exception 'wait a moment' using errcode = '22023';
   end if;
-  insert into public.posts (user_id, body, color, scope, country, state, city, status, opt_a, opt_b)
+  foreach pic in array coalesce(pics, '{}'::text[]) loop
+    shot := verd_private.clean_jpeg(pic);
+    if shot is null then
+      raise exception 'bad photo' using errcode = '22023';
+    end if;
+    shots := shots || shot;
+  end loop;
+  insert into public.posts (user_id, body, color, scope, country, state, city, status, opt_a, opt_b, photos)
   values (uid, clean, greatest(0, least(31, coalesce(color, 0))), scope, k_cc,
           case when scope in ('state', 'city') then k_st end, case when scope = 'city' then k_ci end,
-          case when verd_private.review_first() then 'pending' else 'approved' end, a, b)
+          case when verd_private.review_first() then 'pending' else 'approved' end, a, b, cardinality(shots))
   returning id, status into new_id, now_is;
+  if cardinality(shots) > 0 then
+    insert into public.post_photos (post_id, n, jpeg)
+    select new_id, (k - 1)::smallint, shots[k] from generate_subscripts(shots, 1) as k;
+    -- Posts leave the feed after 14 days. Their photos aren't kept long after that.
+    delete from public.post_photos ph using public.posts x
+     where ph.post_id = x.id and x.created_at < now() - interval '30 days';
+  end if;
   return jsonb_build_object('id', new_id, 'status', now_is);
 end $$;
 
@@ -1082,24 +1228,26 @@ begin
   end if;
   return jsonb_build_object(
     'waiting', (select coalesce(jsonb_agg(jsonb_build_object('kind', q.kind, 'id', q.id, 'body', q.body, 'on', q.on_post,
-                                          'scope', q.scope, 't', verd_private.ms(q.t), 'writer', verd_private.track(q.user_id))
+                                          'scope', q.scope, 'photos', q.photos, 't', verd_private.ms(q.t), 'writer', verd_private.track(q.user_id))
                                         order by q.t), '[]'::jsonb)
-                  from (select 'post' as kind, p.id, p.body, null::text as on_post, p.scope, p.created_at as t, p.user_id
+                  from (select 'post' as kind, p.id, p.body, null::text as on_post, p.scope, p.photos, p.created_at as t, p.user_id
                           from public.posts p where p.status = 'pending' and not verd_private.banned(p.user_id)
                         union all
-                        select 'comment', c.id, c.body, p.body, p.scope, c.created_at, c.user_id
+                        select 'comment', c.id, c.body, p.body, p.scope, 0::smallint, c.created_at, c.user_id
                           from public.comments c join public.posts p on p.id = c.post_id
                          where c.status = 'pending' and not verd_private.banned(c.user_id)) q),
+    -- A photo post is hidden at its first report (friends only means few people see it to report it).
     'reported', (select coalesce(jsonb_agg(jsonb_build_object('kind', q.kind, 'id', q.id, 'body', q.body, 'on', q.on_post,
-                                           'reports', q.n, 'hidden', q.n >= verd_private.cfg('hide_at_reports'),
+                                           'photos', q.photos, 'reports', q.n,
+                                           'hidden', q.n >= verd_private.cfg('hide_at_reports') or q.photos > 0,
                                            'writer', verd_private.track(q.user_id))
                                          order by q.n desc, q.id), '[]'::jsonb)
-                   from (select 'post' as kind, p.id, p.body, null::text as on_post, p.user_id,
+                   from (select 'post' as kind, p.id, p.body, null::text as on_post, p.photos, p.user_id,
                                 (select count(*) from public.reports r where r.kind = 'post' and r.item_id = p.id
                                     and (p.kept_at is null or r.created_at > p.kept_at))::int as n
                            from public.posts p where p.status = 'approved'
                          union all
-                         select 'comment', c.id, c.body, p.body, c.user_id,
+                         select 'comment', c.id, c.body, p.body, 0::smallint, c.user_id,
                                 (select count(*) from public.reports r where r.kind = 'comment' and r.item_id = c.id
                                     and (c.kept_at is null or r.created_at > c.kept_at))::int
                            from public.comments c join public.posts p on p.id = c.post_id where c.status = 'approved') q
@@ -1216,7 +1364,8 @@ grant execute on function public.suggest_question(text, text[]) to authenticated
 revoke all on function public.get_posts(text, text, text) from public;
 revoke all on function public.set_birth(int, int) from public, anon;
 revoke all on function public.judge_post(bigint, boolean, text, text, text) from public, anon;
-revoke all on function public.create_post(text, smallint, text, text, text, text, text, text) from public, anon;
+revoke all on function public.create_post(text, smallint, text, text, text, text, text, text, text[]) from public, anon;
+revoke all on function public.get_photos(bigint) from public, anon;
 revoke all on function public.create_comment(bigint, text, text, text, text) from public, anon;
 revoke all on function public.report_item(text, bigint, text, text, text) from public, anon;
 revoke all on function public.delete_mine(text, bigint) from public, anon;
@@ -1226,7 +1375,8 @@ revoke all on function public.ban_author(text, bigint, int, text) from public, a
 grant execute on function public.get_posts(text, text, text) to anon, authenticated;
 grant execute on function public.set_birth(int, int) to authenticated;
 grant execute on function public.judge_post(bigint, boolean, text, text, text) to authenticated;
-grant execute on function public.create_post(text, smallint, text, text, text, text, text, text) to authenticated;
+grant execute on function public.create_post(text, smallint, text, text, text, text, text, text, text[]) to authenticated;
+grant execute on function public.get_photos(bigint) to authenticated;
 grant execute on function public.create_comment(bigint, text, text, text, text) to authenticated;
 grant execute on function public.report_item(text, bigint, text, text, text) to authenticated;
 grant execute on function public.delete_mine(text, bigint) to authenticated;
@@ -1252,5 +1402,6 @@ end $$;
 -- Tells the API about these functions straight away, then says which version just ran: the SQL Editor shows this
 -- line as the result. "Success. No rows returned" instead means an older copy of this file ran.
 notify pgrst, 'reload schema';
-select 'Verd is set up, with posting (setup.sql of 2026-11-20, with the stronger slur filter, custom answers and friend requests). New posts '
-       || case when verd_private.review_first() then 'wait for review.' else 'go live at once.' end as result;
+select 'Verd is set up, with posting (setup.sql of 2026-11-20, with the stronger slur filter, custom answers, friend requests and photos for friends). New posts '
+       || case when verd_private.review_first() then 'wait for review.' else 'go live at once.' end
+       || case when verd_private.photos_on() then ' Photo posts are on.' else ' Photo posts are off.' end as result;

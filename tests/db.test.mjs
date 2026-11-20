@@ -298,7 +298,7 @@ const approved = async (writer, body, scope, cc, st, ci) => { const p = await po
 
 test('posting tables are locked like the rest, and their functions are closed to anon', async () => {
   const u = await realUser();
-  for (const t of ['posts', 'post_votes', 'comments', 'reports', 'moderators', 'bans']) {
+  for (const t of ['posts', 'post_votes', 'comments', 'reports', 'moderators', 'bans', 'post_photos']) {
     await denied(as('anon', null, `select * from public.${t}`), `anon reads ${t}`);
     await denied(as('authenticated', u, `select * from public.${t}`), `authenticated reads ${t}`);
   }
@@ -308,7 +308,8 @@ test('posting tables are locked like the rest, and their functions are closed to
   await denied(as('authenticated', u, `update public.posts set status = 'approved'`), 'approve posts');
   for (const sql of [`select public.create_post('Is this allowed?', 0::smallint, 'world')`, `select public.judge_post(1, true)`,
     `select public.create_comment(1, 'hi there')`, `select public.report_item('post', 1)`, `select public.set_birth(2000, 1)`,
-    `select public.review_queue()`, `select public.review_item('post', 1, 'approve')`, `select public.ban_author('post', 1)`, `select public.delete_mine('post', 1)`])
+    `select public.review_queue()`, `select public.review_item('post', 1, 'approve')`, `select public.ban_author('post', 1)`, `select public.delete_mine('post', 1)`,
+    `select public.get_photos(1)`])
     await denied(as('anon', null, sql), 'anon: ' + sql);
   const f = await feed(null);
   assert.deepEqual(f.posts, [], 'anon can read the feed, which is empty');
@@ -642,5 +643,109 @@ test('slurs are refused, written plainly or dodged, and the app checks exactly t
   for (const [t, want] of [['Go to example.com now', true], ['Is it cool. Me too', false]]) {
     assert.equal(await blocked(t), want, 'the database got wrong: ' + t);
     assert.equal(blockedText(t), want, 'the app got wrong: ' + t);
+  }
+});
+
+// ---------- Photos ----------
+// A 16 by 12 JPEG, and the same one the way a phone camera saves it: with a location (EXIF) and a comment.
+const JPEG = '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAoHBwgHBgoICAgLCgoLDhgQDg0NDh0VFhEYIx8lJCIfIiEmKzcvJik0KSEiMEExNDk7Pj4+JS5ESUM8SDc9Pjv/2wBDAQoLCw4NDhwQEBw7KCIoOzs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozv/wAARCAAMABADASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwB2g6Tb6p5/nvIvl7cbCB1z6g+lGvaTb6X5HkPI3mbs7yD0x6AetZsNzcW+fInki3ddjlc/lRNc3Fxjz55JdvTe5bH516/1XF/Xvbe1/d/y/K356nhe2ofV/Z8nv9/n/lof/9k=';
+function withMeta(b64) {
+  const raw = Buffer.from(b64, 'base64'), seg = (marker, text) => {
+    const body = Buffer.from(text, 'latin1');
+    return Buffer.concat([Buffer.from([0xff, marker, (body.length + 2) >> 8, (body.length + 2) & 255]), body]);
+  };
+  return Buffer.concat([raw.subarray(0, 2), seg(0xe1, 'Exif\0\0MM\0*GPSLatitude 37.7749 N GPSLongitude 122.4194 W'),
+    seg(0xfe, 'Taken at 12 Oak Street'), raw.subarray(2)]).toString('base64');
+}
+const photoPost = (uid, pics, scope = 'friends', a = null, b = null, body = 'Which one?') =>
+  call(uid, 'select public.create_post($1, 3::smallint, $2, $3, null, null, $4, $5, $6) as r', [body, scope, 'US', a, b, pics]);
+const photosOf = (uid, pid) => call(uid, 'select public.get_photos($1) as r', [pid]);
+const photoSwitch = on => admin(`update public.app_config set value = $1 where key = 'photos'`, [on ? 1 : 0]);
+
+test('photo posts: off until the owner switches them on, then friends only, signed in and 13+, with the metadata cut out', async () => {
+  const code = async u => (await call(u, 'select public.my_profile() as r')).code;
+  const w = await realUser(), friend = await realUser(), friend2 = await realUser(), fan = await realUser(), stranger = await realUser();
+  const anonFriend = await user(), young = await realUser([new Date().getUTCFullYear() - 11, 1]);
+  const wc = await code(w);
+  await as('authenticated', w, 'select public.set_friends($1)', [[await code(friend), await code(friend2), await code(anonFriend), await code(young)]]);
+  for (const u of [friend, friend2, anonFriend, young, fan]) await as('authenticated', u, 'select public.set_friends($1)', [[wc]]);
+  const sees = async (u, pid) => ids(await feed(u)).includes(pid);
+  try {
+    // Off by default: the feed says so, and a photo post is refused.
+    assert.equal((await feed(w)).photos_on, false);
+    await assert.rejects(photoPost(w, [JPEG]), /photos are off/);
+    await photoSwitch(true);
+    assert.equal((await feed(w)).photos_on, true);
+    await assert.rejects(photoPost(w, [JPEG, JPEG, JPEG]), /at most 2 photos/);
+    await assert.rejects(photoPost(w, [JPEG], 'world'), /photo posts go to friends/);
+    await assert.rejects(photoPost(w, [JPEG], 'friends', 'Mine', 'Yours'), /no answers of their own/);
+    await assert.rejects(photoPost(w, [Buffer.from('not a picture at all, '.repeat(10)).toString('base64')]), /bad photo/);
+    await assert.rejects(photoPost(w, ['%%% not base64 %%%']), /bad photo/);
+    await assert.rejects(photoPost(w, [JPEG.slice(0, 200)]), /bad photo/, 'a photo cut short');
+    await assert.rejects(photoPost(w, [JPEG], 'friends', null, null, 'Is my n1gg@ cute?'), /blocked words/, 'the words are still checked');
+    await assert.rejects(photoPost(anonFriend, [JPEG]), /sign in to post/);
+    await assert.rejects(photoPost(young, [JPEG]), /13 and older/);
+    await denied(as('anon', null, 'select public.create_post($1, 0::smallint, $2, $3, null, null, null, null, $4)', ['Which one?', 'friends', 'US', [JPEG]]), 'anon posts a photo');
+
+    // The location and the comment are cut out before anything is kept. What's left is the picture, byte for byte.
+    const r = await photoPost(w, [withMeta(JPEG), JPEG]);
+    assert.equal(r.status, 'pending');
+    const kept = (await admin('select jpeg from public.post_photos where post_id = $1 order by n', [r.id])).rows.map(x => x.jpeg);
+    assert.equal(kept.length, 2);
+    for (const j of kept) assert.equal(Buffer.compare(j, Buffer.from(JPEG, 'base64')), 0);
+    assert.ok(!kept[0].toString('latin1').match(/Exif|GPS|Oak Street/));
+    assert.equal((await admin('select photos from public.posts where id = $1', [r.id])).rows[0].photos, 2);
+
+    // Waiting for review: the writer and the moderator see the photos, nobody else.
+    assert.deepEqual(await photosOf(w, r.id), [JPEG, JPEG]);
+    const waiting = (await queue(mod)).waiting.find(x => x.id === r.id);
+    assert.equal(waiting.photos, 2);
+    assert.deepEqual(await photosOf(mod, r.id), [JPEG, JPEG]);
+    await assert.rejects(photosOf(friend, r.id), /no such post/);
+    await review(mod, 'post', r.id, 'approve');
+
+    // Up: mutual friends who are signed in and 13 or older. Not an anonymous friend, not a friend under 13,
+    // not someone who only added the writer, not a stranger, not anyone without a session.
+    assert.ok(await sees(friend, r.id));
+    assert.equal((await feed(friend)).posts.find(x => x.id === r.id).photos, 2);
+    assert.deepEqual(await photosOf(friend, r.id), [JPEG, JPEG]);
+    for (const [who, u] of [['an anonymous friend', anonFriend], ['a friend under 13', young], ['a one-way fan', fan], ['a stranger', stranger]]) {
+      assert.ok(!(await sees(u, r.id)), who + ' sees the post');
+      await assert.rejects(photosOf(u, r.id), /no such post/, who + ' gets the photos');
+    }
+    assert.ok(!ids(await feed(null)).includes(r.id));
+    await denied(as('anon', null, 'select public.get_photos($1)', [r.id]), 'anon gets photos');
+    await assert.rejects(judge(young, r.id, true), /no such post/);
+    await judge(friend, r.id, true);
+
+    // One report hides it for everyone until the moderator looks. Keeping it brings it back.
+    await reportIt(friend, 'post', r.id);
+    assert.ok(!(await sees(friend2, r.id)), 'hidden at the first report');
+    await assert.rejects(photosOf(friend2, r.id), /no such post/);
+    const reported = (await queue(mod)).reported.find(x => x.id === r.id);
+    assert.equal(reported.hidden, true); assert.equal(reported.photos, 2);
+    assert.deepEqual(await photosOf(mod, r.id), [JPEG, JPEG], 'the moderator sees what was reported');
+    await review(mod, 'post', r.id, 'keep');
+    assert.ok(await sees(friend2, r.id));
+
+    // Switched off: every photo post is gone from everyone's feed at once, except its writer's.
+    await photoSwitch(false);
+    assert.ok(!(await sees(friend2, r.id)));
+    await assert.rejects(photosOf(friend2, r.id), /no such post/);
+    assert.ok(await sees(w, r.id));
+    await assert.rejects(photoPost(w, [JPEG]), /photos are off/);
+    await photoSwitch(true);
+    assert.ok(await sees(friend2, r.id));
+
+    // Photos are deleted 30 days after they're posted (the feed only goes back 14).
+    await admin(`update public.posts set created_at = now() - interval '31 days' where id = $1`, [r.id]);
+    const later = await photoPost(friend, [JPEG], 'friends', null, null, 'Yes or no?');
+    assert.equal((await admin('select count(*)::int as n from public.post_photos where post_id = $1', [r.id])).rows[0].n, 0);
+    assert.equal((await admin('select count(*)::int as n from public.post_photos where post_id = $1', [later.id])).rows[0].n, 1);
+    // Deleting your post deletes its photos.
+    await call(friend, 'select public.delete_mine($1, $2) as r', ['post', later.id]);
+    assert.equal((await admin('select count(*)::int as n from public.post_photos where post_id = $1', [later.id])).rows[0].n, 0);
+  } finally {
+    await photoSwitch(false);
   }
 });

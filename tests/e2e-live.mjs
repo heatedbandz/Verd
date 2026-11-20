@@ -630,3 +630,80 @@ test("signed in with Google, Verd opens on friends' posts with today's question 
     await fake.pool.query('delete from public.posts where id = $1', [post]);
   }
 });
+
+// A small photo, and the same one the way a phone camera saves it: with a location (EXIF) and a comment.
+const PHOTO = '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';
+function withMeta(b64) {
+  const raw = Buffer.from(b64, 'base64'), seg = (marker, text) => {
+    const body = Buffer.from(text, 'latin1');
+    return Buffer.concat([Buffer.from([0xff, marker, (body.length + 2) >> 8, (body.length + 2) & 255]), body]);
+  };
+  return Buffer.concat([raw.subarray(0, 2), seg(0xe1, 'Exif\0\0MM\0*GPSLatitude 37.7749 N GPSLongitude 122.4194 W'),
+    seg(0xfe, 'Taken at 12 Oak Street'), raw.subarray(2)]);
+}
+
+test('photo posts, once the owner switches them on: friends only, no location kept, friends signed in see them, and Review blurs a reported one', async () => {
+  const id = email => fake.pool.query('select id from auth.users where email = $1', [email]).then(r => r.rows[0].id);
+  const mod = await id('mod@verd.test'), writer = await id('writer@verd.test');
+  const code = async u => (await fake.pool.query('select verd_private.ensure_profile($1) as c', [u])).rows[0].c;
+  const modCode = await code(mod), writerCode = await code(writer);
+  await fake.pool.query('insert into public.friend_adds (user_id, code) values ($1, $2), ($3, $4) on conflict do nothing', [mod, writerCode, writer, modCode]);
+  // The writer posted earlier in these tests: move those back past the daily limit.
+  await fake.pool.query("update public.posts set created_at = created_at - interval '2 days' where user_id = $1", [writer]);
+  await fake.pool.query("update public.app_config set value = 1 where key in ('photos', 'auto_approve')");
+  let pid = null;
+  try {
+    // Two photos: only Friends can be picked, and the note says who sees them.
+    const w = await page({ es_sb: writerSession, es_born: JSON.stringify(yearsAgo(16, '05')), es_friends: JSON.stringify([modCode]), es_addedIn: JSON.stringify({ [modCode]: 'live' }) });
+    await w.p.waitForTimeout(600);
+    await w.p.click('#navPlus'); await w.p.waitForSelector('#compose:not([hidden])');
+    assert.equal(await w.p.$eval('#photoRow', e => e.hidden), false, 'photos are offered once they are switched on');
+    const file = n => ({ name: n + '.jpg', mimeType: 'image/jpeg', buffer: withMeta(PHOTO) });
+    await w.p.setInputFiles('#pfile', [file('a'), file('b')]); await w.p.waitForSelector('#thumbs .thumb:nth-child(2)');
+    assert.deepEqual(await w.p.$$eval('#aud button:not(:disabled)', b => b.map(x => x.textContent)), ['Friends']);
+    assert.match(await w.p.innerText('#cnote'), /Friends pick This one or That one\. Only friends who are signed in and 13 or older see it, and one report hides it/);
+    await w.p.click('#psend'); await w.p.waitForTimeout(1200);
+    assert.match(await w.p.innerText('#toast'), /Posted\. Your friends can see it now\./);
+    const row = (await fake.pool.query('select id, scope, photos, status, body from public.posts where user_id = $1 and photos > 0', [writer])).rows[0];
+    pid = row.id;
+    assert.deepEqual({ ...row, id: 0 }, { id: 0, scope: 'friends', photos: 2, status: 'approved', body: 'Which one?' });
+    // What's kept is a plain JPEG: no location, no comment.
+    const kept = (await fake.pool.query('select jpeg from public.post_photos where post_id = $1 order by n', [pid])).rows.map(r => r.jpeg);
+    assert.equal(kept.length, 2);
+    for (const j of kept) { assert.equal(j.subarray(0, 2).toString('hex'), 'ffd8'); assert.doesNotMatch(j.toString('latin1'), /Exif|GPS|Oak Street/); }
+    const loaded = (pg, n) => pg.waitForFunction(([i, k]) => document.querySelectorAll('.slide[data-id="p' + i + '"] .duo-imgs img[src^="data:image/jpeg"]').length === k, [pid, n], { timeout: 5000 });
+    await loaded(w.p, 2);
+    assert.deepEqual(w.errors, []); await w.ctx.close();
+
+    // Signed out, it isn't there and no photo is asked for.
+    fake.calls.length = 0;
+    const anon = await page();
+    await anon.p.waitForTimeout(900);
+    assert.equal(await anon.p.$(`.slide[data-id="p${pid}"]`), null);
+    assert.ok(!fake.calls.some(c => /get_photos/.test(c)), fake.calls.join(', '));
+    assert.deepEqual(anon.errors, []); await anon.ctx.close();
+
+    // A friend who's signed in sees both photos and picks one.
+    const f = await page({ es_sb: modSession, es_born: JSON.stringify(yearsAgo(40, '03')), es_friends: JSON.stringify([writerCode]), es_addedIn: JSON.stringify({ [writerCode]: 'live' }) });
+    await loaded(f.p, 2);
+    const slide = await f.p.$(`.slide[data-id="p${pid}"]`);
+    assert.deepEqual(await slide.$$eval('.ans .alabel', b => b.map(x => x.textContent)), ['This one', 'That one']);
+    await (await slide.$('.duo-imgs button')).click(); await f.p.waitForTimeout(700);
+    assert.equal((await fake.pool.query('select v from public.post_votes where post_id = $1 and user_id = $2', [pid, mod])).rows[0].v, 1);
+
+    // Reported once: hidden for everyone, and in Review its photos are blurred until the moderator taps them.
+    await fake.pool.query("insert into public.reports (kind, item_id, user_id) values ('post', $1, $2)", [pid, await newUser()]);
+    await f.p.click('#navMe'); await f.p.waitForSelector('#review:not([hidden]) .rphotos img');
+    assert.match(await f.p.innerText('#reviewList'), /Photo post · 1 report, hidden until you decide/);
+    assert.equal(await f.p.$$eval('#reviewList .rphotos img', i => i.length), 2);
+    assert.equal(await f.p.$eval('#reviewList .rphotos', b => getComputedStyle(b.querySelector('img')).filter), 'blur(18px)');
+    await f.p.click('#reviewList .rphotos');
+    assert.equal(await f.p.$eval('#reviewList .rphotos', b => getComputedStyle(b.querySelector('img')).filter), 'none');
+    await f.p.click('#reviewList button:text-is("Keep")'); await f.p.waitForTimeout(900);
+    assert.equal(await f.p.$eval('#review', e => e.hidden), true, 'with nothing reported, Review goes away');
+    assert.deepEqual(f.errors, []); await f.ctx.close();
+  } finally {
+    await fake.pool.query("update public.app_config set value = 0 where key in ('photos', 'auto_approve')");
+    if (pid) await fake.pool.query('delete from public.posts where id = $1', [pid]);
+  }
+});

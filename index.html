@@ -279,6 +279,7 @@ button{border:0;background:none;padding:0;cursor:pointer}
 .slide.duo{background:var(--feed-bg);gap:var(--s3)}
 .duo-imgs{flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr;gap:var(--s3)}
 .duo-imgs button{border-radius:var(--r3);overflow:hidden;position:relative}
+.duo-imgs button:empty{background:var(--fill)}
 .duo-imgs button.mine{box-shadow:0 0 0 3px var(--on-color)}
 .duo-imgs img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .slide.duo .sbody{flex:none;gap:6px}
@@ -305,6 +306,11 @@ button{border:0;background:none;padding:0;cursor:pointer}
 .ritem .ron{font-size:var(--t-sm);color:var(--muted)}
 .rmeta{font-size:var(--t-sm);color:var(--muted)}
 .racts{display:flex;flex-wrap:wrap;gap:var(--s2);align-items:center}
+.rphotos{position:relative;display:flex;gap:var(--s2);align-self:flex-start;min-height:44px;border-radius:var(--r2);overflow:hidden}
+.rphotos img{width:112px;height:150px;object-fit:cover;border-radius:var(--r2);filter:blur(18px)}
+.rphotos .rtap{position:absolute;inset:0;display:grid;place-items:center;color:#fff;font-weight:600;text-shadow:0 1px 3px rgba(0,0,0,.7)}
+.rphotos.open img{filter:none}
+.rphotos.open .rtap{display:none}
 .racts .lnk{margin:0}
 .lnk{font-size:var(--t-sm);color:var(--muted);text-decoration:underline;text-underline-offset:3px;flex:none;min-height:var(--tap);padding:0 var(--s2);margin:-12px calc(var(--s2) * -1)}
 #shareBox{width:100%;min-height:110px;background:var(--surface);border:0;border-radius:var(--r2);padding:var(--s3);font-size:var(--t-md)}
