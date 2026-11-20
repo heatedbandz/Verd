@@ -199,6 +199,15 @@ button{border:0;background:none;padding:0;cursor:pointer}
 .trio small{font-size:var(--t-xs);color:var(--muted)}
 .sec{display:flex;flex-direction:column;gap:var(--s3);border-top:1px solid var(--line);padding-top:var(--s6)}
 .sec h3{margin:0;font-size:var(--t-lg);font-weight:700;letter-spacing:-.02em}
+.badges{display:grid;grid-template-columns:1fr;gap:var(--s3)}
+.badge{display:flex;gap:var(--s3);align-items:center;background:var(--surface);border-radius:var(--r3);padding:var(--s3) var(--s4)}
+.medal{flex:none;width:40px;height:40px;border-radius:50%;display:grid;place-items:center;font-style:normal;font-weight:800;color:#fff;background:var(--mc);box-shadow:inset 0 -3px 0 rgba(0,0,0,.18)}
+.t1{--mc:#a0612b} .t2{--mc:#7d8794} .t3{--mc:#b8860b} .t4{--mc:#1c8fbf} .t5{--mc:#7c3aed}
+.btxt{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
+.btxt b{font-size:var(--t-md);font-weight:700}
+.btxt small{font-size:var(--t-sm);color:var(--muted)}
+.bbar{height:5px;border-radius:3px;background:var(--surface-2);overflow:hidden;margin-top:var(--s1)}
+.bbar i{display:block;height:100%;background:var(--mc)}
 .tags{display:flex;flex-wrap:wrap;gap:var(--s2) var(--s4);font-size:var(--t-md);font-weight:600}
 .tags span::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-right:var(--s2);vertical-align:middle}
 .line{display:flex;gap:var(--s3);align-items:center}
@@ -470,7 +479,7 @@ html.vt .page{animation:none}
         <div><b id="agree">–</b><small>with the majority</small></div>
         <div><b id="answered">0</b><small>questions answered</small></div>
       </div>
-      <div class="sec"><h3>Badges</h3><div class="tags" id="badges"></div><p class="note" id="badgesNote" hidden>Answer today's question to earn your first badge.</p></div>
+      <div class="sec"><h3>Badges</h3><div class="badges" id="badges"></div><p class="note" id="badgesNote" hidden>Answer today's question to earn your first badge.</p></div>
       <div class="sec" id="recap" hidden><h3>Your week</h3><div class="rowlist" id="recapBody"></div><div><button class="b2 soft" id="recapShare">Share my week</button></div></div>
       <div class="sec" id="friends">
         <h3>Friends</h3>
