@@ -20,6 +20,9 @@
 --        insert into public.moderators (user_id) select id from auth.users where email = 'their@email.com';
 --   Posting opens the moment a moderator exists. To pause it straight away:
 --        update public.app_config set value = 1 where key = 'posting_paused';   (0 opens it again)
+--   New posts and comments wait for the moderator. To let them go live at once instead, with the moderator
+--   checking them afterwards in Me > Review (only the account owner can switch this):
+--        update public.app_config set value = 1 where key = 'auto_approve';     (0 makes them wait again)
 --
 -- Why the publishable (anon) key can sit in a public web page:
 --   * Every table has row level security ON with no policies, and the browser roles (anon,
@@ -34,8 +37,9 @@
 --   * A friend match compares two people only when both added each other, over past days, and
 --     never returns an answer. Friend lists are locked like votes: no browser role can read them.
 --   * Posts and comments: only a real (Google) account, 13 or older by the birth month kept with it,
---     not blocked, can write. Everything waits for a moderator, words are filtered here, and the
---     limits are counted here. Nobody's account id, email or name ever leaves the database.
+--     not blocked, can write. Everything waits for a moderator (unless the owner sets auto_approve),
+--     words are filtered here, and the limits are counted here. Nobody's account id, email or name
+--     ever leaves the database.
 --   * tests/db.test.mjs and tests/live-rls.mjs try to break all of this and must fail to.
 
 -- Older test versions of this file used a different votes table (voter text). Replace it.
@@ -484,6 +488,8 @@ end $$;
 -- People's own yes/no questions, judged by everyone else.
 --   * Every post and comment waits for a moderator before anyone else sees it. So posting stays closed
 --     until the owner adds a moderator, and app_config posting_paused = 1 stops it at once.
+--   * Unless the owner sets app_config auto_approve = 1: then new ones go live at once, and the moderator
+--     checks them afterwards (Me > Review lists each one until it's marked fine or removed).
 --   * Writing needs a real sign-in (not an anonymous session), an age given once and kept here (13 or
 --     older), and no block. Judging and reporting only need a session, like voting.
 --   * Rate limits and the blocked_terms list are checked here, so no app can skip them.
@@ -497,7 +503,8 @@ insert into public.app_config (key, value) values
   ('comment_gap_seconds', 20),
   ('reports_per_day', 30),
   ('hide_at_reports', 3),        -- hidden for everyone at 3 reports, until a moderator looks
-  ('posting_paused', 0)          -- set to 1 to stop new posts and comments straight away
+  ('posting_paused', 0),         -- set to 1 to stop new posts and comments straight away
+  ('auto_approve', 0)            -- 1: new posts and comments go live at once, checked by the moderator afterwards
 on conflict (key) do nothing;
 
 -- The month someone was born, given once (year * 12 + month - 1). The app can't change it.
@@ -678,6 +685,12 @@ $$;
 create or replace function verd_private.ms(t timestamptz) returns bigint
 language sql stable as $$ select (extract(epoch from t) * 1000)::bigint $$;
 
+-- New posts and comments wait for a moderator, unless the owner set app_config auto_approve to 1.
+create or replace function verd_private.review_first() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce(verd_private.cfg('auto_approve'), 0) <> 1
+$$;
+
 revoke all on all functions in schema verd_private from public, anon, authenticated;
 
 -- ---------- Posting: the API ----------
@@ -761,7 +774,7 @@ begin
          ) order by s.created_at desc), '[]'::jsonb)
     into list
     from shown s join tally t on t.id = s.id;
-  return jsonb_build_object('open', verd_private.posting_open(), 'posts', list);
+  return jsonb_build_object('open', verd_private.posting_open(), 'review_first', verd_private.review_first(), 'posts', list);
 end $$;
 
 -- Judge a post: yes = true or false. Once per post, never your own, only posts you can see.
@@ -795,7 +808,8 @@ begin
     'my_vote', (select x.v from public.post_votes x where x.post_id = pid and x.user_id = uid));
 end $$;
 
--- Write a post. It waits for a moderator. A few a day, a couple of minutes apart, blocked words refused.
+-- Write a post. It waits for a moderator (or goes live at once with auto_approve). A few a day, a couple of
+-- minutes apart, blocked words refused.
 create or replace function public.create_post(body text, color smallint, scope text, cc text default 'XX', st text default null, ci text default null)
 returns jsonb
 language plpgsql security definer set search_path = public as $$
@@ -809,6 +823,7 @@ declare
   n      int;
   prev   timestamptz;
   new_id bigint;
+  now_is text;
 begin
   if why is not null then
     raise exception '%', why using errcode = '42501';
@@ -834,14 +849,15 @@ begin
   if prev > now() - make_interval(secs => verd_private.cfg('post_gap_seconds')) then
     raise exception 'wait a moment' using errcode = '22023';
   end if;
-  insert into public.posts (user_id, body, color, scope, country, state, city)
+  insert into public.posts (user_id, body, color, scope, country, state, city, status)
   values (uid, clean, greatest(0, least(31, coalesce(color, 0))), scope, k_cc,
-          case when scope in ('state', 'city') then k_st end, case when scope = 'city' then k_ci end)
-  returning id into new_id;
-  return jsonb_build_object('id', new_id, 'status', 'pending');
+          case when scope in ('state', 'city') then k_st end, case when scope = 'city' then k_ci end,
+          case when verd_private.review_first() then 'pending' else 'approved' end)
+  returning id, status into new_id, now_is;
+  return jsonb_build_object('id', new_id, 'status', now_is);
 end $$;
 
--- Comment on a post you've judged (or your own). It waits for a moderator too.
+-- Comment on a post you've judged (or your own). It waits for a moderator too (or goes live with auto_approve).
 create or replace function public.create_comment(pid bigint, body text, cc text default null, st text default null, ci text default null)
 returns jsonb
 language plpgsql security definer set search_path = public as $$
@@ -854,6 +870,7 @@ declare
   n      int;
   prev   timestamptz;
   new_id bigint;
+  now_is text;
 begin
   if why is not null then
     raise exception '%', why using errcode = '42501';
@@ -881,10 +898,11 @@ begin
   if prev > now() - make_interval(secs => verd_private.cfg('comment_gap_seconds')) then
     raise exception 'wait a moment' using errcode = '22023';
   end if;
-  insert into public.comments (post_id, user_id, body, side)
-  values (pid, uid, clean, case mine when 1 then 0 when -1 then 1 end)
-  returning id into new_id;
-  return jsonb_build_object('id', new_id, 'status', 'pending');
+  insert into public.comments (post_id, user_id, body, side, status)
+  values (pid, uid, clean, case mine when 1 then 0 when -1 then 1 end,
+          case when verd_private.review_first() then 'pending' else 'approved' end)
+  returning id, status into new_id, now_is;
+  return jsonb_build_object('id', new_id, 'status', now_is);
 end $$;
 
 -- Report a post or comment you can see. Anyone with a session; enough reports hide it for everyone.
@@ -952,7 +970,8 @@ begin
   return 'deleted';
 end $$;
 
--- Moderators only: what waits for review (oldest first), and approved things that were reported.
+-- Moderators only: what waits for review (oldest first), approved things that were reported, and what went
+-- live without review (auto_approve) in the last 14 days, the feed's span, until it's kept or removed.
 create or replace function public.review_queue()
 returns jsonb
 language plpgsql stable security definer set search_path = public as $$
@@ -985,10 +1004,28 @@ begin
                                 (select count(*) from public.reports r where r.kind = 'comment' and r.item_id = c.id
                                     and (c.kept_at is null or r.created_at > c.kept_at))::int
                            from public.comments c join public.posts p on p.id = c.post_id where c.status = 'approved') q
-                  where q.n > 0));
+                  where q.n > 0),
+    'review_first', verd_private.review_first(),
+    'live', (select coalesce(jsonb_agg(jsonb_build_object('kind', q.kind, 'id', q.id, 'body', q.body, 'on', q.on_post,
+                                       'scope', q.scope, 't', verd_private.ms(q.t), 'writer', verd_private.track(q.user_id))
+                                     order by q.t), '[]'::jsonb)
+               from (select 'post' as kind, p.id, p.body, null::text as on_post, p.scope, p.created_at as t, p.user_id
+                       from public.posts p
+                      where p.status = 'approved' and p.reviewed_at is null and p.created_at > now() - interval '14 days'
+                        and not verd_private.banned(p.user_id)
+                        and not exists (select 1 from public.reports r where r.kind = 'post' and r.item_id = p.id)
+                     union all
+                     select 'comment', c.id, c.body, p.body, p.scope, c.created_at, c.user_id
+                       from public.comments c join public.posts p on p.id = c.post_id
+                      where c.status = 'approved' and c.reviewed_at is null and p.status = 'approved'
+                        and p.created_at > now() - interval '14 days'
+                        and not verd_private.banned(c.user_id)
+                        and not exists (select 1 from public.reports r where r.kind = 'comment' and r.item_id = c.id)
+                      order by t
+                      limit 100) q));
 end $$;
 
--- Moderators only: approve or reject what's waiting, keep or remove what was reported.
+-- Moderators only: approve or reject what's waiting, keep or remove what was reported or went live without review.
 -- why is shown to the writer when something is turned down.
 create or replace function public.review_item(what text, iid bigint, decision text, why text default null)
 returns text
@@ -1116,4 +1153,5 @@ grant execute on function public.ban_author(text, bigint, int, text) to authenti
 -- Tells the API about these functions straight away, then says which version just ran: the SQL Editor shows this
 -- line as the result. "Success. No rows returned" instead means an older copy of this file ran.
 notify pgrst, 'reload schema';
-select 'Verd is set up, with posting (setup.sql of 2026-11-19)' as result;
+select 'Verd is set up, with posting (setup.sql of 2026-11-20). New posts '
+       || case when verd_private.review_first() then 'wait for review.' else 'go live at once.' end as result;

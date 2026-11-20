@@ -510,3 +510,59 @@ test('you can delete your own post or comment, and nobody else can', async () =>
   assert.equal(await call(w, `select public.delete_mine('post', $1) as r`, [pid]), 'deleted');
   assert.equal((await admin('select count(*)::int as n from public.post_votes where post_id = $1', [pid])).rows[0].n, 0, 'its judgments went with it');
 });
+
+test('auto_approve: off unless the owner sets it; then posts and comments go live at once, the moderator sees each one, and every other rule holds', async () => {
+  const w = await realUser(), c = await realUser(), viewer = await user();
+  const has = (list, kind, id) => list.some(x => x.kind === kind && x.id === id);
+  assert.equal((await feed(viewer)).review_first, true, 'everything waits for review by default');
+  assert.equal((await queue(mod)).review_first, true);
+  await admin(`update public.app_config set value = 1 where key = 'auto_approve'`);
+  try {
+    assert.equal((await feed(viewer)).review_first, false, 'the app is told, so it stops promising a check first');
+    const p = await post(w, 'Is a hot dog a sandwich?');
+    assert.equal(p.status, 'approved', 'live at once');
+    assert.ok(ids(await feed(viewer)).includes(p.id), 'others see it straight away');
+    assert.ok(ids(await feed(null)).includes(p.id), 'and so does anon');
+    await judge(c, p.id, false);
+    const cm = await comment(c, p.id, 'It is a taco');
+    assert.equal(cm.status, 'approved');
+    assert.ok((await feed(viewer)).posts.find(x => x.id === p.id).comments.some(x => x.id === cm.id), 'the comment shows too');
+    // The moderator sees both, oldest first, with the writer's record and never who they are. Nothing is waiting.
+    let q = await queue(mod);
+    assert.equal(q.review_first, false);
+    const at = (kind, id) => q.live.findIndex(x => x.kind === kind && x.id === id);
+    assert.ok(at('post', p.id) >= 0 && at('post', p.id) < at('comment', cm.id), 'both listed, oldest first');
+    assert.deepEqual(q.live[at('post', p.id)].writer, { approved: 1, turned_down: 0 });
+    assert.ok(!has(q.waiting, 'post', p.id) && !has(q.waiting, 'comment', cm.id));
+    assert.ok(![w, c].some(id => JSON.stringify(q).includes(id)), 'no account ids in the queue');
+    // Looks fine: off the list and still up. Remove: down for everyone, and the writer sees why.
+    await review(mod, 'post', p.id, 'keep');
+    await review(mod, 'comment', cm.id, 'remove', 'Spam');
+    q = await queue(mod);
+    assert.ok(!has(q.live, 'post', p.id) && !has(q.live, 'comment', cm.id));
+    const shown = (await feed(viewer)).posts.find(x => x.id === p.id);
+    assert.ok(shown && !shown.comments.some(x => x.id === cm.id));
+    assert.equal((await feed(c)).posts.find(x => x.id === p.id).comments.find(x => x.id === cm.id).status, 'removed');
+    // A report moves it from the live list to the reported one; 3 hide it for everyone, as before.
+    const w2 = await realUser(), p2 = await post(w2, 'Is cereal better at night?');
+    assert.ok(has((await queue(mod)).live, 'post', p2.id));
+    await reportIt(await user(), 'post', p2.id);
+    q = await queue(mod);
+    assert.ok(!has(q.live, 'post', p2.id) && has(q.reported, 'post', p2.id));
+    await reportIt(await user(), 'post', p2.id); await reportIt(await user(), 'post', p2.id);
+    assert.ok(!ids(await feed(viewer)).includes(p2.id), 'hidden for everyone at 3 reports');
+    // The word filter, the gap between posts, the age rule and blocks still apply.
+    await assert.rejects(post(await realUser(), 'Can you dm me later?'), /blocked words/);
+    await assert.rejects(post(w, 'Is a taco a sandwich?'), /wait a moment/);
+    const year = new Date().getUTCFullYear();
+    await assert.rejects(post(await realUser([year - 12, 1]), 'Is recess too short?'), /13 and older/);
+    await call(mod, `select public.ban_author('post', $1, 7, 'Spam') as r`, [p2.id]);
+    await admin(`update public.posts set created_at = now() - interval '1 hour' where user_id = $1`, [w2]);
+    await assert.rejects(post(w2, 'Is lunch too early?'), /blocked for you/);
+    assert.ok(!has((await queue(mod)).live, 'post', p2.id));
+  } finally {
+    await admin(`update public.app_config set value = 0 where key = 'auto_approve'`);
+  }
+  assert.equal((await post(await realUser(), 'Is it back to waiting?')).status, 'pending', 'switched off: new ones wait again');
+  assert.equal((await feed(viewer)).review_first, true);
+});

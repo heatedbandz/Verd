@@ -160,13 +160,14 @@ const backends = {
       return settings;
     }
 
-    // ---------- Posts: people's own questions, each checked by a moderator first ----------
+    // ---------- Posts: people's own questions, checked by a moderator first (or afterwards, with auto_approve) ----------
     // Posts and comments come back the way the screens expect them. "@me" stands for you; a mutual friend's
     // posts and comments carry their code; everyone else is nobody in particular.
     function askLive(){
       // missing: get_posts isn't in the database yet (Google switched on before the posting part of setup.sql).
       // One quiet answer of "no such function" is enough: no asking again on a timer, and sign-in stays hidden.
-      let cb = null, open = false, loading = null, missing = false;
+      // reviewFirst: new posts wait for a moderator. False once the database owner sets auto_approve.
+      let cb = null, open = false, reviewFirst = true, loading = null, missing = false;
       const num = id => Number(String(id).slice(1));
       const what = id => String(id)[0] === "c" ? "comment" : "post";
       const asPost = (p, pl) => ({
@@ -181,7 +182,7 @@ const backends = {
         return loading ||= (async () => {
           try{
             const pl = myPlace(), r = await rpc("get_posts", placeArgs(pl)), mv = {};
-            open = !!r.open;
+            open = !!r.open; reviewFirst = r.review_first !== false;
             for (const p of r.posts) if (p.my_vote) mv["p" + p.id] = p.my_vote;
             if (cb) cb(r.posts.map(p => asPost(p, pl)), mv, {});
           }catch(e){ if (e.status === 404) missing = true; } finally { loading = null; }
@@ -192,11 +193,13 @@ const backends = {
       return {
         me: "@me", live: true,
         get open(){ return open; },
+        get reviewFirst(){ return reviewFirst; },
         get missing(){ return missing; },
         watch(f){ cb = f; load(); },
         refresh: load,
-        async post(item){ const r = await rpc("create_post", { body: item.text, color: item.color, scope: item.scope, ...placeArgs(myPlace()) }, true); await load(); return "p" + r.id; },
-        async comment(item){ await rpc("create_comment", { pid: num(item.post), body: item.text, ...placeArgs(myPlace()) }, true); await load(); },
+        // live: it went up at once (auto_approve), instead of waiting for a moderator.
+        async post(item){ const r = await rpc("create_post", { body: item.text, color: item.color, scope: item.scope, ...placeArgs(myPlace()) }, true); await load(); return { id: "p" + r.id, live: r.status === "approved" }; },
+        async comment(item){ const r = await rpc("create_comment", { pid: num(item.post), body: item.text, ...placeArgs(myPlace()) }, true); await load(); return { id: "c" + r.id, live: r.status === "approved" }; },
         vote: (id, v) => rpc("judge_post", { pid: num(id), yes: v > 0, ...placeArgs(myPlace()) }, true),
         report: id => rpc("report_item", { what: what(id), iid: num(id), ...placeArgs(myPlace()) }, true),
         async remove(id){ await rpc("delete_mine", { what: what(id), iid: num(id) }, true); await load(); }
@@ -745,7 +748,7 @@ function yesterdaySlide(){
   s.append(body, answers("yday", yo, shares(yc), mine ? mine.choice : -1, () => {}, false), foot);
   return s;
 }
-// Where your own post stands on the live site: every post waits for a moderator first.
+// Where your own post stands on the live site: waiting for a moderator, turned down, removed, or up.
 const standing = p => p.status === "pending" ? "Waiting for review" : p.status === "rejected" ? "Not approved" + (p.reason ? ": " + p.reason : "")
   : p.status === "removed" ? "Removed" + (p.reason ? ": " + p.reason : "") : "Your post";
 function postSlide(p){
@@ -998,7 +1001,7 @@ $("cform").onsubmit = async e => {
     if (!postingOpen()){ toast("Comments open soon."); return; }
     const post = sheetPost; if (!(await gate("comment:" + post))) return;
     $("csend").disabled = true;
-    try{ await ask.api.comment({ post, text }); $("cinput").value = ""; store.set("commented", true); checkBadges(); toast("Sent. Others see it once a moderator approves it."); }
+    try{ const r = await ask.api.comment({ post, text }); $("cinput").value = ""; store.set("commented", true); checkBadges(); toast(r.live ? "Posted. Others can see it now." : "Sent. Others see it once a moderator approves it."); }
     catch(err){ const m = writeError(err); if (m) toast(m); else gate("comment:" + post); }
     $("csend").disabled = false; return;
   }
@@ -1045,7 +1048,8 @@ function drawCompose(){
     : cPhotos.length === 1 ? "Friends answer Yes or No. Photo posts go to friends only for now."
     : "People answer Yes or No. No names, phone numbers or anything mean about a real person.";
   if (backend && backend.mode === "device") $("cnote").textContent = "Only you can see your posts until Verd goes live. " + $("cnote").textContent;
-  if (ask.api.live) $("cnote").textContent = "A moderator checks every post before anyone else sees it, and your name is never shown. " + $("cnote").textContent;
+  if (ask.api.live) $("cnote").textContent = (ask.api.reviewFirst ? "A moderator checks every post before anyone else sees it, and your name is never shown. "
+    : "Posts go live straight away, and your name is never shown. ") + $("cnote").textContent;
 }
 function closeCompose(){ $("compose").hidden = true; paintStatusBar(); }
 $("cclose").onclick = closeCompose;
@@ -1060,10 +1064,10 @@ $("psend").onclick = async () => {
   $("psend").disabled = true;
   if (ask.api.live){
     try{
-      const id = await ask.api.post(item); store.set("posted", true);
+      const r = await ask.api.post(item); store.set("posted", true);
       if (ask.scope !== item.scope){ ask.scope = item.scope; order = []; renderTop(); }
-      jumpTo = id; $("ptext").value = ""; closeCompose(); showPage("feed"); renderFeed();
-      toast("Sent for review. Others see it once a moderator approves it."); checkBadges();
+      jumpTo = r.id; $("ptext").value = ""; closeCompose(); showPage("feed"); renderFeed();
+      toast(r.live ? "Posted. Others can see it now." : "Sent for review. Others see it once a moderator approves it."); checkBadges();
     }catch(err){ const m = writeError(err); if (m) toast(m); else { closeCompose(); gate("post"); } }
     $("psend").disabled = false; return;
   }
@@ -1161,16 +1165,26 @@ const REASONS = ["Personal info", "Mean or unsafe", "Not a yes or no question", 
 async function renderReview(a){
   const sec = $("review"); sec.hidden = !(a && a.moderator); if (sec.hidden) return;
   let q; try{ q = await backend.review.queue(); }catch{ $("reviewNote").textContent = "Couldn't load what's waiting. Check your connection."; $("reviewList").replaceChildren(); return; }
-  const w = q.waiting.length, r = q.reported.length;
-  $("reviewNote").textContent = !w && !r ? "Nothing waiting. New posts and comments show up here before anyone else sees them."
-    : [w ? w + " waiting" : "", r ? r + " reported" : ""].filter(Boolean).join(" and ") + ". Nothing new shows to others until you approve it.";
-  $("reviewList").replaceChildren(...q.waiting.map(x => reviewRow(x, false)), ...q.reported.map(x => reviewRow(x, true)));
+  // live: what went up without review, once the database owner set auto_approve (older databases send neither).
+  const live = q.live || [], first = q.review_first !== false;
+  const parts = [q.waiting.length ? q.waiting.length + " waiting" : "", q.reported.length ? q.reported.length + " reported" : "",
+    live.length ? live.length + " went live without review" : ""].filter(Boolean);
+  $("reviewNote").textContent = !parts.length
+    ? (first ? "Nothing waiting. New posts and comments show up here before anyone else sees them."
+       : "Nothing to check. New posts and comments go live at once, and show up here so you can check them.")
+    : (parts.length > 1 ? parts.slice(0, -1).join(", ") + " and " + parts[parts.length - 1] : parts[0])
+      + (first ? ". Nothing new shows to others until you approve it." : ". New posts and comments go live at once, so check them here.");
+  $("reviewList").replaceChildren(...q.waiting.map(x => reviewRow(x, "waiting")), ...q.reported.map(x => reviewRow(x, "reported")), ...live.map(x => reviewRow(x, "live")));
 }
-function reviewRow(x, reported){
-  const d = el("div", "ritem"), acts = el("div", "racts"), w = x.writer || {}, before = (w.approved || 0) + (w.turned_down || 0);
+// how: "waiting" (only its writer sees it), "reported", or "live" (it went up without review).
+function reviewRow(x, how){
+  const d = el("div", "ritem"), acts = el("div", "racts"), w = x.writer || {};
+  // The writer's record counts this one too once it's up, so leave it out.
+  const ok = Math.max(0, (w.approved || 0) - (how === "waiting" ? 0 : 1)), no = w.turned_down || 0;
   d.append(el("div", "rmeta", [x.kind === "post" ? "Post" : "Comment",
-    reported ? x.reports + (x.reports === 1 ? " report" : " reports") + (x.hidden ? ", hidden until you decide" : "") : ago(x.t) + " ago",
-    before ? w.approved + " approved and " + w.turned_down + " turned down before" : "First one from this writer"].join(" · ")));
+    how === "reported" ? x.reports + (x.reports === 1 ? " report" : " reports") + (x.hidden ? ", hidden until you decide" : "")
+      : (how === "live" ? "Went live " : "") + ago(x.t) + " ago",
+    ok + no ? ok + " approved and " + no + " turned down before" : "First one from this writer"].join(" · ")));
   if (x.on) d.append(el("p", "ron", "On “" + x.on + "”"));
   d.append(el("p", "", x.body));
   const done = async fn => {
@@ -1182,9 +1196,10 @@ function reviewRow(x, reported){
   const why = decision => {
     acts.replaceChildren(el("span", "rmeta", "Why? The writer sees this."));
     REASONS.forEach(r => btn(r, "b2 soft", () => done(() => backend.review.decide(x.kind, x.id, decision, r))));
-    btn("Cancel", "lnk", () => d.replaceWith(reviewRow(x, reported)));
+    btn("Cancel", "lnk", () => d.replaceWith(reviewRow(x, how)));
   };
-  if (reported){ btn("Keep", "b2", () => done(() => backend.review.decide(x.kind, x.id, "keep"))); btn("Remove", "b2 soft", () => why("remove")); }
+  if (how === "reported"){ btn("Keep", "b2", () => done(() => backend.review.decide(x.kind, x.id, "keep"))); btn("Remove", "b2 soft", () => why("remove")); }
+  else if (how === "live"){ btn("Looks fine", "b2", () => done(() => backend.review.decide(x.kind, x.id, "keep"))); btn("Remove", "b2 soft", () => why("remove")); }
   else { btn("Approve", "b2", () => done(() => backend.review.decide(x.kind, x.id, "approve"))); btn("Reject", "b2 soft", () => why("reject")); }
   const blk = btn("Block writer for 7 days", "b2 soft", () => {
     if (!blk.dataset.armed){ blk.dataset.armed = "1"; blk.textContent = "Tap again to block for 7 days"; return; }

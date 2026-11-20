@@ -12,5 +12,5 @@
   - `node tests/live-rls.mjs` attacks the real database with the public key, and every attack must be denied. `node tests/live-smoke.mjs` opens the app against it without answering. Neither casts a vote. To test what a signed-in person can't do, `live-rls` signs in once per run, which leaves one empty anonymous user marked `verd_check` in Supabase's Users list. Verd's numbers only count votes, so these never show up.
   - `.github/workflows/live-check.yml` runs both on GitHub after every change to the app, the database or the checks.
 - `setup.sql` creates the Supabase database. Its top lists the setup steps, including the ones that switch on posting.
-- Posting (people's own yes or no questions) is built but stays off on the public site until a parent switches on Google sign-in and becomes the moderator. Every post and comment waits for review. See **Posting** and **Next single step** in `PLAN.md`.
+- Posting (people's own yes or no questions) is built but stays off on the public site until a parent switches on Google sign-in and becomes the moderator. Every post and comment waits for review, unless the database owner switches on `auto_approve`. See **Posting** and **Next single step** in `PLAN.md`.
 - `build.sh` only makes `app.html`, a single-file copy for the claude.ai preview. The website doesn't need it.

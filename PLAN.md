@@ -403,6 +403,22 @@ How these were measured: Lighthouse 13.6, median of 3 runs, in two profiles. "De
 - `e2e-live` takes `get_posts` away with Google on. There's no sign-in, posts are asked for once, and coming back to the tab doesn't ask again. On the old `app.js` it fails because sign-in shows.
 - An older check in `e2e-live` clicked the last past question in search. Once there were two past days, that wasn't yesterday any more, so it now finds yesterday by its number.
 
+## Posts can go live at once (2026-11-20)
+
+**The owner chose to approve every post and comment automatically instead of waiting for the moderator.** A parent should agree to that first, so it's a switch in the database that only the account owner can turn on. Until it's on, everything still waits for review.
+
+- **The switch:** in the SQL Editor, `update public.app_config set value = 1 where key = 'auto_approve';` turns it on, and 0 turns it off again. New posts and comments then go live the moment they're sent. Anything already waiting still waits for the moderator.
+- **Still checked:** the word filter, the age rule, rate limits and blocks, all in the database. 3 reports still hide a post or comment for everyone until the moderator looks.
+- **The moderator checks afterwards:** **Me → Review** lists what went live without review in the last 14 days (as far back as the feed goes), oldest first.
+  - **Looks fine** takes it off the list.
+  - **Remove** takes it down, and the writer sees why.
+  - A reported one moves to the reported list.
+- **What people see:** the composer says "Posts go live straight away" instead of promising a check first, and sending says "Posted. Others can see it now."
+- **Fixed on the way:** the moderator's line about a writer ("N approved before") counted the reported post itself. It no longer does.
+- **Tests:** 2 new, and all 93 pass.
+  - `db`: switched off, nothing changes. Switched on, posts and comments are approved at once and others see them. The moderator sees both, oldest first, with no account ids. Looks fine and Remove work. A report moves one to the reported list, and 3 hide it. The word filter, the gap between posts, the age rule and blocks still hold. Switched off again, new ones wait.
+  - `e2e-live`: the writer is told it's posted, someone else sees it at once, and the moderator sees it under "went live without review" and marks it fine.
+
 ## Next single step
 
 **A parent sets up sign-in and becomes the moderator.** It takes about 20 minutes on a computer. Posting opens the moment it's done, and nothing changes on the site before that.
@@ -411,7 +427,7 @@ How these were measured: Lighthouse 13.6, median of 3 runs, in two profiles. "De
    - Open [a new query in Verd's Supabase project](https://supabase.com/dashboard/project/zfphqlavepncdoihiugu/sql/new). It must be empty.
    - Open [setup.sql on GitHub](https://github.com/heatedbandz/Verd/blob/main/setup.sql) and press its copy button (two squares, top right of the file).
    - Paste into the empty query and press **Run**.
-   - It worked if the result says **Verd is set up, with posting**. If it says "Success. No rows returned", an older copy ran (for example one still open in the SQL Editor from launch day).
+   - It worked if the result says **Verd is set up, with posting (setup.sql of 2026-11-20)**. If it says "Success. No rows returned", an older copy ran (for example one still open in the SQL Editor from launch day).
 2. **Make a Google sign-in client.** Open the [Google Cloud console](https://console.cloud.google.com/auth/overview), signed in as the parent.
    - Create a project called Verd if asked.
    - **Branding:** app name Verd and a support email.
@@ -428,3 +444,5 @@ How these were measured: Lighthouse 13.6, median of 3 runs, in two profiles. "De
 7. **Reload Verd.** The + button appears, and **Me → Review** shows what's waiting. Check it once or twice a day: nothing anyone posts shows to others until it's approved there.
 
 To pause posting at any time, run `update public.app_config set value = 1 where key = 'posting_paused';`. Use 0 to open it again.
+
+To let new posts and comments go live without waiting for review, run `update public.app_config set value = 1 where key = 'auto_approve';`. Use 0 to make them wait again. Only do this if the parent agrees: see **Posts can go live at once**.

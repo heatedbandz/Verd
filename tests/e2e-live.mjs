@@ -453,6 +453,53 @@ test('comments wait for review too, and show as yours until then', async () => {
   await ctx.close();
 });
 
+test('once the owner sets auto_approve, posts and comments go live at once, and the moderator checks them afterwards in Me', async () => {
+  await fake.pool.query("update public.app_config set value = 1 where key = 'auto_approve'");
+  // The writer posted and commented moments ago: move those back past the minimum gaps.
+  await fake.pool.query("update public.posts set created_at = created_at - interval '1 hour'");
+  await fake.pool.query("update public.comments set created_at = created_at - interval '1 hour'");
+  try {
+    const { p, ctx, errors } = await page({ es_sb: writerSession, es_born: JSON.stringify(yearsAgo(16, '05')) });
+    await p.waitForTimeout(600);
+    await p.click('#navPlus'); await p.waitForSelector('#compose:not([hidden])');
+    assert.match(await p.innerText('#cnote'), /Posts go live straight away, and your name is never shown\./);
+    assert.doesNotMatch(await p.innerText('#cnote'), /checks every post/);
+    await p.fill('#ptext', 'Is a taco a kind of sandwich?'); await p.click('#psend'); await p.waitForTimeout(900);
+    assert.match(await p.innerText('#toast'), /Posted\. Others can see it now\./);
+    const post = (await fake.pool.query("select id, status from public.posts where body = 'Is a taco a kind of sandwich?'")).rows[0];
+    assert.equal(post.status, 'approved');
+    const mine = await slideWith(p, 'Is a taco a kind of sandwich?');
+    assert.match(await mine.innerText(), /Your post/);
+    assert.doesNotMatch(await mine.innerText(), /Waiting for review|Only you can see this/);
+    await (await mine.$('button[aria-label="Comments"]')).click(); await p.waitForSelector('#sheet:not([hidden])');
+    await p.fill('#cinput', 'Only if it comes in a bun'); await p.click('#csend'); await p.waitForTimeout(900);
+    assert.match(await p.innerText('#toast'), /Posted\. Others can see it now\./);
+    assert.doesNotMatch(await p.innerText('#clist'), /Waiting for review/);
+    assert.equal((await fake.pool.query("select status from public.comments where body = 'Only if it comes in a bun'")).rows[0].status, 'approved');
+    assert.deepEqual(errors, []); await ctx.close();
+
+    const other = await page();
+    await other.p.waitForTimeout(600);
+    assert.ok(await slideWith(other.p, 'Is a taco a kind of sandwich?'), 'others see it straight away');
+    assert.deepEqual(other.errors, []); await other.ctx.close();
+
+    // The comment from before still waits and the post from before was reported once; the two new ones are listed as live, oldest first.
+    const mod = await page({ es_sb: modSession, es_born: JSON.stringify(yearsAgo(40, '03')) });
+    await mod.p.click('#navMe'); await mod.p.waitForSelector('#review:not([hidden]) .ritem');
+    assert.match(await mod.p.innerText('#reviewNote'), /^1 waiting, 1 reported and 2 went live without review\. New posts and comments go live at once, so check them here\.$/);
+    assert.match(await mod.p.innerText('#reviewList'), /Post · Went live \S+ ago · 2 approved and 0 turned down before[\s\S]*Is a taco a kind of sandwich\?[\s\S]*Looks fine[\s\S]*Remove[\s\S]*Comment · Went live \S+ ago[\s\S]*Only if it comes in a bun/);
+    const row = mod.p.locator('#reviewList .ritem', { has: mod.p.locator('.rmeta', { hasText: /^Post · Went live/ }) });
+    await row.locator('button:text-is("Looks fine")').click(); await mod.p.waitForTimeout(800);
+    assert.match(await mod.p.innerText('#reviewNote'), /^1 waiting, 1 reported and 1 went live without review\./);
+    assert.doesNotMatch(await mod.p.innerText('#reviewList'), /Post · Went live/);
+    const kept = (await fake.pool.query('select status, reviewed_at from public.posts where id = $1', [post.id])).rows[0];
+    assert.ok(kept.status === 'approved' && kept.reviewed_at, 'marked fine: still up, and off the list');
+    assert.deepEqual(mod.errors, []); await mod.ctx.close();
+  } finally {
+    await fake.pool.query("update public.app_config set value = 0 where key = 'auto_approve'");
+  }
+});
+
 test('a Google account that already has Verd: this phone signs in to it, and nothing is counted twice', async () => {
   const { p, ctx, errors } = await page({ es_born: JSON.stringify(yearsAgo(16, '05')) });
   await tap(p, 0); await p.waitForTimeout(900);
