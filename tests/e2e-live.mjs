@@ -379,7 +379,7 @@ test('a post: age asked first, then Google, then it waits for review and only th
   assert.equal(await p.$eval('#photoRow', e => e.hidden), true, 'photos are offered on the live site');
   assert.match(await p.innerText('#cnote'), /A moderator checks every post before anyone else sees it/);
   await p.fill('#ptext', 'add me on snap if you want'); await p.click('#psend'); await p.waitForTimeout(200);
-  assert.match(await p.innerText('#toast'), /Leave out contact info/);
+  assert.match(await p.innerText('#toast'), /Leave out slurs, contact info/);
   await p.fill('#ptext', 'Is cereal a soup?'); await p.click('#psend'); await p.waitForTimeout(900);
   assert.match(await p.innerText('#toast'), /Sent for review\./);
   const rows = (await fake.pool.query("select status, body, user_id from public.posts")).rows;
@@ -483,17 +483,14 @@ test('once the owner sets auto_approve, posts and comments go live at once, and 
     assert.ok(await slideWith(other.p, 'Is a taco a kind of sandwich?'), 'others see it straight away');
     assert.deepEqual(other.errors, []); await other.ctx.close();
 
-    // The comment from before still waits and the post from before was reported once; the two new ones are listed as live, oldest first.
+    // Nothing to approve: what went live isn't listed, and neither is what waited from before. Only the report shows.
     const mod = await page({ es_sb: modSession, es_born: JSON.stringify(yearsAgo(40, '03')) });
     await mod.p.click('#navMe'); await mod.p.waitForSelector('#review:not([hidden]) .ritem');
-    assert.match(await mod.p.innerText('#reviewNote'), /^1 waiting, 1 reported and 2 went live without review\. New posts and comments go live at once, so check them here\.$/);
-    assert.match(await mod.p.innerText('#reviewList'), /Post · Went live \S+ ago · 2 approved and 0 turned down before[\s\S]*Is a taco a kind of sandwich\?[\s\S]*Looks fine[\s\S]*Remove[\s\S]*Comment · Went live \S+ ago[\s\S]*Only if it comes in a bun/);
-    const row = mod.p.locator('#reviewList .ritem', { has: mod.p.locator('.rmeta', { hasText: /^Post · Went live/ }) });
-    await row.locator('button:text-is("Looks fine")').click(); await mod.p.waitForTimeout(800);
-    assert.match(await mod.p.innerText('#reviewNote'), /^1 waiting, 1 reported and 1 went live without review\./);
-    assert.doesNotMatch(await mod.p.innerText('#reviewList'), /Post · Went live/);
-    const kept = (await fake.pool.query('select status, reviewed_at from public.posts where id = $1', [post.id])).rows[0];
-    assert.ok(kept.status === 'approved' && kept.reviewed_at, 'marked fine: still up, and off the list');
+    assert.equal(await mod.p.innerText('#reviewNote'), '1 was reported. Everything else goes live by itself, and slurs are blocked.');
+    assert.equal(await mod.p.$$eval('#reviewList .ritem', r => r.length), 1);
+    assert.doesNotMatch(await mod.p.innerText('#reviewList'), /Went live|Approve|Looks fine/);
+    await mod.p.click('#reviewList button:text-is("Keep")'); await mod.p.waitForTimeout(900);
+    assert.equal(await mod.p.$eval('#review', e => e.hidden), true, 'with nothing reported, Review goes away');
     assert.deepEqual(mod.errors, []); await mod.ctx.close();
   } finally {
     await fake.pool.query("update public.app_config set value = 0 where key = 'auto_approve'");

@@ -523,7 +523,14 @@ const totalOf = p => p.total ?? (p.yes + p.no);
 const BLOCK = [/\d[\d\s().-]{6,}\d/, /@\w/, /https?:|www\./i, /\b(kill|kys|die)\b/i, /\b(dm|snap|add|text|hmu)\s+me\b/i, /\bhmu\b/i,
   /\bmy\s+(snap|snapchat|insta|ig|discord|number|addy|address)\b/i, /\b(send|show)\s+(me\s+)?(a\s+)?(pics?|nudes?|photos?)\b/i,
   /\bhow old (are|r) (you|u)\b/i, /\bwhere do (you|u) live\b/i, /\b(nudes?|sext(ing)?|porn|onlyfans|horny)\b/i];
-const BLOCK_MSG = "Leave out contact info, links, threats, and asking for pictures or someone's age.";
+// Slurs, the same list as blocked_terms in setup.sql. Look-alike numbers and symbols count; whole words only.
+const SLURS = [/\bn+[i1!l|]+gg+(a|ah|as|az|er|ers|uh|uz|ress)?\b/i, /\bn[i1!]g{1,2}(let|lets|ra|ras)\b/i, /\bf+[a@4]+g+([o0]+t+s?|s|y|ie|ier)?\b/i,
+  /\bk[i1!y]kes?\b/i, /\bch[i1!]nks?\b/i, /\bsp[i1!]c?ks?\b/i, /\bwet ?backs?\b/i, /\bbeaners?\b/i, /\bg[o0][o0]ks?\b/i, /\bc[o0][o0]ns?\b/i,
+  /\bjigg?ab[o0][o0]s?\b/i, /\bporch ?monkeys?\b/i, /\bjungle ?bunn(y|ies)\b/i, /\btowel ?heads?\b/i, /\brag ?heads?\b/i, /\bsand ?n[i1!]gg/i,
+  /\bzipper ?heads?\b/i, /\bpak[i1!]s\b/i, /\bdykes?\b/i, /\btr[a@4]nn(y|ie|ies)\b/i, /\bshemales?\b/i, /\bret[a@4]rd(s|ed)?\b/i, /\btards?\b/i,
+  /\bgyppos?\b/i, /\bkaff[i1]rs?\b/i];
+BLOCK.push(...SLURS);
+const BLOCK_MSG = "Leave out slurs, contact info, links, threats, and asking for pictures or someone's age.";
 // Posting on the live site opens once Verd has a moderator and Google sign-in is switched on.
 let signInReady = false;
 // Signed in with Google (not just the anonymous account every answer makes), and whether you've picked a tab yourself.
@@ -1176,16 +1183,18 @@ const REASONS = ["Personal info", "Mean or unsafe", "Not a yes or no question", 
 async function renderReview(a){
   const sec = $("review"); sec.hidden = !(a && a.moderator); if (sec.hidden) return;
   let q; try{ q = await backend.review.queue(); }catch{ $("reviewNote").textContent = "Couldn't load what's waiting. Check your connection."; $("reviewList").replaceChildren(); return; }
-  // live: what went up without review, once the database owner set auto_approve (older databases send neither).
-  const live = q.live || [], first = q.review_first !== false;
-  const parts = [q.waiting.length ? q.waiting.length + " waiting" : "", q.reported.length ? q.reported.length + " reported" : "",
-    live.length ? live.length + " went live without review" : ""].filter(Boolean);
-  $("reviewNote").textContent = !parts.length
-    ? (first ? "Nothing waiting. New posts and comments show up here before anyone else sees them."
-       : "Nothing to check. New posts and comments go live at once, and show up here so you can check them.")
-    : (parts.length > 1 ? parts.slice(0, -1).join(", ") + " and " + parts[parts.length - 1] : parts[0])
-      + (first ? ". Nothing new shows to others until you approve it." : ". New posts and comments go live at once, so check them here.");
-  $("reviewList").replaceChildren(...q.waiting.map(x => reviewRow(x, "waiting")), ...q.reported.map(x => reviewRow(x, "reported")), ...live.map(x => reviewRow(x, "live")));
+  // With auto_approve on, nothing needs a moderator: posts go live at once and slurs are refused before they're saved.
+  // Only what people reported is listed, and Review stays hidden when nothing was reported.
+  const first = q.review_first !== false;
+  if (!first){
+    if (!q.reported.length){ sec.hidden = true; return; }
+    $("reviewNote").textContent = q.reported.length + (q.reported.length === 1 ? " was" : " were") + " reported. Everything else goes live by itself, and slurs are blocked.";
+    $("reviewList").replaceChildren(...q.reported.map(x => reviewRow(x, "reported"))); return;
+  }
+  const parts = [q.waiting.length ? q.waiting.length + " waiting" : "", q.reported.length ? q.reported.length + " reported" : ""].filter(Boolean);
+  $("reviewNote").textContent = !parts.length ? "Nothing waiting. New posts and comments show up here before anyone else sees them."
+    : parts.join(" and ") + ". Nothing new shows to others until you approve it.";
+  $("reviewList").replaceChildren(...q.waiting.map(x => reviewRow(x, "waiting")), ...q.reported.map(x => reviewRow(x, "reported")));
 }
 // how: "waiting" (only its writer sees it), "reported", or "live" (it went up without review).
 function reviewRow(x, how){

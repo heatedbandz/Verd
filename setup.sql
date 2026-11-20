@@ -121,6 +121,16 @@ insert into public.blocked_terms (pattern) values
   ('\mhow old (are|r) (you|u)\M'), ('\mwhere do (you|u) live\M'),      -- asking a stranger's age or home
   ('\m(nudes?|sext(ing)?|porn|onlyfans|horny)\M')                    -- sexual
 on conflict (pattern) do nothing;
+-- Slurs: refused outright, so nothing hateful ever needs a person to check it. Letters swapped for look-alike
+-- numbers and symbols (1, !, @, 3, 0) are caught too. Each is a whole word, so "raccoon" or "spice" still work.
+insert into public.blocked_terms (pattern) values
+  ('\mn+[i1!l|]+gg+(a|ah|as|az|er|ers|uh|uz|ress)?\M'), ('\mn[i1!]g{1,2}(let|lets|ra|ras)\M'),
+  ('\mf+[a@4]+g+([o0]+t+s?|s|y|ie|ier)?\M'), ('\mk[i1!y]kes?\M'), ('\mch[i1!]nks?\M'), ('\msp[i1!]c?ks?\M'),
+  ('\mwet ?backs?\M'), ('\mbeaners?\M'), ('\mg[o0][o0]ks?\M'), ('\mc[o0][o0]ns?\M'), ('\mjig(g)?ab[o0][o0]s?\M'),
+  ('\mporch ?monkeys?\M'), ('\mjungle ?bunn(y|ies)\M'), ('\mtowel ?heads?\M'), ('\mrag ?heads?\M'),
+  ('\msand ?n[i1!]gg'), ('\mzipper ?heads?\M'), ('\mpak[i1!]s\M'), ('\mdykes?\M'), ('\mtr[a@4]nn(y|ie|ies)\M'),
+  ('\mshemales?\M'), ('\mret[a@4]rd(s|ed)?\M'), ('\mtard(s)?\M'), ('\mgyppos?\M'), ('\mkaff[i1]rs?\M')
+on conflict (pattern) do nothing;
 
 -- The friends each person added, by code. A friend match needs both people to have added each
 -- other, so knowing someone's code is not enough to compare yourself with them.
@@ -1149,9 +1159,23 @@ grant execute on function public.review_queue() to authenticated;
 grant execute on function public.review_item(text, bigint, text, text) to authenticated;
 grant execute on function public.ban_author(text, bigint, int, text) to authenticated;
 
+-- With auto_approve on, nothing should still be waiting from before it was switched on: let those go live too,
+-- unless they hold something on the blocked list (slurs included), which are turned down.
+do $$ begin
+  if not verd_private.review_first() then
+    update public.posts set status = case when verd_private.blocked(body) then 'rejected' else 'approved' end,
+      reason = case when verd_private.blocked(body) then 'Mean or unsafe' end, reviewed_at = now() where status = 'pending';
+    update public.comments set status = case when verd_private.blocked(body) then 'rejected' else 'approved' end,
+      reason = case when verd_private.blocked(body) then 'Mean or unsafe' end, reviewed_at = now() where status = 'pending';
+  end if;
+  -- Anything already up that the list now catches (the slurs added on 2026-11-20) comes down.
+  update public.posts set status = 'removed', reason = 'Mean or unsafe', reviewed_at = now() where status = 'approved' and verd_private.blocked(body);
+  update public.comments set status = 'removed', reason = 'Mean or unsafe', reviewed_at = now() where status = 'approved' and verd_private.blocked(body);
+end $$;
+
 -- ---------- Done ----------
 -- Tells the API about these functions straight away, then says which version just ran: the SQL Editor shows this
 -- line as the result. "Success. No rows returned" instead means an older copy of this file ran.
 notify pgrst, 'reload schema';
-select 'Verd is set up, with posting (setup.sql of 2026-11-20). New posts '
+select 'Verd is set up, with posting (setup.sql of 2026-11-20, with the slur filter). New posts '
        || case when verd_private.review_first() then 'wait for review.' else 'go live at once.' end as result;

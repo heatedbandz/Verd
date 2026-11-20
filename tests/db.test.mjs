@@ -379,6 +379,14 @@ test('blocked words and rate limits are enforced by the database', async () => {
   await assert.rejects(post(u, 'Is a fourth post too many?'), /enough posts for today/);
 });
 
+test('slurs are refused, look-alike spellings too, and normal words that contain them still work', async () => {
+  const has = async t => (await admin('select verd_private.blocked($1) as b', [t])).rows[0].b;
+  for (const bad of ['you f@ggot', 'N1GGA please', 'such a retard', 'what a tranny', 'go back wetback', 'K!KE'])
+    assert.equal(await has(bad), true, bad);
+  for (const ok of ['Is a raccoon a good pet?', 'Do you like spicy food?', 'Is Chinese food the best?', 'Is a fig a fruit?', 'Is Nigeria in Africa?', 'Who won the Niger match?', 'Is a cocoon cozy?'])
+    assert.equal(await has(ok), false, ok);
+});
+
 test('judging: once, never your own, only posts you can see, and the split stays hidden until you judge', async () => {
   const w = await realUser(), a = await user(), b = await user(), c = await user();
   const pid = await approved(w, 'Is a hot dog a sandwich?');
