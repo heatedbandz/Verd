@@ -1,4 +1,4 @@
-import { sum, pct, num, countsOf, shares, leader, dayState, promptLine, verdictMain, lockedLines, pickTeaser, flavor, GUESSES, guessLine, countdown, inDays, FREEZES, NO_STREAK, streakOn, answerOn, streakNote } from "./core.js";
+import { sum, pct, num, countsOf, shares, leader, dayState, promptLine, verdictMain, lockedLines, pickTeaser, flavor, GUESSES, guessLine, countdown, inDays, FREEZES, NO_STREAK, streakOn, answerOn, streakNote, blockedText, BLOCK_MSG } from "./core.js";
 
 // ---------- Settings ----------
 // Verd's Supabase project: its Project URL and publishable key (the project's Connect button, or Settings > API Keys).
@@ -519,18 +519,6 @@ const ask = { api: null, posts: [], myVotes: {}, myReports: {}, flipped: {}, sco
 const signOf = p => p.yes > p.no ? 1 : p.yes < p.no ? -1 : 0;
 // How many judged a post. The live database sends the split only once you've judged (or it's yours).
 const totalOf = p => p.total ?? (p.yes + p.no);
-// The same kinds of things the database refuses (blocked_terms in setup.sql), caught before sending.
-const BLOCK = [/\d[\d\s().-]{6,}\d/, /@\w/, /https?:|www\./i, /\b(kill|kys|die)\b/i, /\b(dm|snap|add|text|hmu)\s+me\b/i, /\bhmu\b/i,
-  /\bmy\s+(snap|snapchat|insta|ig|discord|number|addy|address)\b/i, /\b(send|show)\s+(me\s+)?(a\s+)?(pics?|nudes?|photos?)\b/i,
-  /\bhow old (are|r) (you|u)\b/i, /\bwhere do (you|u) live\b/i, /\b(nudes?|sext(ing)?|porn|onlyfans|horny)\b/i];
-// Slurs, the same list as blocked_terms in setup.sql. Look-alike numbers and symbols count; whole words only.
-const SLURS = [/\bn+[i1!l|]+gg+(a|ah|as|az|er|ers|uh|uz|ress)?\b/i, /\bn[i1!]g{1,2}(let|lets|ra|ras)\b/i, /\bf+[a@4]+g+([o0]+t+s?|s|y|ie|ier)?\b/i,
-  /\bk[i1!y]kes?\b/i, /\bch[i1!]nks?\b/i, /\bsp[i1!]c?ks?\b/i, /\bwet ?backs?\b/i, /\bbeaners?\b/i, /\bg[o0][o0]ks?\b/i, /\bc[o0][o0]ns?\b/i,
-  /\bjigg?ab[o0][o0]s?\b/i, /\bporch ?monkeys?\b/i, /\bjungle ?bunn(y|ies)\b/i, /\btowel ?heads?\b/i, /\brag ?heads?\b/i, /\bsand ?n[i1!]gg/i,
-  /\bzipper ?heads?\b/i, /\bpak[i1!]s\b/i, /\bdykes?\b/i, /\btr[a@4]nn(y|ie|ies)\b/i, /\bshemales?\b/i, /\bret[a@4]rd(s|ed)?\b/i, /\btards?\b/i,
-  /\bgyppos?\b/i, /\bkaff[i1]rs?\b/i];
-BLOCK.push(...SLURS);
-const BLOCK_MSG = "Leave out slurs, contact info, links, threats, and asking for pictures or someone's age.";
 // Posting on the live site opens once Verd has a moderator and Google sign-in is switched on.
 let signInReady = false;
 // Signed in with Google (not just the anonymous account every answer makes), and whether you've picked a tab yourself.
@@ -1013,7 +1001,7 @@ $("sclose").onclick = closeSheet;
 $("sheet").onclick = e => { if (e.target === $("sheet")) closeSheet(); };
 $("cform").onsubmit = async e => {
   e.preventDefault(); const text = $("cinput").value.trim(); if (text.length < 2 || !sheetPost) return;
-  if (BLOCK.some(r => r.test(text))){ toast(BLOCK_MSG); return; }
+  if (blockedText(text)){ toast(BLOCK_MSG); return; }
   const pp = ask.posts.find(x => x.id === sheetPost), my = ask.myVotes[sheetPost];
   if (!my && !(pp && pp.author === ask.api.me)){ toast("Vote first, then say why."); return; }
   if (ask.api.live){
@@ -1078,12 +1066,12 @@ $("psend").onclick = async () => {
   if (imgs.length && !text) text = imgs.length === 2 ? "Which one?" : "Yes or no?";
   if (imgs.length && !friends().length){ toast("Add a friend on your profile first. Photo posts go to friends."); return; }
   if (text.length < 4){ toast("Write a little more."); return; }
-  if (BLOCK.some(r => r.test(text))){ toast(BLOCK_MSG); return; }
+  if (blockedText(text)){ toast(BLOCK_MSG); return; }
   // Your own answers, or Yes and No when both are left empty.
   const oa = $("opta").value.trim().replace(/\s+/g, " "), ob = $("optb").value.trim().replace(/\s+/g, " "), opts = !imgs.length && (oa || ob) ? [oa, ob] : null;
   if (opts && (!oa || !ob)){ toast("Fill in both answers, or leave both empty for Yes and No."); return; }
   if (opts && oa.toLowerCase() === ob.toLowerCase()){ toast("Make the two answers different."); return; }
-  if (opts && BLOCK.some(r => r.test(oa) || r.test(ob))){ toast(BLOCK_MSG); return; }
+  if (opts && (blockedText(oa) || blockedText(ob))){ toast(BLOCK_MSG); return; }
   if ((cScope === "city" && (!pl.city || !pl.state)) || (cScope === "state" && !pl.state)){ toast("Add your city and state on the Me page first."); return; }
   const item = { id: ask.api.me + "-" + Date.now().toString(36), author: ask.api.me, text, color: cColor, photos: imgs.length, opts, cat: catOf(text), scope: imgs.length ? "friends" : cScope, city: pl.city, state: pl.state, country: pl.country, t: Date.now() };
   $("psend").disabled = true;
@@ -1206,14 +1194,14 @@ async function renderReview(a){
     : parts.join(" and ") + ". Nothing new shows to others until you approve it.";
   $("reviewList").replaceChildren(...q.waiting.map(x => reviewRow(x, "waiting")), ...q.reported.map(x => reviewRow(x, "reported")));
 }
-// how: "waiting" (only its writer sees it), "reported", or "live" (it went up without review).
+// how: "waiting" (only its writer sees it) or "reported" (it's up, and people reported it).
 function reviewRow(x, how){
   const d = el("div", "ritem"), acts = el("div", "racts"), w = x.writer || {};
   // The writer's record counts this one too once it's up, so leave it out.
   const ok = Math.max(0, (w.approved || 0) - (how === "waiting" ? 0 : 1)), no = w.turned_down || 0;
   d.append(el("div", "rmeta", [x.kind === "post" ? "Post" : "Comment",
     how === "reported" ? x.reports + (x.reports === 1 ? " report" : " reports") + (x.hidden ? ", hidden until you decide" : "")
-      : (how === "live" ? "Went live " : "") + ago(x.t) + " ago",
+      : ago(x.t) + " ago",
     ok + no ? ok + " approved and " + no + " turned down before" : "First one from this writer"].join(" · ")));
   if (x.on) d.append(el("p", "ron", "On “" + x.on + "”"));
   d.append(el("p", "", x.body));
@@ -1229,7 +1217,6 @@ function reviewRow(x, how){
     btn("Cancel", "lnk", () => d.replaceWith(reviewRow(x, how)));
   };
   if (how === "reported"){ btn("Keep", "b2", () => done(() => backend.review.decide(x.kind, x.id, "keep"))); btn("Remove", "b2 soft", () => why("remove")); }
-  else if (how === "live"){ btn("Looks fine", "b2", () => done(() => backend.review.decide(x.kind, x.id, "keep"))); btn("Remove", "b2 soft", () => why("remove")); }
   else { btn("Approve", "b2", () => done(() => backend.review.decide(x.kind, x.id, "approve"))); btn("Reject", "b2 soft", () => why("reject")); }
   const blk = btn("Block writer for 7 days", "b2 soft", () => {
     if (!blk.dataset.armed){ blk.dataset.armed = "1"; blk.textContent = "Tap again to block for 7 days"; return; }

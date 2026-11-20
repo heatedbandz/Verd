@@ -409,15 +409,12 @@ How these were measured: Lighthouse 13.6, median of 3 runs, in two profiles. "De
 
 - **The switch:** in the SQL Editor, `update public.app_config set value = 1 where key = 'auto_approve';` turns it on, and 0 turns it off again. New posts and comments then go live the moment they're sent. Anything already waiting still waits for the moderator.
 - **Still checked:** the word filter, the age rule, rate limits and blocks, all in the database. 3 reports still hide a post or comment for everyone until the moderator looks.
-- **The moderator checks afterwards:** **Me → Review** lists what went live without review in the last 14 days (as far back as the feed goes), oldest first.
-  - **Looks fine** takes it off the list.
-  - **Remove** takes it down, and the writer sees why.
-  - A reported one moves to the reported list.
+- **The moderator sees only reports.** A first version also listed everything that went live in **Me → Review**, with Looks fine and Remove. To the parent that looked like approving every comment, so it's gone: Review shows only what people report.
 - **What people see:** the composer says "Posts go live straight away" instead of promising a check first, and sending says "Posted. Others can see it now."
 - **Fixed on the way:** the moderator's line about a writer ("N approved before") counted the reported post itself. It no longer does.
 - **Tests:** 2 new, and all 93 pass.
-  - `db`: switched off, nothing changes. Switched on, posts and comments are approved at once and others see them. The moderator sees both, oldest first, with no account ids. Looks fine and Remove work. A report moves one to the reported list, and 3 hide it. The word filter, the gap between posts, the age rule and blocks still hold. Switched off again, new ones wait.
-  - `e2e-live`: the writer is told it's posted, someone else sees it at once, and the moderator sees it under "went live without review" and marks it fine.
+  - `db`: switched off, nothing changes. Switched on, posts and comments are approved at once and others see them. The moderator's queue has nothing to approve, a report puts one there, and 3 hide it. The word filter, the gap between posts, the age rule and blocks still hold. Switched off again, new ones wait.
+  - `e2e-live`: the writer is told it's posted, and someone else sees it at once.
 
 ## Me tab and friends, made easier (2026-11-20)
 
@@ -440,6 +437,21 @@ Heaton's friend typed his name into the friend code box (6 characters, capitals 
 | With auto_approve on, Me > Review lists only what people reported, and hides when there's nothing. Rerunning setup.sql lets anything still waiting go live (or turns it down if it holds a blocked word) and takes down anything up that the new list catches. | e2e-live auto_approve test |
 | A post can have its own two answers, like Lamborghini and Ferrari (1 to 30 letters each, different, no blocked words). Left empty, it's Yes and No. Needs setup.sql rerun; until then only Yes/No posts work and the app says so. | db, e2e-device |
 
+### The slur filter, harder to dodge (2026-11-20)
+
+**The first slur list let common dodges through and blocked some everyday phrases.** n1gg3r, ni99a, n*gga, "n i g g a", niiigggaaa, plain "spic", "paki" and "r3tard" all got past it, while "I came home with a wet back" and "a towel head wrap" were refused.
+
+- **Swaps are undone before checking:** 0, 1, 3, 4, @, $, 5, 6, 7 and 9 are read as the letters they stand for, in the app and in the database (`verd_private.unleet`). Doubled letters count too.
+- **Spelled out:** the n-word and "faggot" are also caught with spaces, dots or dashes between the letters.
+- **Two-word phrases** that can be innocent ("wet back", "towel head", "rag head", "zipper head") are only refused written as one word or with a dash.
+- **Added:** lesbo, mongoloid, redskin, squaw, and the singular "paki". Everything the first list had is still there.
+- **Known trade-offs:** "a chink in the armor", "Van Dyke", "Coon Rapids", "spick and span", "kaffir lime" and "fag" meaning a cigarette are refused too. On a site for teens that seemed right.
+- **One list, two places:** the app's copy moved to `core.js` and the database's is `blocked_terms`. A test fails if they ever differ by a single pattern.
+- **Fixed on the way:**
+  - The database's pattern for web addresses (example.com) used `\b`, which in Postgres means a backspace, so it never matched. Bare web addresses are refused now, as intended.
+  - `review_queue` stopped building the went-live list nobody shows any more.
+- **Tests:** 1 new, and all 99 pass. `db` checks 55 slurs and dodges are refused by both the database and the app, and 40 near-misses are allowed by both: Niger, Nigeria, snigger, niggle, raccoon, Pakistan, flame retardant, spicy, running gag, "she male or female", "a wet back", kafir, and more. A post, a comment and a suggested question with a slur are each refused.
+
 ## Next single step
 
 **A parent sets up sign-in and becomes the moderator.** It takes about 20 minutes on a computer. Posting opens the moment it's done, and nothing changes on the site before that.
@@ -448,7 +460,7 @@ Heaton's friend typed his name into the friend code box (6 characters, capitals 
    - Open [a new query in Verd's Supabase project](https://supabase.com/dashboard/project/zfphqlavepncdoihiugu/sql/new). It must be empty.
    - Open [setup.sql on GitHub](https://github.com/heatedbandz/Verd/blob/main/setup.sql) and press its copy button (two squares, top right of the file).
    - Paste into the empty query and press **Run**.
-   - It worked if the result says **Verd is set up, with posting (setup.sql of 2026-11-20)**. If it says "Success. No rows returned", an older copy ran (for example one still open in the SQL Editor from launch day).
+   - It worked if the result says **Verd is set up, with posting (setup.sql of 2026-11-20, with the stronger slur filter and custom answers)**. If it says "Success. No rows returned", an older copy ran (for example one still open in the SQL Editor from launch day).
 2. **Make a Google sign-in client.** Open the [Google Cloud console](https://console.cloud.google.com/auth/overview), signed in as the parent.
    - Create a project called Verd if asked.
    - **Branding:** app name Verd and a support email.
