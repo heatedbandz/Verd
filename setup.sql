@@ -21,7 +21,7 @@
 --   Posting opens the moment a moderator exists. To pause it straight away:
 --        update public.app_config set value = 1 where key = 'posting_paused';   (0 opens it again)
 --   New posts and comments wait for the moderator. To let them go live at once instead, with the moderator
---   checking them afterwards in Me > Review (only the account owner can switch this):
+--   seeing only what people report (only the account owner can switch this):
 --        update public.app_config set value = 1 where key = 'auto_approve';     (0 makes them wait again)
 --
 -- Why the publishable (anon) key can sit in a public web page:
@@ -105,12 +105,18 @@ create table if not exists public.suggestions (
 create index if not exists suggestions_by_user on public.suggestions (user_id, created_at);
 
 -- Words and patterns that are never allowed in anything a player writes.
--- Add your own rows in Table Editor > blocked_terms (they are matched case-insensitively as regex).
+-- Add your own rows in Table Editor > blocked_terms (they are matched case-insensitively as regex). Each is
+-- checked on the text as written and with the swaps people use to dodge a filter undone (n1gg3r, f@g).
+-- Rows marked squeezed are checked with everything but letters taken out instead (n i g g a).
+-- app.js checks the same slurs before sending (core.js), and tests/db.test.mjs keeps the two lists equal.
 create table if not exists public.blocked_terms (
   pattern text primary key
 );
+alter table public.blocked_terms add column if not exists squeezed boolean not null default false;
+-- An older copy had \b here, which in Postgres means a backspace, so it never matched.
+delete from public.blocked_terms where pattern = '\.(com|net|org|io|gg|me|ly)\b';
 insert into public.blocked_terms (pattern) values
-  ('https?://'), ('www\.'), ('\.(com|net|org|io|gg|me|ly)\b'),   -- links
+  ('https?://'), ('www\.'), ('\.(com|net|org|io|gg|me|ly)\M'),   -- links
   ('@[a-z0-9_.]{2,}'),                                            -- @handles
   ('[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}'),                      -- emails
   ('\d[\d\s().-]{6,}\d'),                                         -- phone numbers
@@ -119,7 +125,19 @@ insert into public.blocked_terms (pattern) values
   ('\mmy\s+(snap|snapchat|insta|ig|discord|number|addy|address)\M'),
   ('\m(send|show)\s+(me\s+)?(a\s+)?(pics?|nudes?|photos?)\M'),          -- asking for pictures
   ('\mhow old (are|r) (you|u)\M'), ('\mwhere do (you|u) live\M'),      -- asking a stranger's age or home
-  ('\m(nudes?|sext(ing)?|porn|onlyfans|horny)\M')                    -- sexual
+  ('\m(nudes?|sext(ing)?|porn|onlyfans|horny)\M'),                   -- sexual
+  -- Slurs. Doubled letters (niggga) and swapped ones (n*gga) count too. Each one is in core.js as well.
+  ('\mn+[i1!|*]+g{2,}(a+|e+r+|u+h*|a+h+)[sz]?\M'), ('\mn+[i1!|*]+g+l+e+t+s?\M'),
+  ('\mf+[a4@*]+g+(o+t+|i+t+|e+t+|y)?s?\M'), ('\md+y+k+e+s?\M'), ('\mt+r+a+n+(y+|i+e+)s?\M'),
+  ('\ms+h+e+-?m+a+l+e+s?\M'), ('\ml+e+s+b+o+s?\M'),
+  ('\mr+e+t+a+r+d+(s|e+d+|o+s?)?\M'), ('\mm+o+n+g+o+l+o+i+d+s?\M'),
+  ('\mk+[i1!y]+k+e+s?\M'), ('\mc+h+[i1!]+n+k+(s|y)?\M'), ('\mg+o{2,}k+s?\M'), ('\ms+p+[i1!]+c+s?\M'),
+  ('\mw+e+t+-?b+a+c+k+s?\M'), ('\mb+e+a+n+e+r+s?\M'), ('\mc+o{2,}n+s?\M'), ('\mj+[i1!]+g+a+b+o+s?\M'),
+  ('\mp+o+r+c+h+[\s-]*m+o+n+k+e+y+s?\M'), ('\m(t+o+w+e+l+|r+a+g+)-?h+e+a+d+s?\M'), ('\mp+a+k+i+s?\M'),
+  ('\mr+e+d+s+k+i+n+s?\M'), ('\ms+q+u+a+w+s?\M')
+on conflict (pattern) do nothing;
+insert into public.blocked_terms (pattern, squeezed) values
+  ('(^|[^s])nigg+(er|a(?!rd)|uh|ah)', true), ('fagg+(o|i|e)t', true)   -- spelled out: n i g g a, f.a.g.g.o.t
 on conflict (pattern) do nothing;
 
 -- The friends each person added, by code. A friend match needs both people to have added each
@@ -167,9 +185,15 @@ language sql immutable as $$
   select case when upper(coalesce(x, '')) ~ '^[A-Z]{2}$' then upper(x) else 'XX' end
 $$;
 
+-- The text with the swaps people use to slip past a filter undone: n1gg3r is nigger, f@g is fag. core.js does the same.
+create or replace function verd_private.unleet(t text) returns text
+language sql immutable as $$ select translate(lower(coalesce(t, '')), '0134@$5796', 'oieaasstgg') $$;
+
 create or replace function verd_private.blocked(t text) returns boolean
 language sql stable security definer set search_path = public as $$
-  select exists (select 1 from public.blocked_terms b where coalesce(t, '') ~* b.pattern)
+  select exists (select 1 from public.blocked_terms b
+                  where case when b.squeezed then regexp_replace(verd_private.unleet(t), '[^a-z]', '', 'g') ~* b.pattern
+                             else coalesce(t, '') ~* b.pattern or verd_private.unleet(t) ~* b.pattern end)
 $$;
 
 -- Friend code: 6 characters from a CSPRNG (gen_random_uuid), no 0/O/1/I.
@@ -488,8 +512,8 @@ end $$;
 -- People's own yes/no questions, judged by everyone else.
 --   * Every post and comment waits for a moderator before anyone else sees it. So posting stays closed
 --     until the owner adds a moderator, and app_config posting_paused = 1 stops it at once.
---   * Unless the owner sets app_config auto_approve = 1: then new ones go live at once, and the moderator
---     checks them afterwards (Me > Review lists each one until it's marked fine or removed).
+--   * Unless the owner sets app_config auto_approve = 1: then new ones go live at once, the word filter is
+--     the only check before they show, and the moderator sees what people report.
 --   * Writing needs a real sign-in (not an anonymous session), an age given once and kept here (13 or
 --     older), and no block. Judging and reporting only need a session, like voting.
 --   * Rate limits and the blocked_terms list are checked here, so no app can skip them.
@@ -504,7 +528,7 @@ insert into public.app_config (key, value) values
   ('reports_per_day', 30),
   ('hide_at_reports', 3),        -- hidden for everyone at 3 reports, until a moderator looks
   ('posting_paused', 0),         -- set to 1 to stop new posts and comments straight away
-  ('auto_approve', 0)            -- 1: new posts and comments go live at once, checked by the moderator afterwards
+  ('auto_approve', 0)            -- 1: new posts and comments go live at once; the moderator sees what's reported
 on conflict (key) do nothing;
 
 -- The month someone was born, given once (year * 12 + month - 1). The app can't change it.
@@ -970,8 +994,7 @@ begin
   return 'deleted';
 end $$;
 
--- Moderators only: what waits for review (oldest first), approved things that were reported, and what went
--- live without review (auto_approve) in the last 14 days, the feed's span, until it's kept or removed.
+-- Moderators only: what waits for review (oldest first), and approved things that were reported.
 create or replace function public.review_queue()
 returns jsonb
 language plpgsql stable security definer set search_path = public as $$
@@ -1005,27 +1028,10 @@ begin
                                     and (c.kept_at is null or r.created_at > c.kept_at))::int
                            from public.comments c join public.posts p on p.id = c.post_id where c.status = 'approved') q
                   where q.n > 0),
-    'review_first', verd_private.review_first(),
-    'live', (select coalesce(jsonb_agg(jsonb_build_object('kind', q.kind, 'id', q.id, 'body', q.body, 'on', q.on_post,
-                                       'scope', q.scope, 't', verd_private.ms(q.t), 'writer', verd_private.track(q.user_id))
-                                     order by q.t), '[]'::jsonb)
-               from (select 'post' as kind, p.id, p.body, null::text as on_post, p.scope, p.created_at as t, p.user_id
-                       from public.posts p
-                      where p.status = 'approved' and p.reviewed_at is null and p.created_at > now() - interval '14 days'
-                        and not verd_private.banned(p.user_id)
-                        and not exists (select 1 from public.reports r where r.kind = 'post' and r.item_id = p.id)
-                     union all
-                     select 'comment', c.id, c.body, p.body, p.scope, c.created_at, c.user_id
-                       from public.comments c join public.posts p on p.id = c.post_id
-                      where c.status = 'approved' and c.reviewed_at is null and p.status = 'approved'
-                        and p.created_at > now() - interval '14 days'
-                        and not verd_private.banned(c.user_id)
-                        and not exists (select 1 from public.reports r where r.kind = 'comment' and r.item_id = c.id)
-                      order by t
-                      limit 100) q));
+    'review_first', verd_private.review_first());
 end $$;
 
--- Moderators only: approve or reject what's waiting, keep or remove what was reported or went live without review.
+-- Moderators only: approve or reject what's waiting, keep or remove what was reported.
 -- why is shown to the writer when something is turned down.
 create or replace function public.review_item(what text, iid bigint, decision text, why text default null)
 returns text
@@ -1153,5 +1159,5 @@ grant execute on function public.ban_author(text, bigint, int, text) to authenti
 -- Tells the API about these functions straight away, then says which version just ran: the SQL Editor shows this
 -- line as the result. "Success. No rows returned" instead means an older copy of this file ran.
 notify pgrst, 'reload schema';
-select 'Verd is set up, with posting (setup.sql of 2026-11-20). New posts '
+select 'Verd is set up, with posting and the slur filter (setup.sql of 2026-11-20). New posts '
        || case when verd_private.review_first() then 'wait for review.' else 'go live at once.' end as result;

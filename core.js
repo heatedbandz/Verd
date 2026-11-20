@@ -152,3 +152,28 @@ export function streakNote(s, today, answered){
   const k = FREEZES.every - answered % FREEZES.every;
   return "Answer " + k + (k === 1 ? " more day" : " more days") + " to earn a streak freeze.";
 }
+
+// ---------- Words that are never allowed ----------
+// The same kinds of things the database refuses (blocked_terms in setup.sql), caught before sending.
+// Each pattern is checked on the text as written and with the swaps people use to dodge a filter undone.
+export const SLURS = [/\bn+[i1!|*]+g{2,}(a+|e+r+|u+h*|a+h+)[sz]?\b/i, /\bn+[i1!|*]+g+l+e+t+s?\b/i,
+  /\bf+[a4@*]+g+(o+t+|i+t+|e+t+|y)?s?\b/i, /\bd+y+k+e+s?\b/i, /\bt+r+a+n+(y+|i+e+)s?\b/i,
+  /\bs+h+e+-?m+a+l+e+s?\b/i, /\bl+e+s+b+o+s?\b/i,
+  /\br+e+t+a+r+d+(s|e+d+|o+s?)?\b/i, /\bm+o+n+g+o+l+o+i+d+s?\b/i,
+  /\bk+[i1!y]+k+e+s?\b/i, /\bc+h+[i1!]+n+k+(s|y)?\b/i, /\bg+o{2,}k+s?\b/i, /\bs+p+[i1!]+c+s?\b/i,
+  /\bw+e+t+-?b+a+c+k+s?\b/i, /\bb+e+a+n+e+r+s?\b/i, /\bc+o{2,}n+s?\b/i, /\bj+[i1!]+g+a+b+o+s?\b/i,
+  /\bp+o+r+c+h+[\s-]*m+o+n+k+e+y+s?\b/i, /\b(t+o+w+e+l+|r+a+g+)-?h+e+a+d+s?\b/i, /\bp+a+k+i+s?\b/i,
+  /\br+e+d+s+k+i+n+s?\b/i, /\bs+q+u+a+w+s?\b/i];
+export const BLOCK = [/\d[\d\s().-]{6,}\d/, /@\w/, /https?:|www\./i, /\b(kill|kys|die)\b/i, /\b(dm|snap|add|text|hmu)\s+me\b/i, /\bhmu\b/i,
+  /\bmy\s+(snap|snapchat|insta|ig|discord|number|addy|address)\b/i, /\b(send|show)\s+(me\s+)?(a\s+)?(pics?|nudes?|photos?)\b/i,
+  /\bhow old (are|r) (you|u)\b/i, /\bwhere do (you|u) live\b/i, /\b(nudes?|sext(ing)?|porn|onlyfans|horny)\b/i, ...SLURS];
+// Slurs spelled out with spaces or dots (n i g g a): checked with everything but letters taken out.
+export const SQUEEZED = [/(^|[^s])nigg+(er|a(?!rd)|uh|ah)/, /fagg+(o|i|e)t/];
+// n1gg3r is nigger and f@g is fag. The database undoes the same swaps (verd_private.unleet).
+const LEET = { 0: "o", 1: "i", 3: "e", 4: "a", "@": "a", $: "s", 5: "s", 7: "t", 9: "g", 6: "g" };
+export const unleet = t => String(t ?? "").toLowerCase().replace(/[0134@$5796]/g, c => LEET[c]);
+export function blockedText(t){
+  const u = unleet(t), letters = u.replace(/[^a-z]/g, "");
+  return BLOCK.some(r => r.test(t) || r.test(u)) || SQUEEZED.some(r => r.test(letters));
+}
+export const BLOCK_MSG = "Leave out slurs, contact info, links, threats, and asking for pictures or someone's age.";

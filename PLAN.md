@@ -405,19 +405,29 @@ How these were measured: Lighthouse 13.6, median of 3 runs, in two profiles. "De
 
 ## Posts can go live at once (2026-11-20)
 
-**The owner chose to approve every post and comment automatically instead of waiting for the moderator.** A parent should agree to that first, so it's a switch in the database that only the account owner can turn on. Until it's on, everything still waits for review.
+**The owner chose to approve every post and comment automatically instead of waiting for the moderator.** It's a switch in the database that only the account owner can turn on: `update public.app_config set value = 1 where key = 'auto_approve';`, and 0 turns it off again. It's on now.
 
-- **The switch:** in the SQL Editor, `update public.app_config set value = 1 where key = 'auto_approve';` turns it on, and 0 turns it off again. New posts and comments then go live the moment they're sent. Anything already waiting still waits for the moderator.
-- **Still checked:** the word filter, the age rule, rate limits and blocks, all in the database. 3 reports still hide a post or comment for everyone until the moderator looks.
-- **The moderator checks afterwards:** **Me → Review** lists what went live without review in the last 14 days (as far back as the feed goes), oldest first.
-  - **Looks fine** takes it off the list.
-  - **Remove** takes it down, and the writer sees why.
-  - A reported one moves to the reported list.
+- **With it on:** new posts and comments go live the moment they're sent. Anything that was already waiting still waits for the moderator.
+- **Still checked:** the word filter (now with slurs, below), the age rule, rate limits and blocks, all in the database. 3 reports still hide a post or comment for everyone until the moderator looks.
+- **The moderator sees only reports.** A first version also listed everything that went live in **Me → Review**, with Looks fine and Remove. To the parent that looked like approving every comment, so it's gone: nothing in Review needs a tap unless someone reported it.
 - **What people see:** the composer says "Posts go live straight away" instead of promising a check first, and sending says "Posted. Others can see it now."
 - **Fixed on the way:** the moderator's line about a writer ("N approved before") counted the reported post itself. It no longer does.
-- **Tests:** 2 new, and all 93 pass.
-  - `db`: switched off, nothing changes. Switched on, posts and comments are approved at once and others see them. The moderator sees both, oldest first, with no account ids. Looks fine and Remove work. A report moves one to the reported list, and 3 hide it. The word filter, the gap between posts, the age rule and blocks still hold. Switched off again, new ones wait.
-  - `e2e-live`: the writer is told it's posted, someone else sees it at once, and the moderator sees it under "went live without review" and marks it fine.
+
+### Slurs are blocked
+
+**Posts, comments and suggested questions with a slur are refused, in the app before sending and in the database anyway.** The message says "Leave out slurs, contact info, links, threats, and asking for pictures or someone's age."
+
+- **The list:** racial and ethnic slurs, anti-gay and anti-trans slurs, and "retard". Each allows doubled letters (niggga), plurals and common spellings.
+- **Dodges count too:** numbers and symbols for letters (n1gg3r, f@g, ni99a, n*gga). The worst two are also caught spelled out with spaces or dots (n i g g a, f.a.g.g.o.t).
+- **Kept clean on purpose:** the test checks everyday words that look close and must stay allowed: Niger, Nigeria, snigger, niggle, raccoon, cocoon, Pakistan, flame retardant, spicy, running gag, she male or female, a wet back, and more.
+- **A few rare phrases are refused too:** "a chink in the armor", "Van Dyke", "Coon Rapids", and "fag" meaning a cigarette. On a site for teens that trade seemed right.
+- **One list, two places:** the app's copy is in `core.js` and the database's in `blocked_terms`. A test fails if they ever differ.
+- **Fixed on the way:** the database's pattern for web addresses (example.com) used `\b`, which in Postgres means a backspace, so it never matched. Bare web addresses are refused now, as intended.
+
+**Tests:** 3 new, and all 94 pass.
+- `db`: switched off, nothing changes. Switched on, posts and comments are approved at once and others see them. The moderator's queue has nothing to approve, a report puts one there, and 3 hide it. The filter, the gap between posts, the age rule and blocks still hold. Switched off again, new ones wait.
+- `db`: 47 slurs and dodges are refused by both the database and the app, and 35 near-misses are allowed by both. The two lists match pattern for pattern. A post, a comment and a suggested question with a slur are each refused.
+- `e2e-live`: a slur in the composer is stopped before sending. A post and a comment go live at once, someone else sees the post straight away, and the moderator's Review shows nothing new to approve.
 
 ## Next single step
 
@@ -427,7 +437,7 @@ How these were measured: Lighthouse 13.6, median of 3 runs, in two profiles. "De
    - Open [a new query in Verd's Supabase project](https://supabase.com/dashboard/project/zfphqlavepncdoihiugu/sql/new). It must be empty.
    - Open [setup.sql on GitHub](https://github.com/heatedbandz/Verd/blob/main/setup.sql) and press its copy button (two squares, top right of the file).
    - Paste into the empty query and press **Run**.
-   - It worked if the result says **Verd is set up, with posting (setup.sql of 2026-11-20)**. If it says "Success. No rows returned", an older copy ran (for example one still open in the SQL Editor from launch day).
+   - It worked if the result says **Verd is set up, with posting and the slur filter (setup.sql of 2026-11-20)**. If it says "Success. No rows returned", an older copy ran (for example one still open in the SQL Editor from launch day).
 2. **Make a Google sign-in client.** Open the [Google Cloud console](https://console.cloud.google.com/auth/overview), signed in as the parent.
    - Create a project called Verd if asked.
    - **Branding:** app name Verd and a support email.
@@ -445,4 +455,4 @@ How these were measured: Lighthouse 13.6, median of 3 runs, in two profiles. "De
 
 To pause posting at any time, run `update public.app_config set value = 1 where key = 'posting_paused';`. Use 0 to open it again.
 
-To let new posts and comments go live without waiting for review, run `update public.app_config set value = 1 where key = 'auto_approve';`. Use 0 to make them wait again. Only do this if the parent agrees: see **Posts can go live at once**.
+New posts and comments go live without waiting for review while `auto_approve` is 1 (it is now). Run `update public.app_config set value = 0 where key = 'auto_approve';` to make them wait for the moderator again. See **Posts can go live at once**.
