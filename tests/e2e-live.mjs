@@ -631,6 +631,56 @@ test("signed in with Google, Verd opens on friends' posts with today's question 
   }
 });
 
+test('invite links: open one, sign in with Google, and you are friends both ways; under 13 joins with one tap and no Google', async () => {
+  // The inviter answered once, so they have an account, and shares their link
+  const host = await page();
+  await host.ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: site });
+  await tap(host.p, 0); await host.p.waitForTimeout(1500);
+  await host.p.click('#navMe'); await host.p.waitForTimeout(600);
+  await host.p.fill('#myname', 'Jay'); await host.p.dispatchEvent('#myname', 'change');
+  await host.p.click('#invite'); await host.p.waitForTimeout(800);
+  const link = await host.p.evaluate(() => navigator.clipboard.readText());
+  const hash = /#(i=[0-9a-f]{32}&f=[A-Z2-9]{6}&n=Jay)$/.exec(link);
+  assert.ok(hash, 'the invite link carries an invite: ' + link);
+  const hostId = await uidOf(host.p), hostCode = /f=(\w{6})/.exec(hash[1])[1];
+
+  // 13 or older: opening the link makes no account; the sheet says who invited you, then Google
+  fake.calls.length = 0;
+  const a = await page({ es_born: JSON.stringify(yearsAgo(16, '05')) }, '#' + hash[1]);
+  await a.p.waitForSelector('#acct:not([hidden])');
+  assert.ok(!fake.calls.includes('POST /auth/v1/signup'), 'opening an invite made an account');
+  assert.equal(await a.p.innerText('#atitle'), 'Jay invited you');
+  assert.match(await a.p.innerText('#anote'), /Sign in with Google and you're friends right away/);
+  assert.equal(await a.p.innerText('#ago'), 'Continue with Google');
+  await a.p.click('#ago'); await google(a.p, 'joiner@verd.test'); await a.p.waitForTimeout(800);
+  assert.match(await a.p.innerText('#toast'), /You and Jay are friends now\./);
+  const joiner = (await fake.pool.query("select id from auth.users where email = 'joiner@verd.test'")).rows[0].id;
+  assert.equal((await fake.pool.query('select count(*)::int as n from public.friend_adds where user_id = $1 and code = $2', [joiner, hostCode])).rows[0].n, 1);
+  await a.p.click('#navMe'); await a.p.waitForTimeout(900);
+  assert.match(await a.p.innerText('#flist'), new RegExp('Jay\\s+' + hostCode));
+  assert.deepEqual(a.errors, []); await a.ctx.close();
+
+  // Under 13: never sent to Google, one tap to join
+  fake.calls.length = 0;
+  const kid = await page({ es_born: JSON.stringify(yearsAgo(11)) }, '#' + hash[1]);
+  await kid.p.waitForSelector('#acct:not([hidden])');
+  assert.equal(await kid.p.innerText('#ago'), 'Join');
+  await kid.p.click('#ago'); await kid.p.waitForTimeout(1200);
+  assert.match(await kid.p.innerText('#toast'), /You and Jay are friends now\./);
+  assert.ok(!fake.calls.some(c => /authorize/.test(c)), fake.calls.join(', '));
+  assert.deepEqual(kid.errors, []); await kid.ctx.close();
+
+  // The inviter's app adds both back by itself: no request to accept
+  await host.p.reload();
+  await host.p.waitForFunction(() => /2 friends joined from your invite\./.test(document.getElementById('toast').textContent), null, { timeout: 4000 });
+  await host.p.waitForTimeout(1000);
+  assert.equal((await fake.pool.query('select count(*)::int as n from public.friend_adds where user_id = $1', [hostId])).rows[0].n, 2, 'added back in the database');
+  await host.p.click('#navMe'); await host.p.waitForTimeout(900);
+  assert.equal(await host.p.$eval('#freqs', e => e.hidden), true, 'nothing left to accept');
+  assert.doesNotMatch(await host.p.innerText('#flist'), /Waiting for them/);
+  assert.deepEqual(host.errors, []); await host.ctx.close();
+});
+
 // A small photo, and the same one the way a phone camera saves it: with a location (EXIF) and a comment.
 const PHOTO = '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';
 function withMeta(b64) {

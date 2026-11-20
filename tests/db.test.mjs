@@ -216,7 +216,7 @@ test('friend requests: only people who added you and you have not added back, on
   await as('authenticated', c, 'select public.set_friends($1)', [[await codeOf(a)]]);
   const got = await reqs(a);
   assert.deepEqual(got.map(r => r.code).sort(), [await codeOf(b), await codeOf(c)].sort());
-  assert.deepEqual(Object.keys(got[0]).sort(), ['code', 't'], 'nothing but the code and when');
+  assert.deepEqual(Object.keys(got[0]).sort(), ['code', 'invited', 't'], 'nothing but the code, when, and whether they joined from your invite');
   await as('authenticated', a, 'select public.set_friends($1)', [[await codeOf(b)]]);
   assert.deepEqual((await reqs(a)).map(r => r.code), [await codeOf(c)], 'accepted ones are gone');
   assert.deepEqual(await reqs(b), [], 'b already added a');

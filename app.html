@@ -447,6 +447,7 @@ html.vt .page{animation:none}
         <h3>Friends</h3>
         <p class="note">Add a friend and they get a friend request. Once they accept and you've both answered 3 of the same questions, see how often you agree.</p>
         <div class="card" id="freqs" hidden></div>
+        <button class="b2" id="joinInv" type="button" hidden></button>
         <div class="rowlist" id="flist"></div>
         <div class="card">
           <div class="clabel">Your code</div>
@@ -976,6 +977,9 @@ const backends = {
       setFriends: syncFriends,
       hasAccount: () => !!session,
       // People who added you and you haven't added back. null: no account yet, or the database is older than requests.
+      // Invite links: yours (made once you have an account), and joining from someone else's (makes an account).
+      async myInvite(){ if (!session) return null; try{ return await rpc("my_invite", {}, true); }catch{ return null; } },
+      acceptInvite: tok => rpc("accept_invite", { tok }, true),
       async friendRequests(){ if (!session) return null; await syncing; try{ return await rpc("friend_requests", {}, true); }catch{ return null; } },
       async board(dayKey, n, place, level){ return rpc("get_board", { d: dayKey, n, cc: level === "country" ? null : place.country, st: level === "city" ? place.state : null }); },
       async suggest(q, answers){ return rpc("suggest_question", { q, answers }, true); },
@@ -1876,17 +1880,21 @@ async function gate(then){
   return true;
 }
 function openAcct(mode, then){
-  $("atitle").textContent = { signin: "Sign in to post", age: "One question first", young: "Posting is for 13 and older" }[mode];
-  $("anote").textContent = mode === "signin" ? "Posts and comments come from real accounts, so the rules stick. Your name is never shown, and your birth month and year are kept with the account."
-    : mode === "age" ? "Pick the month and year you were born."
+  const inv = then === "invite" && store.get("invite", null), who = inv && (inv.name || "A friend");
+  $("atitle").textContent = inv && mode !== "age" ? who + " invited you" : { signin: "Sign in to post", age: "One question first", young: "Posting is for 13 and older" }[mode];
+  $("anote").textContent = inv && mode === "signin" ? "Sign in with Google and you're friends right away. Your name is never shown to anyone."
+    : inv && mode === "join" ? "Tap Join and you're friends right away. No sign-in needed."
+    : mode === "signin" ? "Posts and comments come from real accounts, so the rules stick. Your name is never shown, and your birth month and year are kept with the account."
+    : mode === "age" ? (inv ? "To join " + who + ", pick the month and year you were born." : "Pick the month and year you were born.")
     : "That goes for comments too. You can still answer every day, judge posts and report anything that looks wrong.";
   $("aage").hidden = mode !== "age"; $("amonth").value = $("ayear").value = "";
   const go = $("ago"); go.hidden = mode === "young"; go.disabled = false;
-  go.textContent = mode === "signin" ? "Continue with Google" : "Continue";
-  go.onclick = mode === "signin" ? () => startSignIn(then, go) : async () => {
+  go.textContent = mode === "signin" ? "Continue with Google" : mode === "join" ? "Join" : "Continue";
+  go.onclick = mode === "signin" ? () => startSignIn(then, go) : mode === "join" ? () => { go.disabled = true; acceptInvite(); } : async () => {
     const y = $("ayear").value, m = $("amonth").value;
     if (!y || !m){ toast("Pick a month and a year."); return; }
     saveBorn(y + "-" + m); closeAcct();
+    if (then === "invite") return joinInvite();
     if (await gate(then)) resume(then);
   };
   $("acct").hidden = false;
@@ -2077,16 +2085,19 @@ $("recapShare").onclick = () => { const r = recapData(), p = profile(); if (!r) 
 // Your invite link is the site plus #f=CODE&n=Name. Nothing after the # is ever sent to a server, and the
 // name is optional. Opening a friend's link adds them on your phone; the link is then cleared from the address bar.
 const cleanName = s => String(s || "").normalize("NFC").replace(/[^\p{L}\p{M} '’-]/gu, "").replace(/\s+/g, " ").trim().slice(0, 24);
-function inviteUrl(){
+// tok: an invite from the database. Whoever joins with it is your friend both ways, with no request to accept.
+function inviteUrl(tok){
   const c = myCode(), n = cleanName(store.get("myName", ""));
-  return siteUrl() + (/^[A-Z2-9]{6}$/.test(c) ? "#f=" + c + (n ? "&n=" + encodeURIComponent(n) : "") : "");
+  return siteUrl() + (/^[A-Z2-9]{6}$/.test(c) ? "#" + (tok ? "i=" + tok + "&" : "") + "f=" + c + (n ? "&n=" + encodeURIComponent(n) : "") : "");
 }
 $("invite").onclick = async () => {
   if (!/^[A-Z2-9]{6}$/.test(myCode())){ toast("Your invite link is ready after your first answer."); return; }
-  const text = "Answer today's question on Verd, then we can see how often we agree.", url = inviteUrl();
+  const tok = backend && backend.myInvite ? await backend.myInvite() : null;
+  const text = tok ? "Join me on Verd. Sign in and we're friends right away." : "Answer today's question on Verd, then we can see how often we agree.", url = inviteUrl(tok);
   try{ if (navigator.share){ await navigator.share({ title: "What's the Verd?", text, url }); return; } }catch(e){ if (e && e.name === "AbortError") return; }
   copyOrShow(text + " " + url, "Invite link copied. Send it to a friend.");
 };
+$("joinInv").onclick = () => joinInvite();
 $("myname").value = store.get("myName", "");
 $("myname").onchange = () => { const v = cleanName($("myname").value); $("myname").value = v; store.set("myName", v); };
 function takeInvite(){
@@ -2095,9 +2106,11 @@ function takeInvite(){
   history.replaceState(null, "", location.pathname + location.search);
   if (!/^[A-Z2-9]{6}$/.test(code)) return;
   if (ownCode(code)){ toast("That's your own invite link."); return; }
-  const name = cleanName(h.get("n"));
+  const name = cleanName(h.get("n")), tok = (h.get("i") || "").toLowerCase();
   if (name) store.set("nicks", { ...store.get("nicks", {}), [code]: name });
   addFriend(code);
+  // An invite from the database: joining makes you friends both ways. Offered once Verd knows whether Google is on.
+  if (/^[0-9a-f]{32}$/.test(tok) && modeNow() === "live"){ store.set("invite", { tok, code, name }); if (inviteReady) joinInvite(); return; }
   // Before Verd is live there's nothing to compare yet, so the toast doesn't promise it.
   toast("Added " + (name || "your friend") + "." + sentLine(name));
   if (!$("me").hidden) renderMe();
@@ -2110,12 +2123,43 @@ function sentLine(name){
   return backend && backend.hasAccount && backend.hasAccount() ? " " + (name || "They") + " will see your friend request on their Me tab."
     : " Answer today's question and " + (name || "they") + " will get your friend request.";
 }
+// Joining from an invite link. 13 or older: the month and year, then Google, and you're friends. Under 13, or
+// with Google sign-in off: one tap to join, with no Google. Nothing happens until you tap, so opening a link
+// still makes no account. Not now keeps the invite until you join from Me.
+let inviteReady = false;
+async function joinInvite(){
+  const inv = store.get("invite", null); if (!inv || !backend || !backend.acceptInvite) return;
+  const born = /^(\d{4})-(\d{2})$/.test(store.get("born", ""));
+  let real = false; try{ real = signInReady && !!(await backend.account(true)).real; }catch{}
+  if (real) return acceptInvite();
+  if (!born) return openAcct("age", "invite");
+  openAcct(signInReady && !under13() ? "signin" : "join", "invite");
+}
+async function acceptInvite(){
+  const inv = store.get("invite", null); if (!inv) return;
+  closeAcct();
+  try{
+    const r = await backend.acceptInvite(inv.tok); store.set("invite", null);
+    if (r && r.own){ toast("That's your own invite link."); return; }
+    if (!friends().includes(r.code)) addFriend(r.code);
+    toast("You and " + (inv.name || r.code) + " are friends now."); checkBadges();
+  }catch(e){
+    if (/invite expired/.test((e && e.message) || "")){ store.set("invite", null); toast("That invite has run out. Ask " + (inv.name || "your friend") + " for a new link."); }
+    else toast("Couldn't join. Check your connection and try again.");
+  }
+  showCode(); renderMe(); order = []; renderFeed();
+}
 // Friend requests on Me: Accept adds them back (that's all a match needs), Not now hides it on this phone.
 let reqCall = 0;
 async function renderRequests(){
   const box = $("freqs"), call = ++reqCall;
   let rows = null; try{ if (backend && backend.friendRequests) rows = await backend.friendRequests(); }catch{}
   if (call !== reqCall) return;
+  // Someone who joined from your invite link is added back by itself: your link was your yes.
+  const joined = (rows || []).filter(r => r.invited && !friends().includes(r.code) && !ownCode(r.code));
+  if (joined.length){ for (const r of joined) addFriend(r.code); toast(joined.length === 1 ? "Someone joined from your invite. You're friends now." : joined.length + " friends joined from your invite."); checkBadges(); renderFriends(); }
+  const inv = store.get("invite", null); $("joinInv").hidden = !inv;
+  if (inv) $("joinInv").textContent = "Join " + (inv.name || "your friend") + "'s invite";
   const no = store.get("declined", []), fl = friends();
   const list = (rows || []).filter(r => !fl.includes(r.code) && !no.includes(r.code) && !ownCode(r.code));
   $("meDot").hidden = !list.length; box.hidden = !list.length; box.replaceChildren(); if (!list.length) return;
@@ -2388,10 +2432,12 @@ document.addEventListener("keydown", e => { if (e.key !== "Escape") return; if (
     if (signInReady){ watchPosts(); await backend.ask.refresh(); if (backend.ask.missing){ signInReady = false; $("navPlus").hidden = true; } }
     if (signInReady){ const a = await backend.account().catch(() => null); signedInReal = !!(a && a.real); if (signedInReal){ renderTop(); friendsFirst(); } }
     renderEnd(); if (!$("me").hidden) renderAccount();
+    if (signedIn !== "ok"){ inviteReady = true; joinInvite(); }
     if (signedIn === "ok"){
       toast("Signed in."); showCode();
       const then = store.get("afterSignIn", "me"); store.set("afterSignIn", null);
-      if (signInReady){
+      if (then === "invite"){ inviteReady = true; acceptInvite(); }
+      else if (signInReady){
         await ask.api.refresh();
         const ok = await gate(then);
         if (then === "me") showPage("me"); else if (ok) resume(then);

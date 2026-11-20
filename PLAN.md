@@ -461,6 +461,16 @@ Heaton: swapping invite links both ways didn't work easily. Now one person adds 
 | `friend_requests()` lists people who added your code and you haven't added back (code and time only, last 60 days, at most 20). `set_friends` keeps when each code was first added. Needs setup.sql rerun. | db "friend requests" |
 | Me shows a Friend requests card (Accept with an optional name, or Not now, kept on the phone) and a green dot on the Me button. No notifications. Requests go out once the sender has an account (their first answer), and the toast says so. | e2e-live "friend requests" |
 
+## Invite links that make you friends (2026-11-20)
+
+Heaton: an invite link should go straight to Google sign-in and make you friends, with no request to wait on.
+
+| Change | How it's checked |
+|---|---|
+| Share my invite link carries a one-time invite (`my_invite`, reused for 7 days, works for 14). | e2e-live "invite links" |
+| Opening it: "Jay invited you", month and year if not given, then Continue with Google. Under 13, or with Google off: one Join tap, never Google. Opening the link alone still makes no account. | same |
+| `accept_invite` adds the inviter for the joiner and records the join; `friend_requests` marks it `invited`, and the inviter's app adds them back by itself. Needs setup.sql rerun. | same, and db "friend requests" |
+
 ## Photo posts for friends (2026-11-20)
 
 **The owner asked for photos in posts.** Photos were left off the live site on purpose: nothing can check a photo the way words are checked, and posts now go live without review. So photo posts stay small and between friends, and they're off until a parent switches them on.
@@ -473,7 +483,7 @@ Heaton: swapping invite links both ways didn't work easily. Now one person adds 
 - **Kept 30 days:** photos are deleted 30 days after they're posted. The feed only goes back 14. Deleting a post deletes its photos.
 - **Where they're kept:** in the database, about 220 KB each at most, behind the same locked functions as everything else. The feed comes first and each post's photos follow, so the feed never waits for them.
 - **What it can't do:** nothing looks at what's in a photo. A friend could still post something they shouldn't, and a report is what takes it down.
-- **Tests:** 2 new, and all 103 pass.
+- **Tests:** 2 new, and all 104 pass.
   - `db`: off until switched on. Then friends only, signed in and 13 or older: refused for an anonymous friend, a friend under 13, someone who only added the writer, a stranger and anyone signed out. Three photos, another audience, custom answers, something that isn't a JPEG and a photo cut short are refused. A location and a comment are cut out and the picture is kept byte for byte. One report hides it, and Keep brings it back. Switching off hides it. Photos go after 30 days, and with their post.
   - `e2e-live`: two photos from the composer go to Friends only and nothing about where they were taken is kept. A friend who's signed in sees both and picks one, someone signed out never even asks for them, and Review blurs a reported one until it's tapped.
   - `live-rls`: 4 new checks. Nobody can read the photos table, and someone signed out or anonymous gets no photos. All 76 pass against the stand-in.
@@ -486,7 +496,7 @@ Heaton: swapping invite links both ways didn't work easily. Now one person adds 
    - Open [a new query in Verd's Supabase project](https://supabase.com/dashboard/project/zfphqlavepncdoihiugu/sql/new). It must be empty.
    - Open [setup.sql on GitHub](https://github.com/heatedbandz/Verd/blob/main/setup.sql) and press its copy button (two squares, top right of the file).
    - Paste into the empty query and press **Run**.
-   - It worked if the result says **Verd is set up, with posting (setup.sql of 2026-11-20, with the stronger slur filter, custom answers, friend requests and photos for friends)**. If it says "Success. No rows returned", an older copy ran (for example one still open in the SQL Editor from launch day).
+   - It worked if the result says **Verd is set up, with posting (setup.sql of 2026-11-20, with the stronger slur filter, custom answers, friend requests, invite links and photos for friends)**. If it says "Success. No rows returned", an older copy ran (for example one still open in the SQL Editor from launch day).
 2. **Make a Google sign-in client.** Open the [Google Cloud console](https://console.cloud.google.com/auth/overview), signed in as the parent.
    - Create a project called Verd if asked.
    - **Branding:** app name Verd and a support email.
