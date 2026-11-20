@@ -207,6 +207,24 @@ test('friend match: only between two people who added each other, past days only
   assert.deepEqual(await match(b, [codeA]), []);
 });
 
+test('friend requests: only people who added you and you have not added back, only their code', async () => {
+  const a = await realUser(), b = await realUser(), c = await realUser();
+  const codeOf = async u => (await admin('select code from public.profiles where id = $1', [u])).rows[0].code;
+  const reqs = u => as('authenticated', u, 'select * from public.friend_requests()').then(r => r.rows);
+  await assert.rejects(as('anon', null, 'select * from public.friend_requests()'), /permission denied/);
+  await as('authenticated', b, 'select public.set_friends($1)', [[await codeOf(a)]]);
+  await as('authenticated', c, 'select public.set_friends($1)', [[await codeOf(a)]]);
+  const got = await reqs(a);
+  assert.deepEqual(got.map(r => r.code).sort(), [await codeOf(b), await codeOf(c)].sort());
+  assert.deepEqual(Object.keys(got[0]).sort(), ['code', 't'], 'nothing but the code and when');
+  await as('authenticated', a, 'select public.set_friends($1)', [[await codeOf(b)]]);
+  assert.deepEqual((await reqs(a)).map(r => r.code), [await codeOf(c)], 'accepted ones are gone');
+  assert.deepEqual(await reqs(b), [], 'b already added a');
+  // Saving the same list again keeps when each was first added
+  const t1 = (await reqs(a))[0].t; await as('authenticated', c, 'select public.set_friends($1)', [[await codeOf(a)]]);
+  assert.equal((await reqs(a))[0].t, t1);
+});
+
 test('friend lists: signed in only, at most 50, and never readable', async () => {
   const u = await user(), L = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
   const codes = Array.from({ length: 70 }, (_, i) => 'FRND' + L[Math.floor(i / 24)] + L[i % 24]);

@@ -450,13 +450,43 @@ begin
     raise exception 'sign in first' using errcode = '28000';
   end if;
   mine := verd_private.ensure_profile(uid);
-  delete from public.friend_adds where user_id = uid;
+  -- Codes still on the list keep the time they were first added, so a friend request stays in its place.
+  delete from public.friend_adds f
+   where f.user_id = uid and f.code <> all (select coalesce(upper(c), '') from unnest((coalesce(codes, '{}'::text[]))[1:50]) as c);
   insert into public.friend_adds (user_id, code)
   select distinct uid, upper(c)
     from unnest((coalesce(codes, '{}'::text[]))[1:50]) as c
-   where upper(c) ~ '^[A-Z2-9]{6}$' and upper(c) <> mine;
-  get diagnostics k = row_count;
+   where upper(c) ~ '^[A-Z2-9]{6}$' and upper(c) <> mine
+  on conflict (user_id, code) do nothing;
+  select count(*) into k from public.friend_adds f where f.user_id = uid;
   return k;
+end $$;
+
+-- Friend requests: people who added your code that you haven't added back, newest first (the last 60 days,
+-- at most 20). Only their code comes back, never a name or anything else about them. Accepting is the app
+-- adding their code to your list (set_friends); saying no is kept on the phone.
+create or replace function public.friend_requests()
+returns table (code text, t bigint)
+language plpgsql stable security definer set search_path = public as $$
+declare
+  uid  uuid := auth.uid();
+  mine text;
+begin
+  if uid is null then
+    raise exception 'sign in first' using errcode = '28000';
+  end if;
+  select pr.code into mine from public.profiles pr where pr.id = uid;
+  if mine is null then
+    return;
+  end if;
+  return query
+    select p.code, verd_private.ms(f.added_at)
+      from public.friend_adds f
+      join public.profiles p on p.id = f.user_id
+     where f.code = mine and p.id <> uid and f.added_at > now() - interval '60 days'
+       and not exists (select 1 from public.friend_adds back where back.user_id = uid and back.code = p.code)
+     order by f.added_at desc
+     limit 20;
 end $$;
 
 -- Today's board: countries (no cc), states in a country (no st) or cities in a state,
@@ -1161,6 +1191,7 @@ revoke all on function public.my_profile() from public;
 revoke all on function public.import_votes(jsonb) from public;
 revoke all on function public.friend_match(text[]) from public;
 revoke all on function public.set_friends(text[]) from public;
+revoke all on function public.friend_requests() from public;
 revoke all on function public.get_board(date, smallint, text, text) from public;
 revoke all on function public.suggest_question(text, text[]) from public;
 revoke all on function public.cast_vote(date, smallint, smallint, text, text, text) from anon;
@@ -1168,6 +1199,7 @@ revoke all on function public.my_profile() from anon;
 revoke all on function public.import_votes(jsonb) from anon;
 revoke all on function public.friend_match(text[]) from anon;
 revoke all on function public.set_friends(text[]) from anon;
+revoke all on function public.friend_requests() from anon;
 revoke all on function public.suggest_question(text, text[]) from anon;
 grant execute on function public.get_results(date, smallint, text, text, text) to anon, authenticated;
 grant execute on function public.get_board(date, smallint, text, text) to anon, authenticated;
@@ -1176,6 +1208,7 @@ grant execute on function public.my_profile() to authenticated;
 grant execute on function public.import_votes(jsonb) to authenticated;
 grant execute on function public.friend_match(text[]) to authenticated;
 grant execute on function public.set_friends(text[]) to authenticated;
+grant execute on function public.friend_requests() to authenticated;
 grant execute on function public.suggest_question(text, text[]) to authenticated;
 
 -- Posting: the feed is open (approved posts only). Everything else needs a session, and each function
@@ -1219,5 +1252,5 @@ end $$;
 -- Tells the API about these functions straight away, then says which version just ran: the SQL Editor shows this
 -- line as the result. "Success. No rows returned" instead means an older copy of this file ran.
 notify pgrst, 'reload schema';
-select 'Verd is set up, with posting (setup.sql of 2026-11-20, with the stronger slur filter and custom answers). New posts '
+select 'Verd is set up, with posting (setup.sql of 2026-11-20, with the stronger slur filter, custom answers and friend requests). New posts '
        || case when verd_private.review_first() then 'wait for review.' else 'go live at once.' end as result;

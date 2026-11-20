@@ -100,7 +100,9 @@ const backends = {
     }
     // Your friend list lives on this phone. The database gets a copy once you have an account, so a friend
     // match can check that you both added each other. No account is made just for this.
-    function syncFriends(){ if (session) rpc("set_friends", { codes: liveFriends() }, true).catch(() => {}); }
+    // A match or request check waits for the last save, so someone just added or accepted counts straight away.
+    let syncing = Promise.resolve();
+    function syncFriends(){ if (session) syncing = rpc("set_friends", { codes: liveFriends() }, true).catch(() => {}); return syncing; }
     // Answers this phone saved before the database existed, copied once (today's goes through the outbox).
     async function importLocal(){
       if (store.get("imported", false)) return;
@@ -228,8 +230,11 @@ const backends = {
       retry(){ flush(); subs.forEach((_, d) => refresh(d)); },
       async profile(){ return session ? rpc("my_profile", {}, true) : null; },   // no account until the first vote
       // null: can't check yet (no account until your first answer). Only friends who added you too come back.
-      async friendMatch(codes){ return !codes.length ? [] : session ? rpc("friend_match", { codes }, true) : null; },
+      async friendMatch(codes){ await syncing; return !codes.length ? [] : session ? rpc("friend_match", { codes }, true) : null; },
       setFriends: syncFriends,
+      hasAccount: () => !!session,
+      // People who added you and you haven't added back. null: no account yet, or the database is older than requests.
+      async friendRequests(){ if (!session) return null; await syncing; try{ return await rpc("friend_requests", {}, true); }catch{ return null; } },
       async board(dayKey, n, place, level){ return rpc("get_board", { d: dayKey, n, cc: level === "country" ? null : place.country, st: level === "city" ? place.state : null }); },
       async suggest(q, answers){ return rpc("suggest_question", { q, answers }, true); },
       waiting: d => stuck && store.get("outbox", []).some(x => x.d === d)   // saved, but no connection to send it
@@ -1258,7 +1263,7 @@ function renderMe(){
   if (r){ const row = (a, b) => { const d = el("div"); d.append(el("b", "", a), el("span", "", b)); rb.append(d); };
     row("Days answered", r.answered + " of 7"); if (r.known) row("With the majority", r.maj + " of " + r.known); row("Streak", r.s + (r.s === 1 ? " day" : " days"));
     if (r.rarest !== undefined){ const v = myVotes[dayKey(r.rarest)], [q, o] = qFor(r.rarest); row("Rarest take", o[v.choice] + ", " + v.share + "%"); } }
-  renderFriends(); renderAccount();
+  renderFriends(); renderRequests(); renderAccount();
 }
 // Your friend code. On the live site it exists once you've answered (that's when your account is made).
 function showCode(){
@@ -1280,7 +1285,7 @@ async function renderFriends(){
       .forEach(({ c, r, m }) => {
         const t = old(c) ? "Added before Verd went live. Send them your new invite link." : failed ? "" : by === undefined ? "Loading"
           : by === null ? (live ? "Matches start after your first answer." : "When Verd goes live, swap new invite links to compare.")
-          : !r ? (live ? "Shows once they add you too." : "No shared answers yet")
+          : !r ? (live ? "Request sent. Waiting for them to accept." : "No shared answers yet")
           : m === null ? (r.shared ? r.shared + " shared " + (r.shared === 1 ? "answer" : "answers") + " so far" : "No shared answers yet")
           : (m >= 80 ? "Same brain, " : m <= 30 ? "Opposites, " : "") + m + "% match";
         const d = el("div"), x = el("button", "fx", "×"), who = el("div", "who"); x.setAttribute("aria-label", "Remove " + (nick(c) || c)); x.onclick = () => removeFriend(c);
@@ -1322,10 +1327,37 @@ function takeInvite(){
   if (name) store.set("nicks", { ...store.get("nicks", {}), [code]: name });
   addFriend(code);
   // Before Verd is live there's nothing to compare yet, so the toast doesn't promise it.
-  toast("Added " + (name || "your friend") + "." + (modeNow() !== "device" ? " Send your link back so you can compare." : ""));
+  toast("Added " + (name || "your friend") + "." + sentLine(name));
   if (!$("me").hidden) renderMe();
 }
 addEventListener("hashchange", takeInvite);
+// What happens after you add someone: on the live site they get a friend request to accept. That goes out once
+// you have an account (your first answer), since nothing is sent before that.
+function sentLine(name){
+  if (modeNow() === "device") return "";
+  return backend && backend.hasAccount && backend.hasAccount() ? " " + (name || "They") + " will see your friend request on their Me tab."
+    : " Answer today's question and " + (name || "they") + " will get your friend request.";
+}
+// Friend requests on Me: Accept adds them back (that's all a match needs), Not now hides it on this phone.
+let reqCall = 0;
+async function renderRequests(){
+  const box = $("freqs"), call = ++reqCall;
+  let rows = null; try{ if (backend && backend.friendRequests) rows = await backend.friendRequests(); }catch{}
+  if (call !== reqCall) return;
+  const no = store.get("declined", []), fl = friends();
+  const list = (rows || []).filter(r => !fl.includes(r.code) && !no.includes(r.code) && !ownCode(r.code));
+  $("meDot").hidden = !list.length; box.hidden = !list.length; box.replaceChildren(); if (!list.length) return;
+  box.append(el("div", "clabel", list.length === 1 ? "1 friend request" : list.length + " friend requests"));
+  for (const r of list){
+    const row = el("div", "freq"), top = el("div", "line"), name = el("input", "field"), ok = el("button", "b2", "Accept"), x = el("button", "b2 soft", "Not now");
+    name.maxLength = 24; name.placeholder = "Their name (optional)"; name.setAttribute("aria-label", "Name for " + r.code); name.autocapitalize = "words";
+    top.append(el("b", "code sm", r.code), el("span", "note", "added you " + ago(r.t) + " ago"));
+    ok.onclick = () => { const n = cleanName(name.value); if (n) store.set("nicks", { ...store.get("nicks", {}), [r.code]: n });
+      addFriend(r.code); toast("You and " + (n || r.code) + " are friends now."); checkBadges(); renderMe(); order = []; renderFeed(); };
+    x.onclick = () => { store.set("declined", [...no.filter(c => c !== r.code), r.code]); renderRequests(); };
+    const acts = el("div", "line"); acts.append(ok, x); row.append(top, name, acts); box.append(row);
+  }
+}
 // Add a friend: their 6-character code, or their whole invite link pasted in. Spaces, dashes and lower case are fine.
 // What went wrong is said right under the box, so a name typed in the wrong box is easy to spot.
 function readFriend(raw){
@@ -1354,8 +1386,7 @@ $("fform").onsubmit = e => { e.preventDefault();
   if (!had) addFriend(r.code);
   $("fcode").value = $("fnick").value = ""; showFerr(""); document.activeElement && document.activeElement.blur();
   const who = name || "your friend", mine = myCode();
-  toast(had ? (name ? "Renamed to " + name + "." : who + " is already on your list.")
-    : "Added " + who + "." + (modeNow() !== "device" ? " Now ask them to add you" + (mine ? ", your code is " + mine : "") + "." : ""));
+  toast(had ? (name ? "Renamed to " + name + "." : who + " is already on your list.") : "Added " + who + "." + sentLine(name));
   checkBadges(); renderMe(); order = []; renderFeed(); };
 function ageOptions(month, year){
   const pick = (s, label) => { const o = new Option(label, "", true, true); o.disabled = true; s.add(o); };
@@ -1570,6 +1601,8 @@ document.addEventListener("keydown", e => { if (e.key !== "Escape") return; if (
   $("mode").textContent = backend.label;
   showCode(); renderNet();
   if (friends().length && backend.setFriends) backend.setFriends();
+  renderRequests();
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") renderRequests(); });
   // People's posts. The + button shows only where posting is open.
   const watchPosts = () => { ask.api = backend.ask; $("navPlus").hidden = !postingOpen();
     ask.api.watch((posts, mv, mr) => { ask.posts = posts; ask.myVotes = { ...mv, ...ask.myVotes }; ask.myReports = { ...mr, ...ask.myReports }; checkFlips(); renderTop(); renderFeed(); if (sheetPost) renderSheet(); if (!$("search").hidden) renderSearch(); $("navPlus").hidden = !postingOpen(); }); };

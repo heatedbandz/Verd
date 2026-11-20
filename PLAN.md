@@ -452,6 +452,15 @@ Heaton's friend typed his name into the friend code box (6 characters, capitals 
   - `review_queue` stopped building the went-live list nobody shows any more.
 - **Tests:** 1 new, and all 99 pass. `db` checks 55 slurs and dodges are refused by both the database and the app, and 40 near-misses are allowed by both: Niger, Nigeria, snigger, niggle, raccoon, Pakistan, flame retardant, spicy, running gag, "she male or female", "a wet back", kafir, and more. A post, a comment and a suggested question with a slur are each refused.
 
+## Friend requests (2026-11-20)
+
+Heaton: swapping invite links both ways didn't work easily. Now one person adds (link or code) and the other gets a friend request.
+
+| Change | How it's checked |
+|---|---|
+| `friend_requests()` lists people who added your code and you haven't added back (code and time only, last 60 days, at most 20). `set_friends` keeps when each code was first added. Needs setup.sql rerun. | db "friend requests" |
+| Me shows a Friend requests card (Accept with an optional name, or Not now, kept on the phone) and a green dot on the Me button. No notifications. Requests go out once the sender has an account (their first answer), and the toast says so. | e2e-live "friend requests" |
+
 ## Next single step
 
 **A parent sets up sign-in and becomes the moderator.** It takes about 20 minutes on a computer. Posting opens the moment it's done, and nothing changes on the site before that.

@@ -175,6 +175,9 @@ button{border:0;background:none;padding:0;cursor:pointer}
 .nav button{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;color:var(--nav-icon)}
 .nav button::after{content:"";width:4px;height:4px;border-radius:50%;background:currentColor;opacity:0;transition:opacity var(--dur-1)}
 .nav button.on{color:var(--on-color)} .nav button.on::after{opacity:1}
+#navMe{position:relative}
+.ndot{position:absolute;top:22%;left:calc(50% + 7px);width:9px;height:9px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 2px var(--nav-glass)}
+.ndot[hidden]{display:none}
 #navPlus::after{display:none}
 .nav .plus{width:46px;height:36px;border-radius:var(--r2);background:var(--on-color);color:#111;display:grid;place-items:center}
 .app.paged .nav{background:var(--paged-glass);box-shadow:inset 0 0 0 1px var(--line),0 12px 32px rgba(0,0,0,.14)}
@@ -221,6 +224,11 @@ button{border:0;background:none;padding:0;cursor:pointer}
 .codein::placeholder{font-weight:400;letter-spacing:0}
 .ferr{margin:0;font-size:var(--t-md);font-weight:600;color:var(--warn)}
 #flist>div{align-items:center}
+.freq{display:flex;flex-direction:column;gap:var(--s2);padding-top:var(--s2)}
+.freq+.freq{border-top:1px solid var(--line);padding-top:var(--s3)}
+.freq .line{justify-content:space-between}
+.code.sm{font-size:var(--t-lg);flex:none}
+.freq .b2{flex:1}
 #flist .who{display:flex;flex-direction:column;flex:1;min-width:0}
 #flist .who small{font-size:var(--t-xs);color:var(--muted);letter-spacing:.06em}
 #flist span{flex:1}
@@ -460,7 +468,8 @@ html.vt .page{animation:none}
       <div class="sec" id="recap" hidden><h3>Your week</h3><div class="rowlist" id="recapBody"></div><div><button class="b2 soft" id="recapShare">Share my week</button></div></div>
       <div class="sec" id="friends">
         <h3>Friends</h3>
-        <p class="note">See how often you and a friend agree. You both add each other, then answer 3 of the same questions.</p>
+        <p class="note">Add a friend and they get a friend request. Once they accept and you've both answered 3 of the same questions, see how often you agree.</p>
+        <div class="card" id="freqs" hidden></div>
         <div class="rowlist" id="flist"></div>
         <div class="card">
           <div class="clabel">Your code</div>
@@ -552,7 +561,7 @@ html.vt .page{animation:none}
     <button id="navHome" class="on" aria-label="Feed"><svg viewBox="0 0 24 24"><path d="M4 11l8-7 8 7v8a1 1 0 0 1-1 1h-4v-6h-6v6H5a1 1 0 0 1-1-1z"/></svg></button>
     <button id="navSearch" aria-label="Search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button>
     <button id="navPlus" aria-label="New post" hidden><span class="plus"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span></button>
-    <button id="navMe" aria-label="Me"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c1.5-4 4.5-6 8-6s6.500 2 8 6"/></svg></button>
+    <button id="navMe" aria-label="Me"><i class="ndot" id="meDot" hidden></i><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c1.5-4 4.5-6 8-6s6.500 2 8 6"/></svg></button>
   </nav>
 </div>
 </body>
