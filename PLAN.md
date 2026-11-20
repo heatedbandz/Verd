@@ -419,6 +419,19 @@ How these were measured: Lighthouse 13.6, median of 3 runs, in two profiles. "De
   - `db`: switched off, nothing changes. Switched on, posts and comments are approved at once and others see them. The moderator sees both, oldest first, with no account ids. Looks fine and Remove work. A report moves one to the reported list, and 3 hide it. The word filter, the gap between posts, the age rule and blocks still hold. Switched off again, new ones wait.
   - `e2e-live`: the writer is told it's posted, someone else sees it at once, and the moderator sees it under "went live without review" and marks it fine.
 
+## Me tab and friends, made easier (2026-11-20)
+
+Heaton's friend typed his name into the friend code box (6 characters, capitals only) because the two boxes looked the same, one above the other.
+
+| Change | How it's checked |
+|---|---|
+| Me splits Friends into two cards: **Your code** (Copy, your name, Share my invite link) and **Add a friend** (their code or whole invite link, their name). Each box has its own label. | screenshots, light and dark |
+| Adding a friend says what's wrong under the box: a name in the code box, the wrong length, 0/1/I/O (codes never use them), your own code. Lower case, spaces and dashes are fine, a pasted invite link brings the name, and adding a friend again with a name renames them. Names can be 24 letters (was 20). | e2e-device "adding a friend" |
+| Friends show name first, code underneath, and sit above the cards. | e2e-device, e2e-live |
+| Sign-in moved to the top of Me as an optional card. Verd never forces it: answering, friends and the under-13 rules are unchanged. | e2e-live |
+| Signed in with Google, with a friend's post to see: Verd opens on the **Friends** tab, which is now the first tab, and today's question is one tab over (World). Signed out, or nothing from friends: today's question first, as before. Picking a tab, opening a post or scrolling first stops the switch. | e2e-live "signed in with Google, Verd opens on friends' posts" |
+| Fixed: every tab after the first post showed posts from all places (Country could show World posts). | same test |
+
 ## Next single step
 
 **A parent sets up sign-in and becomes the moderator.** It takes about 20 minutes on a computer. Posting opens the moment it's done, and nothing changes on the site before that.
