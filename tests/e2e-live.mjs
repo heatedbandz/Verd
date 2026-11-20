@@ -630,3 +630,53 @@ test("signed in with Google, Verd opens on friends' posts with today's question 
     await fake.pool.query('delete from public.posts where id = $1', [post]);
   }
 });
+
+test('invite links: open one, sign in with Google, and you are friends both ways; under 13 joins with one tap and no Google', async () => {
+  // The inviter answered once, so they have an account, and shares their link
+  const host = await page();
+  await host.ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: site });
+  await tap(host.p, 0); await host.p.waitForTimeout(1500);
+  await host.p.click('#navMe'); await host.p.waitForTimeout(600);
+  await host.p.fill('#myname', 'Jay'); await host.p.dispatchEvent('#myname', 'change');
+  await host.p.click('#invite'); await host.p.waitForTimeout(800);
+  const link = await host.p.evaluate(() => navigator.clipboard.readText());
+  const hash = /#(i=[0-9a-f]{32}&f=[A-Z2-9]{6}&n=Jay)$/.exec(link);
+  assert.ok(hash, 'the invite link carries an invite: ' + link);
+  const hostId = await uidOf(host.p), hostCode = /f=(\w{6})/.exec(hash[1])[1];
+
+  // 13 or older: opening the link makes no account; the sheet says who invited you, then Google
+  fake.calls.length = 0;
+  const a = await page({ es_born: JSON.stringify(yearsAgo(16, '05')) }, '#' + hash[1]);
+  await a.p.waitForSelector('#acct:not([hidden])');
+  assert.ok(!fake.calls.includes('POST /auth/v1/signup'), 'opening an invite made an account');
+  assert.equal(await a.p.innerText('#atitle'), 'Jay invited you');
+  assert.match(await a.p.innerText('#anote'), /Sign in with Google and you're friends right away/);
+  assert.equal(await a.p.innerText('#ago'), 'Continue with Google');
+  await a.p.click('#ago'); await google(a.p, 'joiner@verd.test'); await a.p.waitForTimeout(800);
+  assert.match(await a.p.innerText('#toast'), /You and Jay are friends now\./);
+  const joiner = (await fake.pool.query("select id from auth.users where email = 'joiner@verd.test'")).rows[0].id;
+  assert.equal((await fake.pool.query('select count(*)::int as n from public.friend_adds where user_id = $1 and code = $2', [joiner, hostCode])).rows[0].n, 1);
+  await a.p.click('#navMe'); await a.p.waitForTimeout(900);
+  assert.match(await a.p.innerText('#flist'), new RegExp('Jay\\s+' + hostCode));
+  assert.deepEqual(a.errors, []); await a.ctx.close();
+
+  // Under 13: never sent to Google, one tap to join
+  fake.calls.length = 0;
+  const kid = await page({ es_born: JSON.stringify(yearsAgo(11)) }, '#' + hash[1]);
+  await kid.p.waitForSelector('#acct:not([hidden])');
+  assert.equal(await kid.p.innerText('#ago'), 'Join');
+  await kid.p.click('#ago'); await kid.p.waitForTimeout(1200);
+  assert.match(await kid.p.innerText('#toast'), /You and Jay are friends now\./);
+  assert.ok(!fake.calls.some(c => /authorize/.test(c)), fake.calls.join(', '));
+  assert.deepEqual(kid.errors, []); await kid.ctx.close();
+
+  // The inviter's app adds both back by itself: no request to accept
+  await host.p.reload();
+  await host.p.waitForFunction(() => /2 friends joined from your invite\./.test(document.getElementById('toast').textContent), null, { timeout: 4000 });
+  await host.p.waitForTimeout(1000);
+  assert.equal((await fake.pool.query('select count(*)::int as n from public.friend_adds where user_id = $1', [hostId])).rows[0].n, 2, 'added back in the database');
+  await host.p.click('#navMe'); await host.p.waitForTimeout(900);
+  assert.equal(await host.p.$eval('#freqs', e => e.hidden), true, 'nothing left to accept');
+  assert.doesNotMatch(await host.p.innerText('#flist'), /Waiting for them/);
+  assert.deepEqual(host.errors, []); await host.ctx.close();
+});

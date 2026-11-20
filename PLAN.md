@@ -461,6 +461,16 @@ Heaton: swapping invite links both ways didn't work easily. Now one person adds 
 | `friend_requests()` lists people who added your code and you haven't added back (code and time only, last 60 days, at most 20). `set_friends` keeps when each code was first added. Needs setup.sql rerun. | db "friend requests" |
 | Me shows a Friend requests card (Accept with an optional name, or Not now, kept on the phone) and a green dot on the Me button. No notifications. Requests go out once the sender has an account (their first answer), and the toast says so. | e2e-live "friend requests" |
 
+## Invite links that make you friends (2026-11-20)
+
+Heaton: an invite link should go straight to Google sign-in and make you friends, with no request to wait on.
+
+| Change | How it's checked |
+|---|---|
+| Share my invite link carries a one-time invite (`my_invite`, reused for 7 days, works for 14). | e2e-live "invite links" |
+| Opening it: "Jay invited you", month and year if not given, then Continue with Google. Under 13, or with Google off: one Join tap, never Google. Opening the link alone still makes no account. | same |
+| `accept_invite` adds the inviter for the joiner and records the join; `friend_requests` marks it `invited`, and the inviter's app adds them back by itself. Needs setup.sql rerun. | same, and db "friend requests" |
+
 ## Next single step
 
 **A parent sets up sign-in and becomes the moderator.** It takes about 20 minutes on a computer. Posting opens the moment it's done, and nothing changes on the site before that.
@@ -469,7 +479,7 @@ Heaton: swapping invite links both ways didn't work easily. Now one person adds 
    - Open [a new query in Verd's Supabase project](https://supabase.com/dashboard/project/zfphqlavepncdoihiugu/sql/new). It must be empty.
    - Open [setup.sql on GitHub](https://github.com/heatedbandz/Verd/blob/main/setup.sql) and press its copy button (two squares, top right of the file).
    - Paste into the empty query and press **Run**.
-   - It worked if the result says **Verd is set up, with posting (setup.sql of 2026-11-20, with the stronger slur filter, custom answers and friend requests)**. If it says "Success. No rows returned", an older copy ran (for example one still open in the SQL Editor from launch day).
+   - It worked if the result says **Verd is set up, with posting (setup.sql of 2026-11-20, with the stronger slur filter, custom answers, friend requests and invite links)**. If it says "Success. No rows returned", an older copy ran (for example one still open in the SQL Editor from launch day).
 2. **Make a Google sign-in client.** Open the [Google Cloud console](https://console.cloud.google.com/auth/overview), signed in as the parent.
    - Create a project called Verd if asked.
    - **Branding:** app name Verd and a support email.

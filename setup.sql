@@ -182,6 +182,22 @@ create table if not exists public.friend_adds (
 );
 create index if not exists friend_adds_by_code on public.friend_adds (code);
 
+-- Invite links. Whoever opens one and joins becomes the inviter's friend both ways, with nobody asked again:
+-- the link itself is the inviter's yes. A link works for 14 days; the app reuses one for a week.
+create table if not exists public.invites (
+  token      text primary key check (token ~ '^[0-9a-f]{32}$'),
+  user_id    uuid not null references auth.users (id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+create index if not exists invites_by_user on public.invites (user_id, created_at);
+-- Who joined from whose invite, so the inviter's app adds them back by itself.
+create table if not exists public.invite_joins (
+  inviter    uuid not null references auth.users (id) on delete cascade,
+  joiner     uuid not null references auth.users (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (inviter, joiner)
+);
+
 -- Lock every table: RLS on, no policies, no privileges for the browser roles.
 alter table public.app_config    enable row level security;
 alter table public.profiles      enable row level security;
@@ -189,6 +205,9 @@ alter table public.votes         enable row level security;
 alter table public.suggestions   enable row level security;
 alter table public.blocked_terms enable row level security;
 alter table public.friend_adds   enable row level security;
+alter table public.invites       enable row level security;
+alter table public.invite_joins  enable row level security;
+revoke all on public.invites, public.invite_joins from public, anon, authenticated;
 revoke all on public.app_config, public.profiles, public.votes, public.suggestions, public.blocked_terms, public.friend_adds
   from public, anon, authenticated;
 revoke all on sequence public.suggestions_id_seq from public, anon, authenticated;
@@ -465,8 +484,10 @@ end $$;
 -- Friend requests: people who added your code that you haven't added back, newest first (the last 60 days,
 -- at most 20). Only their code comes back, never a name or anything else about them. Accepting is the app
 -- adding their code to your list (set_friends); saying no is kept on the phone.
+-- invited: they joined from your invite link, so the app adds them back without asking.
+drop function if exists public.friend_requests();
 create or replace function public.friend_requests()
-returns table (code text, t bigint)
+returns table (code text, t bigint, invited boolean)
 language plpgsql stable security definer set search_path = public as $$
 declare
   uid  uuid := auth.uid();
@@ -480,13 +501,66 @@ begin
     return;
   end if;
   return query
-    select p.code, verd_private.ms(f.added_at)
+    select p.code, verd_private.ms(f.added_at),
+           exists (select 1 from public.invite_joins j where j.inviter = uid and j.joiner = p.id)
       from public.friend_adds f
       join public.profiles p on p.id = f.user_id
      where f.code = mine and p.id <> uid and f.added_at > now() - interval '60 days'
        and not exists (select 1 from public.friend_adds back where back.user_id = uid and back.code = p.code)
      order by f.added_at desc
      limit 20;
+end $$;
+
+-- Your invite link's token: the one made in the last 7 days, or a new one.
+create or replace function public.my_invite()
+returns text
+language plpgsql volatile security definer set search_path = public as $$
+declare
+  uid uuid := auth.uid();
+  tok text;
+begin
+  if uid is null then
+    raise exception 'sign in first' using errcode = '28000';
+  end if;
+  perform verd_private.ensure_profile(uid);
+  select i.token into tok from public.invites i
+   where i.user_id = uid and i.created_at > now() - interval '7 days' order by i.created_at desc limit 1;
+  if tok is null then
+    delete from public.invites i where i.user_id = uid and i.created_at < now() - interval '14 days';
+    tok := replace(gen_random_uuid()::text, '-', '');
+    insert into public.invites (token, user_id) values (tok, uid);
+  end if;
+  return tok;
+end $$;
+
+-- Join from an invite link: you add the inviter, and the inviter's app adds you back by itself
+-- (friend_requests says invited). Returns the inviter's code, or own: true for your own link.
+create or replace function public.accept_invite(tok text)
+returns jsonb
+language plpgsql volatile security definer set search_path = public as $$
+declare
+  uid     uuid := auth.uid();
+  inviter uuid;
+  theirs  text;
+begin
+  if uid is null then
+    raise exception 'sign in first' using errcode = '28000';
+  end if;
+  select i.user_id into inviter from public.invites i
+   where i.token = lower(coalesce(tok, '')) and i.created_at > now() - interval '14 days';
+  if inviter is null then
+    raise exception 'invite expired' using errcode = '22023';
+  end if;
+  perform verd_private.ensure_profile(uid);
+  theirs := verd_private.ensure_profile(inviter);
+  if inviter = uid then
+    return jsonb_build_object('own', true, 'code', theirs);
+  end if;
+  if (select count(*) from public.friend_adds f where f.user_id = uid) < 50 then
+    insert into public.friend_adds (user_id, code) values (uid, theirs) on conflict do nothing;
+  end if;
+  insert into public.invite_joins (inviter, joiner) values (inviter, uid) on conflict do nothing;
+  return jsonb_build_object('code', theirs);
 end $$;
 
 -- Today's board: countries (no cc), states in a country (no st) or cities in a state,
@@ -1192,6 +1266,8 @@ revoke all on function public.import_votes(jsonb) from public;
 revoke all on function public.friend_match(text[]) from public;
 revoke all on function public.set_friends(text[]) from public;
 revoke all on function public.friend_requests() from public;
+revoke all on function public.my_invite() from public;
+revoke all on function public.accept_invite(text) from public;
 revoke all on function public.get_board(date, smallint, text, text) from public;
 revoke all on function public.suggest_question(text, text[]) from public;
 revoke all on function public.cast_vote(date, smallint, smallint, text, text, text) from anon;
@@ -1200,6 +1276,8 @@ revoke all on function public.import_votes(jsonb) from anon;
 revoke all on function public.friend_match(text[]) from anon;
 revoke all on function public.set_friends(text[]) from anon;
 revoke all on function public.friend_requests() from anon;
+revoke all on function public.my_invite() from anon;
+revoke all on function public.accept_invite(text) from anon;
 revoke all on function public.suggest_question(text, text[]) from anon;
 grant execute on function public.get_results(date, smallint, text, text, text) to anon, authenticated;
 grant execute on function public.get_board(date, smallint, text, text) to anon, authenticated;
@@ -1209,6 +1287,8 @@ grant execute on function public.import_votes(jsonb) to authenticated;
 grant execute on function public.friend_match(text[]) to authenticated;
 grant execute on function public.set_friends(text[]) to authenticated;
 grant execute on function public.friend_requests() to authenticated;
+grant execute on function public.my_invite() to authenticated;
+grant execute on function public.accept_invite(text) to authenticated;
 grant execute on function public.suggest_question(text, text[]) to authenticated;
 
 -- Posting: the feed is open (approved posts only). Everything else needs a session, and each function
@@ -1252,5 +1332,5 @@ end $$;
 -- Tells the API about these functions straight away, then says which version just ran: the SQL Editor shows this
 -- line as the result. "Success. No rows returned" instead means an older copy of this file ran.
 notify pgrst, 'reload schema';
-select 'Verd is set up, with posting (setup.sql of 2026-11-20, with the stronger slur filter, custom answers and friend requests). New posts '
+select 'Verd is set up, with posting (setup.sql of 2026-11-20, with the stronger slur filter, custom answers, friend requests and invite links). New posts '
        || case when verd_private.review_first() then 'wait for review.' else 'go live at once.' end as result;
