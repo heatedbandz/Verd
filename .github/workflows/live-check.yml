@@ -5,19 +5,28 @@ on:
   push:
     paths: [app.js, setup.sql, tests/live-rls.mjs, tests/live-smoke.mjs, tests/serve.mjs, .github/workflows/live-check.yml]
   workflow_dispatch:
+  # Every morning, the app check alone: it catches the database going down or being paused (Supabase pauses
+  # free projects after a week of inactivity) before people notice. It makes no account, so daily runs leave
+  # nothing behind. GitHub emails you when a scheduled run fails. Scheduled runs only happen on main.
+  schedule:
+    - cron: "17 14 * * *"   # 6:17 AM Pacific (7:17 in summer)
 permissions:
   contents: read
 jobs:
   attack:
     name: The public key can't read raw votes
+    if: github.event_name != 'schedule'   # it signs in once per run, so it runs on changes, not every day
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - run: node --version && node tests/live-rls.mjs
   smoke:
     name: The app runs live with no errors
     needs: attack
+    if: ${{ !cancelled() && (needs.attack.result == 'success' || needs.attack.result == 'skipped') }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - working-directory: tests
