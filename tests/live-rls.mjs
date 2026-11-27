@@ -1,6 +1,6 @@
 // Attacks the REAL Supabase project over HTTPS with the public key, like anyone on the internet could.
 // Every check must be denied. It casts no votes, so real results stay clean. It signs in once, as one
-// anonymous user marked verd_check, with no votes and no profile, so a run is easy to tell apart from people.
+// anonymous user marked verd_check, with no votes and an empty profile, so a run is easy to tell apart from people.
 //
 //   node tests/live-rls.mjs        checks the project app.js uses (GitHub runs it after every change)
 //   SUPABASE_URL=https://xxxx.supabase.co SUPABASE_KEY=sb_publishable_... node tests/live-rls.mjs
@@ -46,6 +46,18 @@ for (const [who, token] of user ? [['anon', null], ['signed-in user', user]] : [
   }
   const helper = await fetch(`${url}/rest/v1/rpc/cfg`, { method: 'POST', headers: h(token), body: JSON.stringify({ k: 'min_world' }) });
   check(helper.status >= 400, `${who} cannot call private helpers`, String(helper.status));
+}
+
+// The newest setup.sql ran, not an older copy: friend names (set_my_name) and streak post limits (my_profile's
+// public_wait). my_profile makes the check user an empty profile (a friend code, no votes), the only thing it writes.
+{
+  const names = await fetch(`${url}/rest/v1/rpc/set_my_name`, { method: 'POST', headers: h(), body: JSON.stringify({ n: 'x' }) });
+  check(names.status !== 404, 'setup.sql has friend names (set_my_name exists)', `${names.status} ${(await names.text()).slice(0, 120)}`);
+  if (user) {
+    const r = await fetch(`${url}/rest/v1/rpc/my_profile`, { method: 'POST', headers: h(user), body: '{}' });
+    const text = await r.text();
+    check(r.ok && /"public_wait"/.test(text), 'setup.sql has streak post limits (my_profile gives public_wait)', `${r.status} ${text.slice(0, 160)}`);
+  }
 }
 
 // The vote function is installed, and refuses an answer that doesn't exist before it writes anything.
