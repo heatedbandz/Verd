@@ -51,10 +51,22 @@ const backends = {
     let session = store.get("sb", null), pending = null, flushing = null, stuck = false;
     const subs = new Map();   // dayKey -> { n, place, cbs: Set }
     function keep(s){ session = { at: s.access_token, rt: s.refresh_token, exp: s.expires_at || now() + (s.expires_in || 3600) }; store.set("sb", session); }
+    // Every call to the database gives up after a while, so a slow or sleeping database ends in "Try again"
+    // instead of a wait that never ends. The clock covers reading the answer too. A call that ran out of time
+    // has no status, so it counts as "no signal": a vote stays in the outbox and is sent again later.
+    async function req(url, opts, ms){
+      const c = new AbortController(), t = setTimeout(() => c.abort(), ms);
+      try{
+        const r = await fetch(url, { ...opts, signal: c.signal });
+        const body = await r.json().catch(e => { if (c.signal.aborted) throw e; return null; });
+        return { ok: r.ok, status: r.status, body };
+      } finally { clearTimeout(t); }
+    }
+    const WAIT = 12000, WAIT_BIG = 45000;   // a photo post can be ~600 KB, so it gets longer on a slow connection
     async function auth(path, body){
-      const r = await fetch(base + "/auth/v1/" + path, { method: "POST", headers: { apikey: key, "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      if (!r.ok){ const e = new Error("auth " + r.status); e.status = r.status; throw e; }
-      keep(await r.json());
+      const r = await req(base + "/auth/v1/" + path, { method: "POST", headers: { apikey: key, "Content-Type": "application/json" }, body: JSON.stringify(body) }, WAIT);
+      if (!r.ok || !r.body){ const e = new Error("auth " + r.status); e.status = r.ok ? 0 : r.status; throw e; }
+      keep(r.body);
     }
     async function token(){
       if (session && session.exp - 60 > now()) return session.at;
@@ -70,8 +82,9 @@ const backends = {
     // With no session the key goes only in apikey: a publishable key isn't a token, so it never goes in Authorization.
     async function rpc(name, args, needAuth, retried){
       const t = needAuth || session ? await (pending ||= token().finally(() => { pending = null; })) : null;
-      const r = await fetch(base + "/rest/v1/rpc/" + name, { method: "POST", headers: { apikey: key, ...(t ? { Authorization: "Bearer " + t } : {}), "Content-Type": "application/json" }, body: JSON.stringify(args) });
-      const body = await r.json().catch(() => null);
+      const json = JSON.stringify(args);
+      const r = await req(base + "/rest/v1/rpc/" + name, { method: "POST", headers: { apikey: key, ...(t ? { Authorization: "Bearer " + t } : {}), "Content-Type": "application/json" }, body: json }, json.length > 100000 ? WAIT_BIG : WAIT);
+      const body = r.body;
       if (r.status === 401 && session && !retried){ session = null; store.set("sb", null); return rpc(name, args, needAuth, true); }
       if (!r.ok){ const e = new Error((body && body.message) || "rpc " + r.status); e.status = r.status; throw e; }
       return body;
@@ -134,8 +147,8 @@ const backends = {
         const q = "provider=google&redirect_to=" + encodeURIComponent(location.origin + location.pathname) + "&code_challenge=" + await challenge() + "&code_challenge_method=s256";
         if (!session || fresh){ store.set("signin", "fresh"); location.assign(base + "/auth/v1/authorize?" + q); return "away"; }
         const t = await (pending ||= token().finally(() => { pending = null; }));
-        const r = await fetch(base + "/auth/v1/user/identities/authorize?" + q + "&skip_http_redirect=true", { headers: { apikey: key, Authorization: "Bearer " + t } });
-        const b = await r.json().catch(() => null);
+        const r = await req(base + "/auth/v1/user/identities/authorize?" + q + "&skip_http_redirect=true", { headers: { apikey: key, Authorization: "Bearer " + t } }, WAIT);
+        const b = r.body;
         if (r.ok && b && b.url){ store.set("signin", "link"); location.assign(b.url); return "away"; }
         return b && b.error_code === "manual_linking_disabled" ? "linking off" : "failed";
       }catch{ return "failed"; }
@@ -163,7 +176,7 @@ const backends = {
       return acct;
     }
     async function authSettings(){
-      if (!settings) try{ const r = await fetch(base + "/auth/v1/settings", { headers: { apikey: key } }); settings = r.ok ? await r.json() : {}; }catch{ return {}; }
+      if (!settings) try{ const r = await req(base + "/auth/v1/settings", { headers: { apikey: key } }, WAIT); settings = r.ok && r.body || {}; }catch{ return {}; }
       return settings;
     }
 

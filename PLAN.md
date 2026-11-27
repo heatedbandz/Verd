@@ -541,3 +541,12 @@ To pause posting at any time, run `update public.app_config set value = 1 where 
 To let new posts and comments go live without waiting for review, run `update public.app_config set value = 1 where key = 'auto_approve';`. Use 0 to make them wait again. Only do this if the parent agrees: see **Posts can go live at once**.
 
 To switch on photo posts for friends, run `update public.app_config set value = 1 where key = 'photos';`. Use 0 to stop them and hide every photo post at once. Only do this if the parent agrees: see **Photo posts for friends**.
+
+## Sturdier when the database is slow or down (2026-11-27)
+
+| Change | Why |
+|---|---|
+| Every call to Supabase gives up after 12 seconds (45 for a call carrying photos), counting the time to read the answer. | Before, a database that was slow, overloaded or paused left the reveal on "Counting the votes…" for as long as the browser waited, which can be minutes. Now it ends in the existing "Couldn't load the verdict" state with **Try again**. A vote that runs out of time is treated like no signal: it stays in the outbox and is sent on the next try. |
+| The live check also runs every morning at 6:17 AM Pacific, app check only. | It catches the database going down or being paused (Supabase pauses free projects after a week of inactivity) before people notice. GitHub emails a failed scheduled run. It makes no account, so daily runs leave nothing in **Authentication → Users**. The attack test still runs on every change. |
+
+- **Tests:** a script against a local server that never answers, one that stops mid-answer, one that answers and one that sends an HTML error page: the first two end in about the time allowed with no status, the last two come back as before. `core` 17 of 17 pass. The live check runs on GitHub when this is pushed.
